@@ -8,7 +8,7 @@ const eslintConfig = tseslint.config(
   {
     files: ["src/**/*.{ts,tsx}"],
     rules: {
-      "@typescript-eslint/no-unused-vars": "warn",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },
   },
 );

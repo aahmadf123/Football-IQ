@@ -2,7 +2,11 @@
   "name": "football-iq-workers",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Cloudflare Workers edge API for Football-IQ",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "build": "tsc --noEmit && wrangler deploy --dry-run",
