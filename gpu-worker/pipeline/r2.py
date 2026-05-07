@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import IO
+from typing import Any
 
 import boto3
 import structlog
@@ -22,7 +22,7 @@ R2_SECRET_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
 R2_BUCKET = os.environ.get("R2_BUCKET_NAME", "football-iq")
 
 
-def _s3_client() -> "boto3.client":  # type: ignore[name-defined]
+def _s3_client() -> Any:
     return boto3.client(
         "s3",
         endpoint_url=R2_ENDPOINT,

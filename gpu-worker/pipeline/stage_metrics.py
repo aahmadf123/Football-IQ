@@ -20,8 +20,10 @@ Output: `metrics` rows written to the backend.
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
+import httpx
 import structlog
 
 from pipeline import backend
@@ -148,9 +150,10 @@ def run(
                 "suppression_reason": m.get("suppression_reason"),
                 "job_id": job_id,
             }
-            import os, httpx  # noqa: E401
             api_url = os.environ.get("BACKEND_API_URL", "")
             if api_url:
+                import httpx
+
                 with httpx.Client(base_url=api_url, timeout=15) as c:
                     resp = c.post("/api/v1/metrics", json=payload)
                     resp.raise_for_status()

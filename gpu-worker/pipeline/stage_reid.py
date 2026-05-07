@@ -111,8 +111,11 @@ def _ocr_jersey(frame: Any, bbox: list[float]) -> int | None:
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
 
-    data = pytesseract.image_to_data(thresh, config="--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789",
-                                     output_type=pytesseract.Output.DICT)
+    data = pytesseract.image_to_data(
+        thresh,
+        config="--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789",
+        output_type=pytesseract.Output.DICT,
+    )
     for text, conf in zip(data["text"], data["conf"]):
         text = text.strip()
         if text and re.fullmatch(r"\d{1,2}", text) and int(conf) >= MIN_OCR_CONFIDENCE:

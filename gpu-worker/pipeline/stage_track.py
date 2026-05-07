@@ -125,6 +125,9 @@ def run(
                 if ti not in matched_tracks:
                     track.lost_count += 1
         else:
+            # No detections this frame — all active tracks are unmatched
+            for track in active_tracks:
+                track.lost_count += 1
             for bbox in player_bboxes:
                 active_tracks.append(_Track(bbox, frame_idx))
 

@@ -173,24 +173,22 @@ def _generate_contact_sheet(video_id: str, path: Path, duration: float) -> str:
                 log.warning("thumbnail_generation_failed", video_id=video_id, error=str(exc))
                 return ""
 
-        # Tile into a contact sheet using ffmpeg hstack/vstack montage
+        # Tile into a contact sheet using ffmpeg tile filter
         thumbs = sorted(frames_dir.glob("thumb*.jpg"))
         if not thumbs:
             return ""
 
         sheet_path = Path(tmp_dir) / "contact_sheet.jpg"
-        # Build a tile filter for up to 10 images
+        # Build a tile filter for up to 10 images as a proper list (no shell=True)
         n = len(thumbs)
         cols = min(n, 5)
         rows = (n + cols - 1) // cols
-        inputs = " ".join(f"-i {t}" for t in thumbs)
-        tile_cmd = (
-            f"ffmpeg -y {inputs} "
-            f"-filter_complex tile={cols}x{rows} "
-            f"{sheet_path}"
-        )
+        tile_cmd: list[str] = ["ffmpeg", "-y"]
+        for t in thumbs:
+            tile_cmd += ["-i", str(t)]
+        tile_cmd += ["-filter_complex", f"tile={cols}x{rows}", str(sheet_path)]
         try:
-            subprocess.run(tile_cmd, shell=True, check=True, capture_output=True, timeout=60)
+            subprocess.run(tile_cmd, check=True, capture_output=True, timeout=60)
         except Exception as exc:
             log.warning("contact_sheet_tile_failed", video_id=video_id, error=str(exc))
             # Just upload the first thumbnail instead
