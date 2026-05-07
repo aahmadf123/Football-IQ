@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.database import get_db
 from app.deps import require_admin, require_analyst_or_above
 from app.models import (
@@ -28,8 +27,8 @@ from app.models import (
     TrainingDataset,
     User,
 )
+from app.utils import make_dataset_artifact_uri
 
-settings = get_settings()
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/mlops", tags=["mlops"])
 
@@ -48,6 +47,8 @@ def _normalized_value(value: dict[str, Any]) -> str:
 
 
 class ModelVersionCreate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     model_name: str = Field(min_length=1, max_length=255)
     version: str = Field(min_length=1, max_length=100)
     model_type: str = Field(min_length=1, max_length=100)
@@ -57,6 +58,8 @@ class ModelVersionCreate(BaseModel):
 
 
 class ModelVersionResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     id: uuid.UUID
     model_name: str
     version: str
@@ -83,6 +86,8 @@ class NightlyRunResponse(BaseModel):
 
 
 class ActiveLearningQueueItemResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     id: uuid.UUID
     clip_id: uuid.UUID | None
     label_type: str
@@ -92,6 +97,43 @@ class ActiveLearningQueueItemResponse(BaseModel):
     source_model_version_id: uuid.UUID | None
     status: str
     created_at: str
+
+
+@router.get("/models", response_model=list[ModelVersionResponse])
+async def list_model_versions(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_analyst_or_above)],
+    model_name: str | None = Query(default=None),
+    stage: ModelStage | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ModelVersionResponse]:
+    """List registered model versions, optionally filtered by name or stage."""
+    q = (
+        select(ModelVersion)
+        .order_by(ModelVersion.created_at.desc())
+        .limit(limit)
+    )
+    if model_name is not None:
+        q = q.where(ModelVersion.model_name == model_name)
+    if stage is not None:
+        q = q.where(ModelVersion.promoted_stage == stage)
+    result = await db.execute(q)
+    models = result.scalars().all()
+    return [ModelVersionResponse.model_validate(m, from_attributes=True) for m in models]
+
+
+@router.get("/models/{model_version_id}", response_model=ModelVersionResponse)
+async def get_model_version(
+    model_version_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_analyst_or_above)],
+) -> ModelVersionResponse:
+    """Get a single model version by ID."""
+    result = await db.execute(select(ModelVersion).where(ModelVersion.id == model_version_id))
+    model = result.scalar_one_or_none()
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found")
+    return ModelVersionResponse.model_validate(model, from_attributes=True)
 
 
 @router.post("/models", response_model=ModelVersionResponse, status_code=status.HTTP_201_CREATED)
@@ -280,7 +322,7 @@ async def run_nightly_active_learning(
             source_label_ids=[str(label.id) for label in exported_labels],
             source_correction_ids=[str(c_id) for c_id in exported_correction_ids],
             row_count=len(exported_labels),
-            artifact_uri=f"r2://{settings.r2_bucket_artifacts}/datasets/{model_scope}/{uuid.uuid4()}.jsonl",
+            artifact_uri=make_dataset_artifact_uri(model_scope),
             changelog={"added_correction_ids": added_corrections},
             created_by=current_user.id,
         )

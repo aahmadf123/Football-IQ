@@ -9,14 +9,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_analyst_or_above, require_coach_or_above
 from app.models import Clip, CoachCorrection, CorrectionType, Label, TrainingDataset, User
+from app.utils import make_dataset_artifact_uri
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/corrections", tags=["corrections"])
-settings = get_settings()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -184,7 +183,7 @@ async def export_corrections_as_labels(
             source_label_ids=[str(label.id) for label in labels],
             source_correction_ids=[str(c_id) for c_id in correction_ids],
             row_count=len(labels),
-            artifact_uri=f"r2://{settings.r2_bucket_artifacts}/datasets/{model_scope}/{uuid.uuid4()}.jsonl",
+        artifact_uri=make_dataset_artifact_uri(model_scope),
             changelog={"added_correction_ids": added_corrections},
         )
         db.add(dataset)
