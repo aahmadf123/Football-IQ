@@ -236,7 +236,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "correction_type",
-            sa.Enum(
+            postgresql.ENUM(
                 "clip_boundary",
                 "player_identity",
                 "event_tag",

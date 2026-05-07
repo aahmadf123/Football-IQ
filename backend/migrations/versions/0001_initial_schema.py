@@ -79,7 +79,7 @@ def upgrade() -> None:
         sa.Column("full_name", sa.String(255), nullable=False),
         sa.Column(
             "role",
-            sa.Enum(
+            postgresql.ENUM(
                 "admin",
                 "analyst",
                 "coach",
@@ -144,7 +144,7 @@ def upgrade() -> None:
         sa.Column("metrics", postgresql.JSONB(), nullable=True),
         sa.Column(
             "promoted_stage",
-            sa.Enum(
+            postgresql.ENUM(
                 "experimental",
                 "staging",
                 "production",
@@ -172,7 +172,7 @@ def upgrade() -> None:
         sa.Column("storage_uri", sa.Text(), nullable=False),
         sa.Column(
             "status",
-            sa.Enum(
+            postgresql.ENUM(
                 "uploaded",
                 "processing",
                 "ready",
@@ -271,7 +271,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "job_type",
-            sa.Enum(
+            postgresql.ENUM(
                 "ingest",
                 "segment",
                 "calibrate",
@@ -288,7 +288,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "status",
-            sa.Enum(
+            postgresql.ENUM(
                 "queued",
                 "running",
                 "succeeded",
