@@ -29,6 +29,8 @@ class ClipCreate(BaseModel):
     label_data: dict[str, Any] | None = None
     confidence: float | None = None
     storage_uri: str | None = None
+    boundary_source: str | None = None
+    boundary_confidence: float | None = None
     model_version_id: uuid.UUID | None = None
     calibration_version_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
@@ -41,6 +43,8 @@ class ClipUpdate(BaseModel):
     label_data: dict[str, Any] | None = None
     is_reviewed: bool | None = None
     storage_uri: str | None = None
+    boundary_source: str | None = None
+    boundary_confidence: float | None = None
 
 
 class ClipResponse(BaseModel):
@@ -55,6 +59,8 @@ class ClipResponse(BaseModel):
     is_reviewed: bool
     storage_uri: str | None
     label_data: dict[str, Any] | None
+    boundary_source: str | None
+    boundary_confidence: float | None
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
@@ -72,11 +78,28 @@ class ClipResponse(BaseModel):
             is_reviewed=c.is_reviewed,
             storage_uri=c.storage_uri,
             label_data=c.label_data,
+            boundary_source=c.boundary_source,
+            boundary_confidence=c.boundary_confidence,
             model_version_id=c.model_version_id,
             calibration_version_id=c.calibration_version_id,
             job_id=c.job_id,
             created_at=c.created_at.isoformat(),
         )
+
+
+class MetricCreate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    clip_id: uuid.UUID
+    metric_name: str
+    metric_value: dict[str, Any]
+    unit: str | None = None
+    is_suppressed: bool = False
+    suppression_reason: str | None = None
+    evidence_uri: str | None = None
+    model_version_id: uuid.UUID | None = None
+    calibration_version_id: uuid.UUID | None = None
+    job_id: uuid.UUID | None = None
 
 
 class MetricResponse(BaseModel):
@@ -88,6 +111,7 @@ class MetricResponse(BaseModel):
     unit: str | None
     is_suppressed: bool
     suppression_reason: str | None
+    evidence_uri: str | None
     clip_id: uuid.UUID
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
@@ -103,6 +127,7 @@ class MetricResponse(BaseModel):
             unit=m.unit,
             is_suppressed=m.is_suppressed,
             suppression_reason=m.suppression_reason,
+            evidence_uri=m.evidence_uri,
             clip_id=m.clip_id,
             model_version_id=m.model_version_id,
             calibration_version_id=m.calibration_version_id,
@@ -167,6 +192,8 @@ async def create_clip(
         label_data=body.label_data,
         confidence=body.confidence,
         storage_uri=body.storage_uri,
+        boundary_source=body.boundary_source,
+        boundary_confidence=body.boundary_confidence,
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
         job_id=body.job_id,
@@ -223,6 +250,10 @@ async def update_clip(
             clip.reviewed_by = current_user.id
     if body.storage_uri is not None:
         clip.storage_uri = body.storage_uri
+    if body.boundary_source is not None:
+        clip.boundary_source = body.boundary_source
+    if body.boundary_confidence is not None:
+        clip.boundary_confidence = body.boundary_confidence
 
     await db.flush()
     log.info("clip_updated", clip_id=str(clip_id))
@@ -244,3 +275,42 @@ async def get_clip_metrics(
         select(Metric).where(Metric.clip_id == clip_id).order_by(Metric.metric_name)
     )
     return [MetricResponse.from_orm_metric(m) for m in result.scalars().all()]
+
+
+@router.post(
+    "/api/v1/metrics",
+    response_model=MetricResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_metric(
+    body: MetricCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
+) -> MetricResponse:
+    """Store a computed analytics metric for a clip (written by the GPU worker)."""
+    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
+    if clip_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+
+    metric = Metric(
+        id=uuid.uuid4(),
+        clip_id=body.clip_id,
+        metric_name=body.metric_name,
+        metric_value=body.metric_value,
+        unit=body.unit,
+        is_suppressed=body.is_suppressed,
+        suppression_reason=body.suppression_reason,
+        evidence_uri=body.evidence_uri,
+        model_version_id=body.model_version_id,
+        calibration_version_id=body.calibration_version_id,
+        job_id=body.job_id,
+    )
+    db.add(metric)
+    await db.flush()
+    log.info(
+        "metric_created",
+        metric_id=str(metric.id),
+        clip_id=str(body.clip_id),
+        metric_name=body.metric_name,
+    )
+    return MetricResponse.from_orm_metric(metric)
