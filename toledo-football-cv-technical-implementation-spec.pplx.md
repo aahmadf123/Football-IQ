@@ -183,6 +183,51 @@ Practice video upload
 | Vector search | pgvector first | Avoid adding separate infrastructure until embeddings matter. |
 | Auth | University SSO if available, otherwise role-based app auth | Needed for staff/player/health separation. |
 
+### Hosting and deployment architecture
+
+GitHub is not a hosting option for this platform. Use GitHub only for private source control, issue tracking, code review, and CI/CD. The application needs video storage, databases, queues, long-running workers, model artifacts, private player data, and GPU training jobs, so runtime hosting should be separated from the repository.
+
+The preferred architecture is Cloudflare-centered at the edge with separate backend and GPU compute. Cloudflare Pages can host the frontend dashboard, and Cloudflare Workers can handle full-stack routing, lightweight API logic, signed upload/download URLs, access checks, and job submission ([Cloudflare Pages](https://developers.cloudflare.com/pages/), [Cloudflare Workers full-stack applications](https://developers.cloudflare.com/workers/static-assets/routing/full-stack-application/)). Cloudflare R2 is a strong fit for raw video, clips, overlays, model artifacts, and exports because Cloudflare positions R2 as object storage with zero egress fees ([Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/)). Cloudflare Queues can buffer and batch work between edge requests and backend/GPU workers ([Cloudflare Queues](https://developers.cloudflare.com/queues/)).
+
+Do not run heavy computer vision processing or model training directly on Cloudflare Workers. Workers have execution limits, including 128 MB memory and paid-plan CPU time that can be raised up to 5 minutes per HTTP request, which is not suitable for long-running GPU video inference or training jobs ([Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)). The edge layer should submit jobs, store metadata, and stream results; GPU workers should perform the actual decoding, detection, tracking, pose estimation, training, embedding generation, and overlay rendering.
+
+#### Recommended production split
+
+| Component | Phase 1 recommendation | Phase 2+ recommendation |
+|---|---|---|
+| Source control | Private GitHub repository | Private GitHub repository with branch protection and CI/CD. |
+| Frontend | Cloudflare Pages | Cloudflare Pages. |
+| Edge routing | Cloudflare Workers | Cloudflare Workers with role-based checks and signed URLs. |
+| Object storage | Cloudflare R2 | Cloudflare R2 with lifecycle rules and separated raw/processed/model buckets. |
+| Queue | Cloudflare Queues or Redis queue | Cloudflare Queues for edge dispatch plus Redis/Celery or BullMQ for backend processing. |
+| Backend API | Managed app host such as Fly.io, Render, Railway, Google Cloud Run, AWS ECS, or university VM | Containerized backend with private networking to database and worker services. |
+| Database | Managed Postgres | Managed Postgres with backups, point-in-time recovery, and restricted access. |
+| GPU inference | One local NVIDIA GPU workstation or one cloud GPU instance | Burst GPU workers on RunPod, Modal, Lambda Labs, CoreWeave, or similar GPU provider. |
+| Training | Manual or scheduled batch runs | Versioned training jobs with dataset snapshots and model registry promotion. |
+| Model registry | Internal table plus artifact storage | MLflow or stronger internal registry when model count grows. |
+| Secrets | Cloudflare secrets plus backend secrets manager | Dedicated secrets manager with rotation policy. |
+
+#### Provider decision
+
+Use Cloudflare as the default edge and storage platform unless the university requires another approved cloud. Use a separate GPU provider because GPU platforms such as Modal, RunPod, Lambda Labs, and CoreWeave are designed for AI/ML workloads with GPU access, while Cloudflare should remain the edge, storage, and routing layer ([Modal GPU docs](https://modal.com/docs/guide/gpu), [RunPod Serverless docs](https://docs.runpod.io/serverless/overview), [Lambda Cloud docs](https://docs.lambda.ai/public-cloud/), [CoreWeave docs](https://docs.coreweave.com)).
+
+The recommended Phase 1 deployment is:
+
+```text
+Private GitHub repo
+  -> CI/CD
+  -> Cloudflare Pages frontend
+  -> Cloudflare Workers edge API
+  -> Cloudflare R2 video/artifact storage
+  -> Cloudflare Queue or Redis queue
+  -> Backend API service
+  -> Managed Postgres
+  -> Local or cloud GPU worker
+  -> Model registry and artifacts in R2
+```
+
+This keeps the expensive part, GPU compute, variable and replaceable. It also keeps the user experience fast because the dashboard, signed URLs, and video delivery sit close to users at the edge.
+
 ## Database schema
 
 The schema below is intentionally normalized around clips, jobs, tracks, labels, metrics, corrections, and model versions. The goal is to preserve evidence and model lineage.
