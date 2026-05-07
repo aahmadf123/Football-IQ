@@ -17,6 +17,7 @@ from app.routers.corrections import router as corrections_router
 from app.routers.events import router as events_router
 from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
+from app.routers.mlops import router as mlops_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
 
@@ -62,3 +63,4 @@ app.include_router(tracklets_router)
 app.include_router(corrections_router)
 app.include_router(events_router)
 app.include_router(labels_router)
+app.include_router(mlops_router)
