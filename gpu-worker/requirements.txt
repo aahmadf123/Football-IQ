@@ -1,0 +1,12 @@
+# Pinned to match Dockerfile: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+# torch and torchvision are pre-installed in the base image
+
+ultralytics==8.3.54
+opencv-python-headless==4.10.0.84
+boto3==1.35.76
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.36
+structlog==24.4.0
+pydantic==2.9.2
+pydantic-settings==2.6.1
+httpx==0.27.2

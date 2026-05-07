@@ -1,0 +1,73 @@
+services:
+  # ── Postgres ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: footiq
+      POSTGRES_PASSWORD: footiq_dev
+      POSTGRES_DB: footiq
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U footiq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend ───────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      SECRET_KEY: dev-secret-key-not-for-production
+      DATABASE_URL: postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq
+      DATABASE_SYNC_URL: postgresql://footiq:footiq_dev@db:5432/footiq
+      LOG_LEVEL: DEBUG
+      CORS_ORIGINS: "http://localhost:3000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── Alembic migrations (run once then exit) ───────────────────────────────
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_SYNC_URL: postgresql://footiq:footiq_dev@db:5432/footiq
+      DATABASE_URL: postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq
+      SECRET_KEY: dev-secret-key-not-for-production
+    command: alembic upgrade head
+    profiles:
+      - migrate
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WORKER_URL: http://localhost:8787
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
