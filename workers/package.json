@@ -2,6 +2,7 @@
   "name": "football-iq-workers",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Cloudflare Workers edge API for Football-IQ",
   "scripts": {
     "dev": "wrangler dev",
