@@ -1119,7 +1119,10 @@ export default function Home() {
                         </div>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 700 }}>{frame.yawDegrees > 0 ? "+" : ""}{frame.yawDegrees}°</div>
+                        <div style={{ fontWeight: 700 }}>
+                          {/* Sign convention: positive = right of field axis, negative = left, 0 = straight ahead */}
+                          {frame.yawDegrees > 0 ? "+" : ""}{frame.yawDegrees}°
+                        </div>
                         <span style={badgeStyle("#eaf0f5", toneColor(frame.confidence))}>
                           {(frame.confidence * 100).toFixed(0)}%
                         </span>

@@ -49,8 +49,6 @@ HEAD_ORIENTATION_METRIC_NAMES: frozenset[str] = frozenset(
     }
 )
 
-VALID_REVIEW_ACTIONS: frozenset[str] = frozenset({"approve", "reject", "flag"})
-
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
