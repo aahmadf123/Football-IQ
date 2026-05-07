@@ -3,19 +3,21 @@
 Responsibilities:
   1. Long-poll the video-processing-jobs queue via the Cloudflare Queues HTTP API.
   2. Download the source video from R2.
-  3. Run the requested processing stage (ingest | segment | detect | track …).
+  3. Run the requested processing stage (ingest | segment | calibrate | detect |
+     track | reid | events | labels | metrics | render).
   4. Upload results back to R2 and update the job status in the database.
 
 Environment variables (all required unless noted):
-  CLOUDFLARE_ACCOUNT_ID   — Cloudflare account ID
-  CLOUDFLARE_API_TOKEN    — Cloudflare API token with Queues read permission
+  CLOUDFLARE_ACCOUNT_ID     — Cloudflare account ID
+  CLOUDFLARE_API_TOKEN      — Cloudflare API token with Queues read permission
   CF_QUEUE_VIDEO_PROCESSING — queue name (default: video-processing-jobs)
-  R2_ACCESS_KEY_ID        — R2 S3-compat access key
-  R2_SECRET_ACCESS_KEY    — R2 S3-compat secret key
-  R2_ENDPOINT_URL         — R2 S3-compat endpoint
-  DATABASE_SYNC_URL       — postgres connection string for status updates
-  GPU_WORKER_POLL_INTERVAL — seconds between queue polls (default: 10)
-  BACKEND_API_URL         — backend base URL for job status callbacks
+  R2_ACCESS_KEY_ID          — R2 S3-compat access key
+  R2_SECRET_ACCESS_KEY      — R2 S3-compat secret key
+  R2_ENDPOINT_URL           — R2 S3-compat endpoint
+  R2_BUCKET_NAME            — R2 bucket (default: football-iq)
+  GPU_WORKER_POLL_INTERVAL  — seconds between queue polls (default: 10)
+  BACKEND_API_URL           — backend base URL for job status callbacks
+  MODEL_DETECT_PATH         — path to YOLO weights (default: yolov8n.pt)
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import logging
 import os
 import signal
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -106,73 +109,142 @@ def process_job(job: dict[str, Any]) -> None:
     job_id: str = job.get("jobId", "unknown")
     job_type: str = job.get("jobType", "")
     video_id: str = job.get("videoId", "")
+    clip_id: str = job.get("clipId", "")
     input_uri: str = job.get("inputUri", "")
+    # Artifacts passed in from a preceding stage (e.g. detections for track stage)
+    input_artifacts: dict[str, Any] = job.get("inputArtifacts", {})
 
-    log.info("processing_job", job_id=job_id, job_type=job_type, video_id=video_id)
+    log.info("processing_job", job_id=job_id, job_type=job_type,
+             video_id=video_id, clip_id=clip_id)
 
-    # Update backend: job is now running
     _update_job_status(job_id, "running")
 
     try:
-        if job_type == "ingest":
-            _stage_ingest(video_id, input_uri)
-        elif job_type == "segment":
-            _stage_segment(video_id, input_uri)
-        elif job_type == "detect":
-            _stage_detect(video_id, input_uri)
-        elif job_type == "track":
-            _stage_track(video_id, input_uri)
-        else:
-            log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
-
-        _update_job_status(job_id, "succeeded")
+        artifacts = _dispatch(job_type, video_id, clip_id, input_uri,
+                              input_artifacts, job_id)
+        _update_job_status(job_id, "succeeded", output_artifacts=artifacts)
         log.info("job_succeeded", job_id=job_id)
     except Exception as exc:
         log.error("job_failed", job_id=job_id, error=str(exc))
         _update_job_status(job_id, "failed", error_message=str(exc))
 
 
+def _dispatch(
+    job_type: str,
+    video_id: str,
+    clip_id: str,
+    input_uri: str,
+    input_artifacts: dict[str, Any],
+    job_id: str,
+) -> dict[str, Any]:
+    """Route to the correct pipeline stage module."""
+    from pipeline import (
+        stage_calibrate,
+        stage_detect,
+        stage_events,
+        stage_ingest,
+        stage_labels,
+        stage_metrics,
+        stage_reid,
+        stage_render,
+        stage_segment,
+        stage_track,
+        r2 as r2_mod,
+    )
+
+    if job_type == "ingest":
+        return stage_ingest.run(video_id, input_uri, job_id)
+
+    elif job_type == "segment":
+        return stage_segment.run(video_id, input_uri, job_id)
+
+    elif job_type == "calibrate":
+        return stage_calibrate.run(video_id, input_uri, job_id)
+
+    elif job_type == "detect":
+        # Returns detections dict in output_artifacts
+        return stage_detect.run(video_id, input_uri, job_id)
+
+    elif job_type == "track":
+        detections: dict[str, Any] = input_artifacts.get("detections", {})
+        fps: float = float(input_artifacts.get("fps", 30))
+        return stage_track.run(clip_id, detections, fps, job_id)
+
+    elif job_type == "reid":
+        tracklet_ids: list[str] = input_artifacts.get("tracklet_ids", [])
+        tracklets: list[dict[str, Any]] = input_artifacts.get("tracklets", [])
+        roster: list[dict[str, Any]] = input_artifacts.get("roster", [])
+        video_path = r2_mod.download_to_temp(_uri_to_r2_key(input_uri))
+        try:
+            return stage_reid.run(
+                clip_id, video_path, tracklet_ids, tracklets, roster, BACKEND_API_URL
+            )
+        finally:
+            video_path.unlink(missing_ok=True)
+
+    elif job_type == "events":
+        detections = input_artifacts.get("detections", {})
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_events.run(clip_id, detections, fps, job_id)
+
+    elif job_type == "labels":
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list: list[dict[str, Any]] = input_artifacts.get("events", [])
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_labels.run(clip_id, tracklets, events_list, fps)
+
+    elif job_type == "metrics":
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list = input_artifacts.get("events", [])
+        analytics_safe: bool = bool(input_artifacts.get("analytics_safe", False))
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_metrics.run(clip_id, tracklets, events_list,
+                                 analytics_safe, fps, job_id)
+
+    elif job_type == "render":
+        tracklets = input_artifacts.get("tracklets", [])
+        labels_list: list[dict[str, Any]] = input_artifacts.get("labels", [])
+        metrics_list: list[dict[str, Any]] = input_artifacts.get("metrics", [])
+        analytics_safe = bool(input_artifacts.get("analytics_safe", False))
+        fps = float(input_artifacts.get("fps", 30))
+        video_path = r2_mod.download_to_temp(_uri_to_r2_key(input_uri))
+        try:
+            return stage_render.run(
+                clip_id, video_path, tracklets, labels_list, metrics_list,
+                analytics_safe, fps, BACKEND_API_URL,
+            )
+        finally:
+            video_path.unlink(missing_ok=True)
+
+    else:
+        log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
+        return {}
+
+
+def _uri_to_r2_key(uri: str) -> str:
+    if uri.startswith("r2://"):
+        return "/".join(uri.split("/")[3:])
+    return uri
+
+
 def _update_job_status(
     job_id: str,
     status: str,
     error_message: str | None = None,
+    output_artifacts: dict[str, Any] | None = None,
 ) -> None:
     if not BACKEND_API_URL:
         return
     try:
+        payload: dict[str, Any] = {"status": status}
+        if error_message:
+            payload["error_message"] = error_message
+        if output_artifacts:
+            payload["output_artifacts"] = output_artifacts
         with httpx.Client(base_url=BACKEND_API_URL, timeout=10) as c:
-            payload: dict[str, Any] = {"status": status}
-            if error_message:
-                payload["error_message"] = error_message
             c.patch(f"/api/v1/jobs/{job_id}", json=payload)
     except Exception as exc:
         log.warning("status_update_failed", job_id=job_id, error=str(exc))
-
-
-# ── Processing stages (stubs — replace with real CV pipeline) ─────────────────
-
-def _stage_ingest(video_id: str, input_uri: str) -> None:
-    """Validate video metadata and store probed info."""
-    log.info("stage_ingest", video_id=video_id, input_uri=input_uri)
-    # TODO: probe with FFmpeg, validate codec/resolution/fps, generate thumbnail
-
-
-def _stage_segment(video_id: str, input_uri: str) -> None:
-    """Propose per-play clip boundaries."""
-    log.info("stage_segment", video_id=video_id, input_uri=input_uri)
-    # TODO: heuristic or model-based segmentation, write clips to DB + R2
-
-
-def _stage_detect(video_id: str, input_uri: str) -> None:
-    """Run YOLO player detection on each frame."""
-    log.info("stage_detect", video_id=video_id, input_uri=input_uri)
-    # TODO: load YOLO model, run inference, write bounding boxes
-
-
-def _stage_track(video_id: str, input_uri: str) -> None:
-    """Run ByteTrack / BoT-SORT player tracking."""
-    log.info("stage_track", video_id=video_id, input_uri=input_uri)
-    # TODO: run tracking, write tracklets to DB
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -193,7 +265,8 @@ def main() -> None:
                         ack_message(client, lease_id)
 
             except httpx.HTTPStatusError as exc:
-                log.error("queue_pull_error", status=exc.response.status_code, error=str(exc))
+                log.error("queue_pull_error", status=exc.response.status_code,
+                          error=str(exc))
             except Exception as exc:
                 log.error("worker_loop_error", error=str(exc))
 
@@ -205,3 +278,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

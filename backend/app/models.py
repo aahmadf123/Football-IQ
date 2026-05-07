@@ -204,6 +204,10 @@ class Clip(Base):
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Boundary source/confidence — set by Stage 2 (segmentation)
+    # "model" = auto-proposed, "manual" = coach override
+    boundary_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    boundary_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Version lineage
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("model_versions.id", ondelete="SET NULL"), nullable=True
@@ -342,6 +346,10 @@ class FieldCalibration(Base):
     # 0.0–1.0 confidence from calibration pipeline; metrics are suppressed below threshold
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.7)
+    # True when confidence >= threshold AND no disqualifying reason codes
+    analytics_safe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Calibration failure/warning reason codes (e.g. ["low_contrast", "partial_field"])
+    reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # Key pixel-to-field point pairs used for calibration
     calibration_points: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -536,6 +544,8 @@ class Metric(Base):
     # Suppressed when field calibration confidence is below threshold
     is_suppressed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     suppression_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # URI to the evidence artifact (e.g. annotated frame, track overlay)
+    evidence_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full version lineage for every metric
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
