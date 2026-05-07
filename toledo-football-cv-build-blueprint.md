@@ -147,6 +147,30 @@ Learned play embeddings should power a search box where coaches can select one c
 
 ## Technical architecture
 
+### Hosting recommendation
+
+The recommended hosting model is a hybrid Cloudflare-centered architecture, not GitHub hosting. GitHub should be used for private source control, issue tracking, CI/CD, and code review only. It should not host the application runtime, video archive, databases, model artifacts, training jobs, or player data.
+
+Cloudflare is a strong fit for the edge-facing parts of the system: frontend hosting, access control, routing, CDN, object storage, queues, and lightweight orchestration. Cloudflare Pages is designed for deploying frontend applications to Cloudflare’s global network, while Cloudflare Workers supports full-stack application routing and server-side logic at the edge ([Cloudflare Pages](https://developers.cloudflare.com/pages/), [Cloudflare Workers full-stack applications](https://developers.cloudflare.com/workers/static-assets/routing/full-stack-application/)). Cloudflare Queues can buffer or batch work between Workers and downstream services, which fits video-processing job dispatch and webhook-style workflows ([Cloudflare Queues](https://developers.cloudflare.com/queues/)).
+
+Cloudflare should not be treated as the whole compute platform for model training or heavy video inference. Workers have memory and CPU-time limits, including 128 MB memory and a paid-plan CPU-time limit that can be raised up to 5 minutes per HTTP request, which is not appropriate for long-running GPU training or large-scale video inference ([Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)). The production design should therefore use Cloudflare for edge, storage, and queueing, then dispatch heavy jobs to GPU workers on a local workstation, RunPod, Modal, Lambda Labs, CoreWeave, or similar GPU infrastructure.
+
+Recommended deployment split:
+
+| Component | Recommended host | Reason |
+|---|---|---|
+| Frontend app | Cloudflare Pages | Fast global hosting for the dashboard and review UI. |
+| Edge API/routing | Cloudflare Workers | Auth checks, signed URLs, job submission, lightweight API routing. |
+| Raw video and artifacts | Cloudflare R2 | Low-cost object storage for raw video, clips, overlays, model artifacts, and exports. |
+| Queue | Cloudflare Queues or Redis-backed queue | Buffers processing jobs and prevents uploads from blocking on ML work. |
+| Main backend API | Fly.io, Render, Railway, Google Cloud Run, AWS ECS, or university-hosted VM | Better fit for long-lived API processes, database connections, and internal services. |
+| Database | Managed Postgres such as Neon, Supabase, Railway, AWS RDS, Cloud SQL, or university-hosted Postgres | Relational store for clips, labels, metrics, corrections, profiles, and permissions. |
+| GPU inference | Local GPU workstation first; then RunPod, Modal, Lambda Labs, CoreWeave, or similar | Heavy CV jobs need GPU access and longer runtimes. |
+| Training jobs | Local or cloud GPU batch jobs | Training should be scheduled, monitored, and versioned outside the edge runtime. |
+| Model registry | MLflow or internal registry on backend storage | Tracks model versions, datasets, metrics, and promotion status. |
+
+The best Phase 1 choice is likely Cloudflare Pages + Workers + R2 for the user-facing edge, a managed Postgres database, and one controlled GPU worker for processing. As usage grows, Toledo can add burst GPU providers for busy weeks or same-session processing without changing the core product architecture.
+
 ### Capture layer
 
 Start with stable overhead practice capture. The preferred setup is one high, wide drone or elevated tactical camera that keeps all 22 players and field markings visible. If budget allows, add a second angle only after the single-angle pipeline is reliable. The second angle should solve a specific problem such as jersey number visibility, end-zone line play, or sideline occlusions.
@@ -382,3 +406,4 @@ The current plan is strong technically, but it needs more operational discipline
 6. Freeze MVP scope around the features coaches actually say they would use weekly.
 
 The winning version of this project is not the one with the most impressive model list. The winning version is the one that the coaching staff trusts, corrects, and uses every week because it saves time, reveals tendencies, and improves player development.
+
