@@ -10,6 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.logging import configure_logging
 from app.routers import health
+from app.routers.auth import router as auth_router
+from app.routers.calibrations import router as calibrations_router
+from app.routers.clips import router as clips_router
+from app.routers.corrections import router as corrections_router
+from app.routers.jobs import router as jobs_router
+from app.routers.tracklets import router as tracklets_router
+from app.routers.videos import router as videos_router
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -44,3 +51,10 @@ app.add_middleware(
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
+app.include_router(auth_router)
+app.include_router(videos_router)
+app.include_router(clips_router)
+app.include_router(jobs_router)
+app.include_router(calibrations_router)
+app.include_router(tracklets_router)
+app.include_router(corrections_router)
