@@ -14,6 +14,8 @@ jobs:
     name: Deploy Cloudflare Workers
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: workers
@@ -45,6 +47,8 @@ jobs:
     name: Deploy Frontend (Cloudflare Pages)
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: frontend
@@ -80,6 +84,8 @@ jobs:
     name: Deploy Backend (Fly.io)
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: backend
