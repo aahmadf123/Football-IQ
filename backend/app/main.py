@@ -15,6 +15,7 @@ from app.routers.calibrations import router as calibrations_router
 from app.routers.clips import router as clips_router
 from app.routers.corrections import router as corrections_router
 from app.routers.jobs import router as jobs_router
+from app.routers.metrics import router as metrics_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
 
@@ -58,3 +59,4 @@ app.include_router(jobs_router)
 app.include_router(calibrations_router)
 app.include_router(tracklets_router)
 app.include_router(corrections_router)
+app.include_router(metrics_router)
