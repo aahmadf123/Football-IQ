@@ -242,6 +242,7 @@ def upgrade() -> None:
                 "event_tag",
                 "formation_tag",
                 name="correction_type",
+                create_type=False,
             ),
             nullable=False,
         ),
