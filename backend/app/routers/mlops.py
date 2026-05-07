@@ -335,9 +335,7 @@ async def run_nightly_active_learning(
     for label_type in repeated_label_types:
         ranked = sorted(
             label_buckets[label_type],
-            key=lambda label: _confidence(label.label_value)
-            if _confidence(label.label_value) is not None
-            else 1.0,
+            key=lambda label: _confidence(label.label_value) or 1.0,
         )[:uncertainty_per_label_type]
         for label in ranked:
             confidence = _confidence(label.label_value)
