@@ -183,7 +183,7 @@ async def export_corrections_as_labels(
             source_label_ids=[str(label.id) for label in labels],
             source_correction_ids=[str(c_id) for c_id in correction_ids],
             row_count=len(labels),
-        artifact_uri=make_dataset_artifact_uri(model_scope),
+            artifact_uri=make_dataset_artifact_uri(model_scope),
             changelog={"added_correction_ids": added_corrections},
         )
         db.add(dataset)

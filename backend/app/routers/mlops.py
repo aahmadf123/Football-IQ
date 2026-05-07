@@ -108,11 +108,7 @@ async def list_model_versions(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ModelVersionResponse]:
     """List registered model versions, optionally filtered by name or stage."""
-    q = (
-        select(ModelVersion)
-        .order_by(ModelVersion.created_at.desc())
-        .limit(limit)
-    )
+    q = select(ModelVersion).order_by(ModelVersion.created_at.desc()).limit(limit)
     if model_name is not None:
         q = q.where(ModelVersion.model_name == model_name)
     if stage is not None:
