@@ -538,12 +538,26 @@ class Metric(Base):
     clip_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Optional link to the specific player tracklet this metric belongs to
+    tracklet_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tracklets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     metric_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     metric_value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Suppressed when field calibration confidence is below threshold
     is_suppressed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     suppression_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Head orientation and other experimental metrics: must be reviewed by a position
+    # coach before being surfaced in player-facing views.
+    experimental_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # True only after a position coach explicitly approves this metric for staff views
+    analytics_safe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 0.0–1.0 model confidence for this specific metric value
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     # URI to the evidence artifact (e.g. annotated frame, track overlay)
     evidence_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full version lineage for every metric
@@ -567,6 +581,94 @@ class Metric(Base):
     )
 
     clip: Mapped["Clip"] = relationship("Clip", back_populates="metrics")
+    tracklet: Mapped["Tracklet | None"] = relationship("Tracklet")
+    reviews: Mapped[list["HeadOrientationReview"]] = relationship(
+        "HeadOrientationReview", back_populates="metric"
+    )
+
+
+# ── Head orientation tables ────────────────────────────────────────────────────
+
+
+class PoseKeypoints(Base):
+    """Per-frame pose keypoints extracted from a player tracklet.
+
+    Used to derive head-direction vectors (yaw angle) for QB progression reads,
+    safety eye discipline, CB technique, and LB play-action response analysis.
+    This is head-orientation estimation — not true eye tracking.
+    """
+
+    __tablename__ = "pose_keypoints"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tracklet_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tracklets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    frame_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Full keypoint array: list of {name, x, y, confidence} dicts from RTMPose/ViTPose
+    keypoints: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    # Derived head-direction yaw angle in degrees (0° = facing field direction)
+    head_yaw_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 0.0–1.0 confidence based on keypoint visibility and head occlusion
+    head_orientation_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    tracklet: Mapped["Tracklet"] = relationship("Tracklet")
+
+
+class HeadOrientationReview(Base):
+    """Position-coach review of an experimental head-orientation metric.
+
+    A metric with experimental_flag=True must be approved by the relevant
+    position coach before analytics_safe is set and staff views are unlocked.
+    Player-facing views never show experimental metrics regardless of this status.
+    """
+
+    __tablename__ = "head_orientation_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    metric_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("metrics.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reviewer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # "approve" → sets metric.analytics_safe=True
+    # "reject"  → metric stays suppressed; model team is notified
+    # "flag"    → routed to model review queue
+    review_action: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Position group this review applies to: "QB", "Safety", "CB", "LB"
+    position_group: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    metric: Mapped["Metric"] = relationship("Metric", back_populates="reviews")
+    reviewer: Mapped["User"] = relationship("User", foreign_keys=[reviewer_id])
+
+
+# ── MLOps tables ───────────────────────────────────────────────────────────────
 
 
 class TrainingDataset(Base):

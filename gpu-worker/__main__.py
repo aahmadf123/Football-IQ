@@ -201,6 +201,16 @@ def _dispatch(
         return stage_metrics.run(clip_id, tracklets, events_list,
                                  analytics_safe, fps, job_id)
 
+    elif job_type == "pose":
+        # Head-orientation estimation via RTMPose/ViTPose pose keypoints.
+        # Derives per-frame head-yaw angles for QB progression reads,
+        # LB/Safety play-action response, and CB technique analysis.
+        # All metrics are written with experimental_flag=True and require
+        # position-coach approval before surfacing in any staff view.
+        # TODO: implement when model weights are available in R2.
+        log.info("stage_pose_stub", video_id=video_id, clip_id=clip_id)
+        return {}
+
     elif job_type == "render":
         tracklets = input_artifacts.get("tracklets", [])
         labels_list: list[dict[str, Any]] = input_artifacts.get("labels", [])

@@ -1,6 +1,6 @@
 """Phase 1 MLOps infrastructure: dataset versioning and active learning queue.
 
-Revision ID: 0003
+Revision ID: 0003_mlops
 Revises: 0002
 Create Date: 2026-05-07 00:00:00.000000
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0003"
+revision: str = "0003_mlops"
 down_revision: str | None = "0002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
