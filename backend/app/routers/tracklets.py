@@ -183,3 +183,40 @@ async def create_tracklet(
     )
     tracklet = result.scalar_one()
     return TrackletResponse.from_orm_tracklet(tracklet, include_points=True)
+
+
+class TrackletUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    player_id: uuid.UUID | None = None
+    team_label: str | None = None
+    track_confidence: float | None = None
+
+
+@router.patch("/api/v1/tracklets/{tracklet_id}", response_model=TrackletResponse)
+async def update_tracklet(
+    tracklet_id: uuid.UUID,
+    body: TrackletUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
+) -> TrackletResponse:
+    """Update a tracklet's identity association or team label (Re-ID / coach correction)."""
+    result = await db.execute(
+        select(Tracklet)
+        .options(selectinload(Tracklet.track_points))
+        .where(Tracklet.id == tracklet_id)
+    )
+    tracklet = result.scalar_one_or_none()
+    if tracklet is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
+
+    if body.player_id is not None:
+        tracklet.player_id = body.player_id
+    if body.team_label is not None:
+        tracklet.team_label = body.team_label
+    if body.track_confidence is not None:
+        tracklet.track_confidence = body.track_confidence
+
+    await db.flush()
+    log.info("tracklet_updated", tracklet_id=str(tracklet_id))
+    return TrackletResponse.from_orm_tracklet(tracklet, include_points=True)

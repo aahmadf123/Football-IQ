@@ -2,7 +2,8 @@
 
 Adds:
   - New columns to the metrics table: tracklet_id, experimental_flag,
-    analytics_safe, confidence, evidence_uri.
+    analytics_safe, confidence.
+    (evidence_uri is already added by migration 0003_pipeline_columns.)
   - pose_keypoints table: per-frame RTMPose/ViTPose keypoints with derived
     head yaw angle and orientation confidence.
   - head_orientation_reviews table: position-coach approve/reject/flag
@@ -12,9 +13,9 @@ All head orientation metrics default to experimental_flag=True and
 analytics_safe=False until a position coach explicitly approves them.
 Player-facing views must never surface experimental metrics.
 
-Revision ID: 0003
-Revises: 0002
-Create Date: 2025-01-03 00:00:00.000000
+Revision ID: 0004
+Revises: 0003_merge
+Create Date: 2026-05-07 00:00:00.000000
 """
 
 from collections.abc import Sequence
@@ -23,8 +24,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0003"
-down_revision: str | None = "0002"
+revision: str = "0004"
+down_revision: str | None = "0003_merge"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -63,10 +64,6 @@ def upgrade() -> None:
     op.add_column(
         "metrics",
         sa.Column("confidence", sa.Float(), nullable=True),
-    )
-    op.add_column(
-        "metrics",
-        sa.Column("evidence_uri", sa.Text(), nullable=True),
     )
 
     # ── pose_keypoints ─────────────────────────────────────────────────────
@@ -153,7 +150,6 @@ def downgrade() -> None:
     op.drop_table("pose_keypoints")
 
     op.drop_index("ix_metrics_tracklet_id", table_name="metrics")
-    op.drop_column("metrics", "evidence_uri")
     op.drop_column("metrics", "confidence")
     op.drop_column("metrics", "analytics_safe")
     op.drop_column("metrics", "experimental_flag")

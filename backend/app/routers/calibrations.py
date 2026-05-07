@@ -27,6 +27,8 @@ class CalibrationCreate(BaseModel):
     homography: list[float] | None = None
     confidence: float | None = None
     confidence_threshold: float = 0.7
+    analytics_safe: bool = False
+    reason_codes: list[str] | None = None
     calibration_points: dict[str, Any] | None = None
     model_version_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
@@ -40,26 +42,30 @@ class CalibrationResponse(BaseModel):
     homography: list[float] | None
     confidence: float | None
     confidence_threshold: float
+    # Derived: True when confidence >= threshold AND analytics_safe is True
+    metrics_enabled: bool
+    analytics_safe: bool
+    reason_codes: list[str] | None
     calibration_points: dict[str, Any] | None
     model_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
-    # True when confidence meets or exceeds threshold — metrics are reliable
-    metrics_enabled: bool
     created_at: str
 
     @classmethod
     def from_orm_cal(cls, c: FieldCalibration) -> "CalibrationResponse":
-        metrics_enabled = c.confidence is not None and c.confidence >= c.confidence_threshold
+        meets_threshold = c.confidence is not None and c.confidence >= c.confidence_threshold
         return cls(
             id=c.id,
             video_id=c.video_id,
             homography=c.homography,
             confidence=c.confidence,
             confidence_threshold=c.confidence_threshold,
+            metrics_enabled=meets_threshold and c.analytics_safe,
+            analytics_safe=c.analytics_safe,
+            reason_codes=c.reason_codes,
             calibration_points=c.calibration_points,
             model_version_id=c.model_version_id,
             job_id=c.job_id,
-            metrics_enabled=metrics_enabled,
             created_at=c.created_at.isoformat(),
         )
 
@@ -88,6 +94,8 @@ async def create_calibration(
         homography=body.homography,
         confidence=body.confidence,
         confidence_threshold=body.confidence_threshold,
+        analytics_safe=body.analytics_safe,
+        reason_codes=body.reason_codes,
         calibration_points=body.calibration_points,
         model_version_id=body.model_version_id,
         job_id=body.job_id,

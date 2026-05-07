@@ -1,0 +1,194 @@
+"""Events router — game events detected within clips (Stage 7 output).
+
+Supported event_type values (not enforced by the DB, but documented here):
+    snap, motion_start, motion_end, handoff, mesh_point, throw,
+    catch, target, contact, tackle, end_of_play
+"""
+
+import uuid
+from typing import Annotated, Any
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.deps import get_current_user, require_any_staff, require_coach_or_above
+from app.models import Clip, Event, User
+
+log = structlog.get_logger(__name__)
+router = APIRouter(tags=["events"])
+
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
+
+
+class EventCreate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    clip_id: uuid.UUID
+    event_type: str
+    frame_number: int | None = None
+    timestamp_seconds: float | None = None
+    attributes: dict[str, Any] | None = None
+    model_version_id: uuid.UUID | None = None
+
+
+class EventUpdate(BaseModel):
+    event_type: str | None = None
+    frame_number: int | None = None
+    timestamp_seconds: float | None = None
+    attributes: dict[str, Any] | None = None
+
+
+class EventResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    id: uuid.UUID
+    clip_id: uuid.UUID
+    event_type: str
+    frame_number: int | None
+    timestamp_seconds: float | None
+    attributes: dict[str, Any] | None
+    created_by: uuid.UUID | None
+    model_version_id: uuid.UUID | None
+    created_at: str
+
+    @classmethod
+    def from_orm_event(cls, e: Event) -> "EventResponse":
+        return cls(
+            id=e.id,
+            clip_id=e.clip_id,
+            event_type=e.event_type,
+            frame_number=e.frame_number,
+            timestamp_seconds=e.timestamp_seconds,
+            attributes=e.attributes,
+            created_by=e.created_by,
+            model_version_id=e.model_version_id,
+            created_at=e.created_at.isoformat(),
+        )
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/api/v1/clips/{clip_id}/events", response_model=list[EventResponse])
+async def list_events_for_clip(
+    clip_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(get_current_user)],
+    event_type: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> list[EventResponse]:
+    """List events for a clip ordered by frame number, with optional type filter."""
+    clip_result = await db.execute(select(Clip).where(Clip.id == clip_id))
+    if clip_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+
+    q = (
+        select(Event)
+        .where(Event.clip_id == clip_id)
+        .order_by(Event.frame_number)
+        .limit(limit)
+        .offset(offset)
+    )
+    if event_type is not None:
+        q = q.where(Event.event_type == event_type)
+    result = await db.execute(q)
+    return [EventResponse.from_orm_event(e) for e in result.scalars().all()]
+
+
+@router.post(
+    "/api/v1/events",
+    response_model=EventResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_event(
+    body: EventCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_any_staff)],
+) -> EventResponse:
+    """Record a new game event (model-detected or manually tagged)."""
+    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
+    if clip_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+
+    event = Event(
+        id=uuid.uuid4(),
+        clip_id=body.clip_id,
+        event_type=body.event_type,
+        frame_number=body.frame_number,
+        timestamp_seconds=body.timestamp_seconds,
+        attributes=body.attributes,
+        created_by=current_user.id,
+        model_version_id=body.model_version_id,
+    )
+    db.add(event)
+    await db.flush()
+    log.info(
+        "event_created",
+        event_id=str(event.id),
+        clip_id=str(body.clip_id),
+        event_type=body.event_type,
+    )
+    return EventResponse.from_orm_event(event)
+
+
+@router.get("/api/v1/events/{event_id}", response_model=EventResponse)
+async def get_event(
+    event_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(get_current_user)],
+) -> EventResponse:
+    """Get a single event record."""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    return EventResponse.from_orm_event(event)
+
+
+@router.patch("/api/v1/events/{event_id}", response_model=EventResponse)
+async def update_event(
+    event_id: uuid.UUID,
+    body: EventUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_coach_or_above)],
+) -> EventResponse:
+    """Manually correct a game event (coach/analyst override)."""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    if body.event_type is not None:
+        event.event_type = body.event_type
+    if body.frame_number is not None:
+        event.frame_number = body.frame_number
+    if body.timestamp_seconds is not None:
+        event.timestamp_seconds = body.timestamp_seconds
+    if body.attributes is not None:
+        event.attributes = body.attributes
+
+    await db.flush()
+    log.info("event_updated", event_id=str(event_id))
+    return EventResponse.from_orm_event(event)
+
+
+@router.delete("/api/v1/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(
+    event_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_coach_or_above)],
+) -> None:
+    """Delete a game event (e.g. false positive from model detection)."""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    await db.delete(event)
+    await db.flush()
+    log.info("event_deleted", event_id=str(event_id))
