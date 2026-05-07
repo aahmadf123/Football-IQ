@@ -124,7 +124,7 @@ async def export_corrections_as_labels(
     clip_id: uuid.UUID | None = Query(default=None),
 ) -> ExportResponse:
     """Export un-exported corrections as Label rows for model training."""
-    q = select(CoachCorrection).where(CoachCorrection.exported_as_label == False)  # noqa: E712
+    q = select(CoachCorrection).where(CoachCorrection.exported_as_label.is_(False))
     if clip_id is not None:
         q = q.where(CoachCorrection.clip_id == clip_id)
     result = await db.execute(q)
