@@ -71,7 +71,7 @@ jobs:
           alembic downgrade base
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           files: backend/coverage.xml
           flags: backend
