@@ -1,0 +1,23 @@
+{
+  "name": "football-iq-workers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Workers edge API for Football-IQ",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241205.0",
+    "@typescript-eslint/eslint-plugin": "^8.17.0",
+    "@typescript-eslint/parser": "^8.17.0",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.93.0"
+  }
+}

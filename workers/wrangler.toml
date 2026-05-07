@@ -1,0 +1,43 @@
+name = "football-iq-api-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Bindings ──────────────────────────────────────────────────────────────────
+
+# Cloudflare R2 buckets
+[[r2_buckets]]
+binding = "RAW_VIDEO"
+bucket_name = "raw-video"
+
+[[r2_buckets]]
+binding = "CLIPS"
+bucket_name = "clips"
+
+[[r2_buckets]]
+binding = "OVERLAYS"
+bucket_name = "overlays"
+
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "artifacts"
+
+# Cloudflare Queues
+[[queues.producers]]
+binding = "VIDEO_PROCESSING_QUEUE"
+queue = "video-processing-jobs"
+
+[[queues.producers]]
+binding = "NIGHTLY_TRAINING_QUEUE"
+queue = "nightly-training-exports"
+
+# ── Secrets (set via `wrangler secret put <NAME>`) ────────────────────────────
+# JWT_SECRET
+# DATABASE_URL
+# BACKEND_API_URL
+
+# ── Routes ───────────────────────────────────────────────────────────────────
+[env.production]
+routes = [
+  { pattern = "api-worker.football-iq.workers.dev/*", zone_name = "football-iq.workers.dev" }
+]

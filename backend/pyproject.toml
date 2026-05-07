@@ -1,0 +1,25 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "ANN"]
+ignore = [
+    "S101",    # use of assert (ok in tests)
+    "B008",    # FastAPI Depends() in default args is the framework pattern
+    "ANN401",  # pydantic validator info is inherently dynamic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "ANN"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
