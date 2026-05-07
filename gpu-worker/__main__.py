@@ -122,6 +122,8 @@ def process_job(job: dict[str, Any]) -> None:
             _stage_detect(video_id, input_uri)
         elif job_type == "track":
             _stage_track(video_id, input_uri)
+        elif job_type == "pose":
+            _stage_pose(video_id, input_uri)
         else:
             log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
 
@@ -173,6 +175,35 @@ def _stage_track(video_id: str, input_uri: str) -> None:
     """Run ByteTrack / BoT-SORT player tracking."""
     log.info("stage_track", video_id=video_id, input_uri=input_uri)
     # TODO: run tracking, write tracklets to DB
+
+
+def _stage_pose(video_id: str, input_uri: str) -> None:
+    """Run RTMPose / ViTPose to extract per-frame keypoints and derive head-orientation.
+
+    Head-orientation estimation pipeline (Phase 1):
+      1. Load tracklets for each clip associated with this video.
+      2. For each tracklet and frame, run RTMPose-m / ViTPose-b on the player crop.
+      3. Extract nose, left-ear, right-ear, left-eye, right-eye keypoints.
+      4. Compute head-direction yaw angle (degrees) relative to the field direction
+         vector from the field-calibration homography.
+      5. Write PoseKeypoints rows to the database (keypoints JSON + head_yaw_degrees
+         + head_orientation_confidence).
+      6. Aggregate per-clip metrics and POST to /api/v1/metrics:
+           - headdirectionyaw      : per-frame yaw timeseries
+           - headturnlatency       : seconds from mesh-point to correct read (LB / Safety)
+           - progressionreadorder  : ordered receiver list before release (QB)
+           - staredownflag         : bool — no head movement snap→throw (QB)
+           - playactionresponse    : bool/latency after play fake (LB / Safety)
+      7. All metrics written with experimental_flag=True and analytics_safe=False.
+         A position coach must call POST /api/v1/metrics/{id}/reviews to approve.
+
+    NOTE: This is HEAD-ORIENTATION ESTIMATION, not true eye tracking.
+    Confidence is derived from keypoint visibility scores and head-occlusion
+    heuristics.  Metrics are suppressed in player-facing views until approved.
+
+    TODO: implement when RTMPose / ViTPose model weights are available in R2.
+    """
+    log.info("stage_pose", video_id=video_id, input_uri=input_uri)
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────

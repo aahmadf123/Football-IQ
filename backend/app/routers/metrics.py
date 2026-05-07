@@ -170,9 +170,7 @@ async def create_metric(
     if body.tracklet_id is not None:
         t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
         if t_result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
     # Head-orientation metrics are always experimental until coach-approved
     is_head_orientation = body.metric_name in HEAD_ORIENTATION_METRIC_NAMES
@@ -263,7 +261,11 @@ async def get_metric(
     return MetricResponse.from_orm_metric(metric)
 
 
-@router.post("/{metric_id}/reviews", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{metric_id}/reviews",
+    response_model=ReviewResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def review_metric(
     metric_id: uuid.UUID,
     body: ReviewCreate,

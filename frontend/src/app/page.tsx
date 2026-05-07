@@ -4,6 +4,102 @@ import { useMemo, useState } from "react";
 
 type SessionStatus = "Processing" | "Failed" | "QA Flag" | "Ready";
 type QueuePriority = "Review now" | "Needs analyst" | "Monitor";
+type ReviewAction = "approve" | "reject" | "flag";
+
+// ── Head-orientation sample data ──────────────────────────────────────────────
+
+// QB progression-read frames: yaw angle per dropback phase
+const qbProgressionData = [
+  {
+    phase: "Pre-snap",
+    targetDescription: "Cover shell — safety alignment",
+    yawDegrees: 12,
+    confidence: 0.88,
+    clip: "Clip 144",
+  },
+  {
+    phase: "1st read window",
+    targetDescription: "Primary receiver (Z)",
+    yawDegrees: -34,
+    confidence: 0.82,
+    clip: "Clip 144",
+  },
+  {
+    phase: "2nd read window",
+    targetDescription: "Check-down (RB)",
+    yawDegrees: 21,
+    confidence: 0.79,
+    clip: "Clip 144",
+  },
+  {
+    phase: "Release",
+    targetDescription: "Check-down (RB) — stare-down detected",
+    yawDegrees: 19,
+    confidence: 0.76,
+    clip: "Clip 144",
+  },
+];
+
+// LB / Safety play-action response metrics
+const playActionData = [
+  {
+    position: "MLB #45 Carter",
+    latencySeconds: 0.41,
+    firstStepCorrect: false,
+    note: "Triggered on fake — stepped toward LOS",
+    confidence: 0.84,
+    clip: "Clip 088",
+  },
+  {
+    position: "FS #21 Norris",
+    latencySeconds: 0.28,
+    firstStepCorrect: false,
+    note: "Vacated deep coverage before establishing pass depth",
+    confidence: 0.77,
+    clip: "Clip 088",
+  },
+  {
+    position: "WLB #52 Wade",
+    latencySeconds: 0.56,
+    firstStepCorrect: true,
+    note: "Correct depth-hold before committing",
+    confidence: 0.91,
+    clip: "Clip 203",
+  },
+];
+
+// CB technique samples
+const cbTechniqueData = [
+  {
+    player: "CB #3 Hill",
+    coverage: "Man",
+    headTracking: "Receiver",
+    correct: true,
+    note: "Eyes on receiver — correct man technique",
+    confidence: 0.86,
+    clip: "Clip 144",
+  },
+  {
+    player: "CB #24 Ellis",
+    coverage: "Zone",
+    headTracking: "Single receiver",
+    correct: false,
+    note: "Locked on #1, missed route distribution",
+    confidence: 0.81,
+    clip: "Clip 167",
+  },
+  {
+    player: "CB #3 Hill",
+    coverage: "Zone",
+    headTracking: "QB + routes",
+    correct: true,
+    note: "Scanning QB and route distribution — correct zone keys",
+    confidence: 0.89,
+    clip: "Clip 203",
+  },
+];
+
+// ── Static data ───────────────────────────────────────────────────────────────
 
 const practiceInbox = [
   {
@@ -357,6 +453,10 @@ export default function Home() {
   const [clipStart, setClipStart] = useState(8);
   const [clipEnd, setClipEnd] = useState(18);
   const [selectedPlayer, setSelectedPlayer] = useState(rosterAssignments[0].suggested);
+  const [showHeadOrientationOverlay, setShowHeadOrientationOverlay] = useState(false);
+  const [headOrientationReview, setHeadOrientationReview] = useState<ReviewAction | null>(null);
+
+  const isPlayerRole = role === "player";
 
   const visiblePermissions = useMemo(
     () =>
@@ -434,6 +534,11 @@ export default function Home() {
             <a href="#labeling-queue" style={styles.navLink}>
               Labeling Queue
             </a>
+            {!isPlayerRole && (
+              <a href="#head-orientation" style={{ ...styles.navLink, background: "#6b21a8" }}>
+                Head Orientation ⚗
+              </a>
+            )}
           </div>
 
           <div style={styles.chipRow}>
@@ -569,7 +674,48 @@ export default function Home() {
                   <span style={badgeStyle("rgba(255,255,255,0.18)", "#ffffff")}>Field grid</span>
                   <span style={badgeStyle("rgba(255,255,255,0.18)", "#ffffff")}>Player tracks</span>
                   <span style={badgeStyle("rgba(255,255,255,0.18)", "#ffffff")}>Labels + metrics</span>
+                  {!isPlayerRole && (
+                    <button
+                      type="button"
+                      onClick={() => setShowHeadOrientationOverlay((v) => !v)}
+                      style={{
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "6px 10px",
+                        background: showHeadOrientationOverlay
+                          ? "rgba(167,139,250,0.8)"
+                          : "rgba(255,255,255,0.18)",
+                        color: "#ffffff",
+                        fontSize: "0.85rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {showHeadOrientationOverlay ? "▶ Head direction ON" : "Head direction OFF"}
+                    </button>
+                  )}
                 </div>
+
+                {/* Head-direction arrow overlay (staff only, experimental) */}
+                {showHeadOrientationOverlay && !isPlayerRole && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      left: "30%",
+                      transform: `translate(-50%, -50%) rotate(${qbProgressionData[1].yawDegrees}deg)`,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <svg width="48" height="48" viewBox="0 0 48 48">
+                      <line
+                        x1="24" y1="40" x2="24" y2="8"
+                        stroke="#a78bfa" strokeWidth="3" strokeLinecap="round"
+                      />
+                      <polygon points="24,4 18,14 30,14" fill="#a78bfa" />
+                    </svg>
+                  </div>
+                )}
 
                 <div>
                   <div style={{ fontSize: "1.15rem", fontWeight: 700 }}>Clip 144 — 3rd & 6</div>
@@ -697,6 +843,39 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+
+              {/* Head-orientation metrics in clip review — staff only, never shown to players */}
+              {!isPlayerRole && (
+                <div style={{ ...styles.card, border: "1px solid #c4b5fd" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <strong>Head orientation (QB) — Clip 144</strong>
+                    <span style={badgeStyle("#f3e8ff", "#6b21a8")}>⚗ Experimental</span>
+                  </div>
+                  <p style={{ margin: 0, color: "#546273", fontSize: "0.9rem" }}>
+                    Head-orientation estimation from pose keypoints.
+                    Not true eye tracking. Requires position-coach approval before use.
+                  </p>
+                  {qbProgressionData.map((frame) => (
+                    <div key={frame.phase} style={styles.metricCard}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{frame.phase}</div>
+                          <div style={{ color: "#546273" }}>{frame.targetDescription}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontWeight: 700 }}>{frame.yawDegrees}°</div>
+                          <span style={badgeStyle("#eaf0f5", toneColor(frame.confidence))}>
+                            {(frame.confidence * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <p style={{ margin: 0, color: "#6b21a8", fontSize: "0.85rem", fontWeight: 600 }}>
+                    ⚠ Stare-down detected at release — no head movement snap→throw
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -835,6 +1014,217 @@ export default function Home() {
             surface in one tap, keeping the validation workflow within two clicks.
           </p>
         </section>
+
+        {/* ── Head Orientation & Gaze Estimation (staff only) ─────────────── */}
+        {!isPlayerRole && (
+          <section id="head-orientation" style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <h2 style={{ margin: 0 }}>5. Head Orientation &amp; Gaze Estimation</h2>
+                  <span style={badgeStyle("#f3e8ff", "#6b21a8")}>⚗ Experimental</span>
+                </div>
+                <p style={{ margin: "6px 0 0", color: "#546273", maxWidth: "800px" }}>
+                  Head-direction vectors derived from pose keypoints (RTMPose / ViTPose).
+                  <strong> This is head-orientation estimation — not true eye tracking.</strong>{" "}
+                  All metrics require position-coach approval before use. Confidence
+                  warnings are always visible. No data is shown in player-facing views.
+                </p>
+              </div>
+              <span style={badgeStyle("#fef3c7", "#92400e")}>
+                Pending coach approval
+              </span>
+            </div>
+
+            {/* Position-coach review workflow */}
+            <div style={styles.card}>
+              <strong>Position-coach review — approve before staff use</strong>
+              <p style={{ margin: 0, color: "#546273", fontSize: "0.9rem" }}>
+                The relevant position coach (QB coach or DC) must review and approve
+                head-orientation metrics for their group before they appear in any
+                staff-facing view. Rejected or flagged metrics are routed to the model
+                team and remain hidden.
+              </p>
+              <div style={styles.buttonRow}>
+                {(["approve", "reject", "flag"] as ReviewAction[]).map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    onClick={() => setHeadOrientationReview(action)}
+                    style={
+                      headOrientationReview === action
+                        ? {
+                            ...styles.button,
+                            background:
+                              action === "approve"
+                                ? "#166534"
+                                : action === "reject"
+                                  ? "#b42318"
+                                  : "#92400e",
+                          }
+                        : styles.secondaryButton
+                    }
+                  >
+                    {action === "approve" ? "✓ Approve" : action === "reject" ? "✗ Reject" : "⚑ Flag for model review"}
+                  </button>
+                ))}
+              </div>
+              {headOrientationReview && (
+                <div
+                  style={{
+                    padding: "12px",
+                    borderRadius: "10px",
+                    background:
+                      headOrientationReview === "approve"
+                        ? "#d9fbe8"
+                        : headOrientationReview === "reject"
+                          ? "#fee2e2"
+                          : "#fef3c7",
+                    color:
+                      headOrientationReview === "approve"
+                        ? "#166534"
+                        : headOrientationReview === "reject"
+                          ? "#b42318"
+                          : "#92400e",
+                    fontWeight: 700,
+                  }}
+                >
+                  {headOrientationReview === "approve" &&
+                    "Approved — metrics will be visible to staff in this position group."}
+                  {headOrientationReview === "reject" &&
+                    "Rejected — metrics remain hidden. Model team notified."}
+                  {headOrientationReview === "flag" &&
+                    "Flagged — routed to model review queue. Metrics remain hidden."}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.grid}>
+              {/* QB Progression Reads */}
+              <div style={styles.card}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong>QB — Progression reads (Clip 144)</strong>
+                  <span style={badgeStyle("#f3e8ff", "#6b21a8")}>⚗</span>
+                </div>
+                <p style={{ margin: 0, color: "#546273", fontSize: "0.9rem" }}>
+                  Head-direction yaw at each dropback phase. Stare-down detected.
+                </p>
+                {qbProgressionData.map((frame) => (
+                  <div key={frame.phase} style={styles.metricCard}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{frame.phase}</div>
+                        <div style={{ color: "#546273", fontSize: "0.9rem" }}>
+                          {frame.targetDescription}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700 }}>{frame.yawDegrees > 0 ? "+" : ""}{frame.yawDegrees}°</div>
+                        <span style={badgeStyle("#eaf0f5", toneColor(frame.confidence))}>
+                          {(frame.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                    <a href="#clip-review" style={{ color: "#0d4b82", fontWeight: 700, fontSize: "0.9rem" }}>
+                      Open {frame.clip}
+                    </a>
+                  </div>
+                ))}
+                <p style={{ margin: 0, color: "#b42318", fontWeight: 600, fontSize: "0.9rem" }}>
+                  ⚠ Stare-down detected: no head movement snap→throw. Check primary read fixation.
+                </p>
+              </div>
+
+              {/* LB / Safety Play-Action Response */}
+              <div style={styles.card}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong>LB / Safety — Play-action response</strong>
+                  <span style={badgeStyle("#f3e8ff", "#6b21a8")}>⚗</span>
+                </div>
+                <p style={{ margin: 0, color: "#546273", fontSize: "0.9rem" }}>
+                  Head-turn latency after play fake. Time from mesh point to correct
+                  run/pass read.
+                </p>
+                {playActionData.map((item) => (
+                  <div key={item.position} style={styles.metricCard}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{item.position}</div>
+                        <div style={{ color: "#546273", fontSize: "0.9rem" }}>{item.note}</div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700 }}>{item.latencySeconds.toFixed(2)}s</div>
+                        <span
+                          style={badgeStyle(
+                            item.firstStepCorrect ? "#d9fbe8" : "#fee2e2",
+                            item.firstStepCorrect ? "#166534" : "#b42318",
+                          )}
+                        >
+                          {item.firstStepCorrect ? "Correct" : "Wrong step"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={badgeStyle("#eaf0f5", toneColor(item.confidence))}>
+                        Conf {(item.confidence * 100).toFixed(0)}%
+                      </span>
+                      <a href="#clip-review" style={{ color: "#0d4b82", fontWeight: 700, fontSize: "0.9rem" }}>
+                        Open {item.clip}
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* CB Technique */}
+              <div style={styles.card}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong>CB — Technique by coverage</strong>
+                  <span style={badgeStyle("#f3e8ff", "#6b21a8")}>⚗</span>
+                </div>
+                <p style={{ margin: 0, color: "#546273", fontSize: "0.9rem" }}>
+                  Head tracking receiver vs. QB by coverage type. Zone: should scan QB
+                  + routes. Man: should track receiver.
+                </p>
+                {cbTechniqueData.map((item, idx) => (
+                  <div key={idx} style={styles.metricCard}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>
+                          {item.player} — {item.coverage}
+                        </div>
+                        <div style={{ color: "#546273", fontSize: "0.9rem" }}>{item.note}</div>
+                      </div>
+                      <span
+                        style={badgeStyle(
+                          item.correct ? "#d9fbe8" : "#fee2e2",
+                          item.correct ? "#166534" : "#b42318",
+                        )}
+                      >
+                        {item.correct ? "✓ Correct" : "✗ Incorrect"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={badgeStyle("#eaf0f5", toneColor(item.confidence))}>
+                        Conf {(item.confidence * 100).toFixed(0)}%
+                      </span>
+                      <a href="#clip-review" style={{ color: "#0d4b82", fontWeight: 700, fontSize: "0.9rem" }}>
+                        Open {item.clip}
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <p style={styles.footerNote}>
+              Head-orientation estimation uses nose, ear, and eye keypoints from RTMPose /
+              ViTPose. Confidence is derived from keypoint visibility and head-occlusion
+              heuristics. Metrics with confidence below 0.70 are suppressed.
+              All head-orientation data is hidden from player-facing views.
+            </p>
+          </section>
+        )}
       </div>
     </main>
   );
