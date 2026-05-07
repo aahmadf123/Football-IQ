@@ -9,12 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_analyst_or_above, require_coach_or_above
-from app.models import Clip, CoachCorrection, CorrectionType, Label, User
+from app.models import Clip, CoachCorrection, CorrectionType, Label, TrainingDataset, User
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/corrections", tags=["corrections"])
+settings = get_settings()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -26,6 +28,7 @@ class CorrectionCreate(BaseModel):
     original_value: dict[str, Any] | None = None
     corrected_value: dict[str, Any]
     notes: str | None = None
+    training_eligible: bool = True
 
 
 class CorrectionResponse(BaseModel):
@@ -36,6 +39,7 @@ class CorrectionResponse(BaseModel):
     corrected_value: dict[str, Any]
     corrected_by: uuid.UUID
     notes: str | None
+    training_eligible: bool
     exported_as_label: bool
     created_at: str
 
@@ -49,6 +53,7 @@ class CorrectionResponse(BaseModel):
             corrected_value=c.corrected_value,
             corrected_by=c.corrected_by,
             notes=c.notes,
+            training_eligible=c.training_eligible,
             exported_as_label=c.exported_as_label,
             created_at=c.created_at.isoformat(),
         )
@@ -57,6 +62,7 @@ class CorrectionResponse(BaseModel):
 class ExportResponse(BaseModel):
     exported_count: int
     label_ids: list[uuid.UUID]
+    training_dataset_id: uuid.UUID | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -81,6 +87,7 @@ async def create_correction(
         corrected_value=body.corrected_value,
         corrected_by=current_user.id,
         notes=body.notes,
+        training_eligible=body.training_eligible,
     )
     db.add(correction)
     await db.flush()
@@ -122,16 +129,23 @@ async def export_corrections_as_labels(
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
     clip_id: uuid.UUID | None = Query(default=None),
+    model_scope: str = Query(default="general"),
 ) -> ExportResponse:
     """Export un-exported corrections as Label rows for model training."""
-    q = select(CoachCorrection).where(CoachCorrection.exported_as_label.is_(False))
+    q = select(CoachCorrection).where(
+        CoachCorrection.exported_as_label.is_(False),
+        CoachCorrection.training_eligible.is_(True),
+    )
     if clip_id is not None:
         q = q.where(CoachCorrection.clip_id == clip_id)
     result = await db.execute(q)
     corrections = result.scalars().all()
 
-    label_ids: list[uuid.UUID] = []
+    labels: list[Label] = []
+    correction_ids: list[uuid.UUID] = []
     for correction in corrections:
+        clip_result = await db.execute(select(Clip).where(Clip.id == correction.clip_id))
+        clip = clip_result.scalar_one_or_none()
         label = Label(
             id=uuid.uuid4(),
             clip_id=correction.clip_id,
@@ -139,11 +153,54 @@ async def export_corrections_as_labels(
             label_value=correction.corrected_value,
             annotated_by=correction.corrected_by,
             source="human",
+            model_version_id=clip.model_version_id if clip is not None else None,
         )
         db.add(label)
         correction.exported_as_label = True
-        label_ids.append(label.id)
+        labels.append(label)
+        correction_ids.append(correction.id)
+
+    training_dataset_id: uuid.UUID | None = None
+    if labels:
+        previous_result = await db.execute(
+            select(TrainingDataset)
+            .where(TrainingDataset.model_scope == model_scope)
+            .order_by(TrainingDataset.snapshot_date.desc())
+            .limit(1)
+        )
+        previous = previous_result.scalar_one_or_none()
+        previous_corrections = (
+            {uuid.UUID(c) for c in previous.source_correction_ids}
+            if previous is not None
+            else set()
+        )
+        added_corrections = [
+            str(c_id) for c_id in correction_ids if c_id not in previous_corrections
+        ]
+
+        dataset = TrainingDataset(
+            id=uuid.uuid4(),
+            model_scope=model_scope,
+            source_label_ids=[str(label.id) for label in labels],
+            source_correction_ids=[str(c_id) for c_id in correction_ids],
+            row_count=len(labels),
+            artifact_uri=f"r2://{settings.r2_bucket_artifacts}/datasets/{model_scope}/{uuid.uuid4()}.jsonl",
+            changelog={"added_correction_ids": added_corrections},
+        )
+        db.add(dataset)
+        await db.flush()
+        training_dataset_id = dataset.id
+
+        for exported_label in labels:
+            exported_label.training_dataset_id = training_dataset_id
+            exported_label.dataset_version = str(training_dataset_id)
 
     await db.flush()
-    log.info("corrections_exported", count=len(label_ids))
-    return ExportResponse(exported_count=len(label_ids), label_ids=label_ids)
+    log.info(
+        "corrections_exported", count=len(labels), training_dataset_id=str(training_dataset_id)
+    )
+    return ExportResponse(
+        exported_count=len(labels),
+        label_ids=[label.id for label in labels],
+        training_dataset_id=training_dataset_id,
+    )

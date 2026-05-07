@@ -15,6 +15,8 @@ Tables:
     labels             — ground-truth labels for model training
     coach_corrections  — human overrides of model outputs
     metrics            — computed analytics metrics linked to clips
+    training_datasets  — versioned snapshots exported for model training
+    active_learning_queue — prioritized samples for human relabeling
 """
 
 import enum
@@ -90,6 +92,19 @@ class CorrectionType(str, enum.Enum):
     player_identity = "player_identity"
     event_tag = "event_tag"
     formation_tag = "formation_tag"
+
+
+class ActiveLearningReason(str, enum.Enum):
+    low_confidence = "low_confidence"
+    uncertainty_sampling = "uncertainty_sampling"
+    regression = "regression"
+    hard_negative = "hard_negative"
+
+
+class ActiveLearningStatus(str, enum.Enum):
+    queued = "queued"
+    in_review = "in_review"
+    resolved = "resolved"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -264,6 +279,11 @@ class ProcessingJob(Base):
         ForeignKey("model_versions.id", ondelete="SET NULL"),
         nullable=True,
     )
+    training_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("training_datasets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -285,7 +305,11 @@ class ModelVersion(Base):
     version: Mapped[str] = mapped_column(String(100), nullable=False)
     model_type: Mapped[str] = mapped_column(String(100), nullable=False)
     artifact_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
-    training_dataset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    training_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("training_datasets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     promoted_stage: Mapped[ModelStage] = mapped_column(
         Enum(ModelStage, name="model_stage"),
@@ -449,6 +473,16 @@ class Label(Base):
     # Source: "model" (auto-label) or "human" (coach/analyst correction)
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="human")
     dataset_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    training_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("training_datasets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -476,6 +510,7 @@ class CoachCorrection(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    training_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Whether this correction has been exported as a training label
     exported_as_label: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -522,3 +557,63 @@ class Metric(Base):
     )
 
     clip: Mapped["Clip"] = relationship("Clip", back_populates="metrics")
+
+
+class TrainingDataset(Base):
+    """Versioned snapshot of labels exported for a specific model scope."""
+
+    __tablename__ = "training_datasets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    snapshot_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    model_scope: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    source_label_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    source_correction_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    artifact_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    changelog: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ActiveLearningQueueItem(Base):
+    """Queue entry for low-confidence, regressed, or hard-negative samples."""
+
+    __tablename__ = "active_learning_queue"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    label_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    queue_reason: Mapped[ActiveLearningReason] = mapped_column(
+        Enum(ActiveLearningReason, name="active_learning_reason"),
+        nullable=False,
+    )
+    priority_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    model_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    correction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("coach_corrections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[ActiveLearningStatus] = mapped_column(
+        Enum(ActiveLearningStatus, name="active_learning_status"),
+        nullable=False,
+        default=ActiveLearningStatus.queued,
+    )
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
