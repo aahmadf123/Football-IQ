@@ -1,0 +1,430 @@
+"""Stage — Offensive Line Performance Metrics (Phase 2).
+
+Computes OL-specific analytics from tracking data:
+  - Gap width measurement at mesh point (running-lane yards)
+  - Double-team identification + release timing to second level
+  - Stunt / twist recognition on defensive front
+  - Block shed timing
+  - Backside pursuit cutoff detection
+  - Pass-set depth against speed rushers
+
+Heuristic approach:
+  1. Identify OL tracklets (5 interior players near LOS at snap).
+  2. Identify DL tracklets (defenders within 2 yards of LOS at snap).
+  3. Measure gap widths between adjacent OL at key moments (snap, mesh point).
+  4. Detect double-teams by finding two OL engaging one DL.
+  5. Track DL movement patterns post-snap for stunt/twist detection.
+  6. Compute pass-set depth (OL backward movement from snap to throw).
+
+Output: metrics written to the backend via the metrics API.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import structlog
+
+from pipeline import backend
+
+log = structlog.get_logger(__name__)
+
+OL_LOS_RANGE_YD = 2.0
+DL_LOS_RANGE_YD = 3.0
+DOUBLE_TEAM_PROXIMITY_YD = 2.5
+STUNT_LATERAL_THRESHOLD_YD = 3.0
+
+
+def run(
+    clip_id: str,
+    tracklets: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    analytics_safe: bool,
+    fps: float,
+    job_id: str,
+) -> dict[str, Any]:
+    """Compute OL performance metrics and write to backend."""
+    log.info("stage_oline_start", clip_id=clip_id)
+
+    snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
+    snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
+
+    throw_event = next((e for e in events if e.get("event_type") == "throw"), None)
+    throw_frame = throw_event.get("frame_number") if throw_event else None
+
+    mesh_event = next(
+        (e for e in events if e.get("event_type") in ("handoff", "mesh_point")),
+        None,
+    )
+    mesh_frame = mesh_event.get("frame_number") if mesh_event else None
+
+    los_x = _estimate_los(tracklets, snap_frame)
+
+    ol_tracklets = _identify_ol(tracklets, snap_frame, los_x)
+    dl_tracklets = _identify_dl(tracklets, snap_frame, los_x)
+
+    suppressed = not analytics_safe
+    reason = "calibration_not_safe" if suppressed else None
+
+    metrics: list[dict[str, Any]] = []
+
+    # ── Gap widths ────────────────────────────────────────────────────────
+    target_frame = mesh_frame if mesh_frame else snap_frame + int(fps * 0.5)
+    gap_widths = _compute_gap_widths(ol_tracklets, target_frame)
+    for i, width in enumerate(gap_widths):
+        metrics.append({
+            "metric_name": "gap_width",
+            "metric_value": {
+                "gap_index": i,
+                "width_yards": round(width, 2),
+                "at_frame": target_frame,
+                "confidence": 0.55,
+            },
+            "unit": "yd",
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
+        })
+
+    # ── Double-team detection ─────────────────────────────────────────────
+    double_teams = _detect_double_teams(ol_tracklets, dl_tracklets, snap_frame, fps)
+    for dt in double_teams:
+        metrics.append({
+            "metric_name": "double_team",
+            "metric_value": dt,
+            "unit": "frames",
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
+        })
+
+    # ── Stunt / twist recognition ─────────────────────────────────────────
+    stunts = _detect_stunts(dl_tracklets, snap_frame, fps)
+    for stunt in stunts:
+        metrics.append({
+            "metric_name": "stunt_twist",
+            "metric_value": stunt,
+            "unit": "yd",
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
+        })
+
+    # ── Block shed timing ─────────────────────────────────────────────────
+    shed_times = _compute_block_shed_timing(ol_tracklets, dl_tracklets, snap_frame, fps)
+    for shed in shed_times:
+        metrics.append({
+            "metric_name": "block_shed_time",
+            "metric_value": shed,
+            "unit": "s",
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
+        })
+
+    # ── Pass-set depth ────────────────────────────────────────────────────
+    if throw_frame is not None:
+        pass_set_depths = _compute_pass_set_depth(ol_tracklets, snap_frame, throw_frame)
+        for psd in pass_set_depths:
+            metrics.append({
+                "metric_name": "pass_set_depth",
+                "metric_value": psd,
+                "unit": "yd",
+                "is_suppressed": suppressed,
+                "suppression_reason": reason,
+            })
+
+    # ── Backside pursuit cutoff ───────────────────────────────────────────
+    pursuit_results = _detect_pursuit_cutoff(
+        tracklets, snap_frame, los_x, fps,
+    )
+    for pr in pursuit_results:
+        metrics.append({
+            "metric_name": "pursuit_cutoff",
+            "metric_value": pr,
+            "unit": "yd",
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
+        })
+
+    # Write metrics
+    metric_ids: list[str] = []
+    for m in metrics:
+        try:
+            resp = backend.create_metric(
+                clip_id=clip_id,
+                metric_name=m["metric_name"],
+                metric_value=m["metric_value"],
+                unit=m.get("unit"),
+                is_suppressed=m.get("is_suppressed", False),
+                suppression_reason=m.get("suppression_reason"),
+                job_id=job_id,
+            )
+            metric_ids.append(resp["id"])
+        except Exception as exc:
+            log.warning("oline_metric_write_failed", name=m["metric_name"], error=str(exc))
+
+    log.info("stage_oline_done", clip_id=clip_id, metric_count=len(metric_ids))
+    return {"metric_count": len(metric_ids), "metric_ids": metric_ids}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _estimate_los(tracklets: list[dict[str, Any]], snap_frame: int) -> float:
+    xs: list[float] = []
+    for t in tracklets:
+        for pt in t.get("track_points", []):
+            if pt.get("frame_number") == snap_frame:
+                fx = pt.get("field_x")
+                if fx is not None:
+                    xs.append(float(fx))
+                break
+    if not xs:
+        return 50.0
+    xs.sort()
+    return xs[len(xs) // 2]
+
+
+def _position_at_frame(
+    tracklet: dict[str, Any], frame: int
+) -> tuple[float, float] | None:
+    for pt in tracklet.get("track_points", []):
+        if pt.get("frame_number") == frame:
+            fx = pt.get("field_x")
+            fy = pt.get("field_y")
+            if fx is not None and fy is not None:
+                return (float(fx), float(fy))
+    return None
+
+
+def _identify_ol(
+    tracklets: list[dict[str, Any]], snap_frame: int, los_x: float
+) -> list[dict[str, Any]]:
+    """Identify OL as the 5 players closest to LOS on the offensive side."""
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for t in tracklets:
+        pos = _position_at_frame(t, snap_frame)
+        if pos is None:
+            continue
+        # OL should be within a few yards of LOS on the offensive side
+        depth = los_x - pos[0]
+        if -OL_LOS_RANGE_YD <= depth <= OL_LOS_RANGE_YD and abs(pos[1]) < 10.0:
+            candidates.append((abs(pos[1]), t))
+    candidates.sort(key=lambda c: c[0])
+    return [c[1] for c in candidates[:5]]
+
+
+def _identify_dl(
+    tracklets: list[dict[str, Any]], snap_frame: int, los_x: float
+) -> list[dict[str, Any]]:
+    """Identify DL as defenders within DL_LOS_RANGE_YD of LOS."""
+    result: list[dict[str, Any]] = []
+    for t in tracklets:
+        pos = _position_at_frame(t, snap_frame)
+        if pos is None:
+            continue
+        depth = pos[0] - los_x
+        if 0 <= depth <= DL_LOS_RANGE_YD and abs(pos[1]) < 12.0:
+            result.append(t)
+    return result
+
+
+def _compute_gap_widths(
+    ol_tracklets: list[dict[str, Any]], frame: int
+) -> list[float]:
+    """Compute lateral gap widths between adjacent OL at the given frame."""
+    positions: list[tuple[float, float]] = []
+    for t in ol_tracklets:
+        pos = _position_at_frame(t, frame)
+        if pos is not None:
+            positions.append(pos)
+    if len(positions) < 2:
+        return []
+    positions.sort(key=lambda p: p[1])
+    return [
+        math.sqrt((positions[i + 1][0] - positions[i][0]) ** 2
+                   + (positions[i + 1][1] - positions[i][1]) ** 2)
+        for i in range(len(positions) - 1)
+    ]
+
+
+def _detect_double_teams(
+    ol_tracklets: list[dict[str, Any]],
+    dl_tracklets: list[dict[str, Any]],
+    snap_frame: int,
+    fps: float,
+) -> list[dict[str, Any]]:
+    """Detect when two OL are blocking one DL within proximity threshold."""
+    results: list[dict[str, Any]] = []
+    check_frame = snap_frame + int(fps * 0.3)
+    for dl in dl_tracklets:
+        dl_pos = _position_at_frame(dl, check_frame)
+        if dl_pos is None:
+            continue
+        engaged_ol: list[str] = []
+        for ol in ol_tracklets:
+            ol_pos = _position_at_frame(ol, check_frame)
+            if ol_pos is None:
+                continue
+            dist = math.sqrt((ol_pos[0] - dl_pos[0]) ** 2 + (ol_pos[1] - dl_pos[1]) ** 2)
+            if dist < DOUBLE_TEAM_PROXIMITY_YD:
+                engaged_ol.append(ol.get("id", "unknown"))
+        if len(engaged_ol) >= 2:
+            # Estimate release timing: find when one OL moves away
+            release_frame = _find_release_frame(
+                ol_tracklets, dl, snap_frame, check_frame + int(fps * 2), fps
+            )
+            results.append({
+                "dl_track_id": dl.get("id", "unknown"),
+                "ol_track_ids": engaged_ol,
+                "detected_at_frame": check_frame,
+                "release_frame": release_frame,
+                "confidence": 0.55,
+            })
+    return results
+
+
+def _find_release_frame(
+    ol_tracklets: list[dict[str, Any]],
+    dl_tracklet: dict[str, Any],
+    start_frame: int,
+    end_frame: int,
+    fps: float,
+) -> int | None:
+    """Find the frame where one OL releases from a double-team."""
+    for frame in range(start_frame, end_frame, max(1, int(fps * 0.1))):
+        dl_pos = _position_at_frame(dl_tracklet, frame)
+        if dl_pos is None:
+            continue
+        close_count = 0
+        for ol in ol_tracklets:
+            ol_pos = _position_at_frame(ol, frame)
+            if ol_pos is None:
+                continue
+            dist = math.sqrt((ol_pos[0] - dl_pos[0]) ** 2 + (ol_pos[1] - dl_pos[1]) ** 2)
+            if dist < DOUBLE_TEAM_PROXIMITY_YD:
+                close_count += 1
+        if close_count <= 1:
+            return frame
+    return None
+
+
+def _detect_stunts(
+    dl_tracklets: list[dict[str, Any]],
+    snap_frame: int,
+    fps: float,
+) -> list[dict[str, Any]]:
+    """Detect DL stunts/twists by tracking lateral movement post-snap."""
+    results: list[dict[str, Any]] = []
+    window = int(fps * 1.0)
+    for dl in dl_tracklets:
+        snap_pos = _position_at_frame(dl, snap_frame)
+        post_pos = _position_at_frame(dl, snap_frame + window)
+        if snap_pos is None or post_pos is None:
+            continue
+        lateral_move = abs(post_pos[1] - snap_pos[1])
+        if lateral_move > STUNT_LATERAL_THRESHOLD_YD:
+            results.append({
+                "track_id": dl.get("id", "unknown"),
+                "lateral_displacement_yards": round(lateral_move, 2),
+                "direction": "left" if post_pos[1] < snap_pos[1] else "right",
+                "confidence": 0.5,
+            })
+    return results
+
+
+def _compute_block_shed_timing(
+    ol_tracklets: list[dict[str, Any]],
+    dl_tracklets: list[dict[str, Any]],
+    snap_frame: int,
+    fps: float,
+) -> list[dict[str, Any]]:
+    """Estimate block shed: when a DL separates from the nearest OL."""
+    results: list[dict[str, Any]] = []
+    max_frames = int(fps * 4.0)
+    for dl in dl_tracklets:
+        engagement_start: int | None = None
+        shed_frame: int | None = None
+        for frame_offset in range(0, max_frames, max(1, int(fps * 0.1))):
+            frame = snap_frame + frame_offset
+            dl_pos = _position_at_frame(dl, frame)
+            if dl_pos is None:
+                continue
+            min_dist = float("inf")
+            for ol in ol_tracklets:
+                ol_pos = _position_at_frame(ol, frame)
+                if ol_pos is None:
+                    continue
+                d = math.sqrt((ol_pos[0] - dl_pos[0]) ** 2 + (ol_pos[1] - dl_pos[1]) ** 2)
+                min_dist = min(min_dist, d)
+            if min_dist < DOUBLE_TEAM_PROXIMITY_YD:
+                if engagement_start is None:
+                    engagement_start = frame
+            elif engagement_start is not None:
+                shed_frame = frame
+                break
+        if engagement_start is not None and shed_frame is not None:
+            shed_time = (shed_frame - engagement_start) / max(fps, 1)
+            results.append({
+                "track_id": dl.get("id", "unknown"),
+                "shed_time_seconds": round(shed_time, 2),
+                "engagement_start_frame": engagement_start,
+                "shed_frame": shed_frame,
+                "confidence": 0.5,
+            })
+    return results
+
+
+def _compute_pass_set_depth(
+    ol_tracklets: list[dict[str, Any]],
+    snap_frame: int,
+    throw_frame: int,
+) -> list[dict[str, Any]]:
+    """Measure OL backward depth from snap to throw (pass protection set)."""
+    results: list[dict[str, Any]] = []
+    for ol in ol_tracklets:
+        snap_pos = _position_at_frame(ol, snap_frame)
+        throw_pos = _position_at_frame(ol, throw_frame)
+        if snap_pos is None or throw_pos is None:
+            continue
+        depth = abs(throw_pos[0] - snap_pos[0])
+        if depth > 0.5:
+            results.append({
+                "track_id": ol.get("id", "unknown"),
+                "depth_yards": round(depth, 2),
+                "confidence": 0.55,
+            })
+    return results
+
+
+def _detect_pursuit_cutoff(
+    tracklets: list[dict[str, Any]],
+    snap_frame: int,
+    los_x: float,
+    fps: float,
+) -> list[dict[str, Any]]:
+    """Detect backside defenders pursuing ball carrier through cutoff angles."""
+    results: list[dict[str, Any]] = []
+    window = int(fps * 2.0)
+    for t in tracklets:
+        snap_pos = _position_at_frame(t, snap_frame)
+        if snap_pos is None:
+            continue
+        # Only look at defenders (ahead of LOS at snap)
+        if snap_pos[0] - los_x < 1.0:
+            continue
+        late_pos = _position_at_frame(t, snap_frame + window)
+        if late_pos is None:
+            continue
+        # Pursuit = moving significantly forward (toward offense) and laterally
+        forward = snap_pos[0] - late_pos[0]
+        lateral = abs(late_pos[1] - snap_pos[1])
+        if forward > 3.0 and lateral > 3.0:
+            results.append({
+                "track_id": t.get("id", "unknown"),
+                "forward_yards": round(forward, 2),
+                "lateral_yards": round(lateral, 2),
+                "pursuit_angle_degrees": round(
+                    math.degrees(math.atan2(lateral, forward)), 1
+                ),
+                "confidence": 0.5,
+            })
+    return results

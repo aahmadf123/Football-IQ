@@ -13,12 +13,16 @@ from app.routers import health
 from app.routers.auth import router as auth_router
 from app.routers.calibrations import router as calibrations_router
 from app.routers.clips import router as clips_router
+from app.routers.correction_analytics import (
+    router as correction_analytics_router,
+)
 from app.routers.corrections import router as corrections_router
 from app.routers.events import router as events_router
 from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
+from app.routers.self_scout import router as self_scout_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
 
@@ -66,3 +70,5 @@ app.include_router(events_router)
 app.include_router(labels_router)
 app.include_router(metrics_router)
 app.include_router(mlops_router)
+app.include_router(self_scout_router)
+app.include_router(correction_analytics_router)

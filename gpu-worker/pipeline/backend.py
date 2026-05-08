@@ -223,3 +223,65 @@ def create_label(
         resp = c.post("/api/v1/labels", json=payload)
         resp.raise_for_status()
         return dict(resp.json())
+
+
+# ── Metrics (Phase 2) ────────────────────────────────────────────────────────
+
+
+def create_metric(
+    clip_id: str,
+    metric_name: str,
+    metric_value: dict[str, Any],
+    *,
+    unit: str | None = None,
+    is_suppressed: bool = False,
+    suppression_reason: str | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """POST /api/v1/metrics and return the created metric dict."""
+    payload: dict[str, Any] = {
+        "clip_id": clip_id,
+        "metric_name": metric_name,
+        "metric_value": metric_value,
+    }
+    if unit is not None:
+        payload["unit"] = unit
+    if is_suppressed:
+        payload["is_suppressed"] = is_suppressed
+    if suppression_reason is not None:
+        payload["suppression_reason"] = suppression_reason
+    if job_id is not None:
+        payload["job_id"] = job_id
+    with _client() as c:
+        resp = c.post("/api/v1/metrics", json=payload)
+        resp.raise_for_status()
+        return dict(resp.json())
+
+
+# ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
+
+
+def fetch_clips_with_labels(
+    video_id: str | None = None,
+    limit: int = 500,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Fetch clips and their labels for self-scout analysis."""
+    params: dict[str, Any] = {"limit": limit}
+    if video_id:
+        params["video_id"] = video_id
+    with _client() as c:
+        clips_resp = c.get("/api/v1/clips", params=params)
+        clips_resp.raise_for_status()
+        clips: list[dict[str, Any]] = clips_resp.json()
+
+        labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+        for clip in clips:
+            clip_id = clip.get("id", "")
+            try:
+                labels_resp = c.get("/api/v1/labels", params={"clip_id": clip_id})
+                labels_resp.raise_for_status()
+                labels_by_clip[clip_id] = labels_resp.json()
+            except Exception:
+                labels_by_clip[clip_id] = []
+
+    return clips, labels_by_clip
