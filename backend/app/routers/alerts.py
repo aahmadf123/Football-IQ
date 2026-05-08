@@ -127,6 +127,8 @@ async def create_alert(
         period_name=body.period_name,
         session_id=body.session_id,
         job_id=body.job_id,
+        is_acknowledged=False,
+        created_at=datetime.now(UTC),
     )
     db.add(alert)
     await db.flush()
