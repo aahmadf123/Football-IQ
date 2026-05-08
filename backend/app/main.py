@@ -22,6 +22,10 @@ from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
+from app.routers.alerts import router as alerts_router
+from app.routers.alerts_sse import router as alerts_sse_router
+from app.routers.correction_sync import router as correction_sync_router
+from app.routers.inbox_integration import router as inbox_router
 from app.routers.pose import router as pose_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.tracklets import router as tracklets_router
@@ -73,4 +77,8 @@ app.include_router(metrics_router)
 app.include_router(mlops_router)
 app.include_router(self_scout_router)
 app.include_router(correction_analytics_router)
+app.include_router(alerts_router)
+app.include_router(alerts_sse_router)
+app.include_router(inbox_router)
+app.include_router(correction_sync_router)
 app.include_router(pose_router)
