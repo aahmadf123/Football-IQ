@@ -36,6 +36,7 @@ from pipeline.pose_estimator import (
 )
 from pipeline.video_ingest import MockVideoSource
 from pipeline.stage_pose import (
+    _compute_biomechanical_drift,
     _compute_block_shed_timing,
     _compute_pad_level,
     _compute_pass_set_weight_distribution,
@@ -609,3 +610,132 @@ def test_run_no_frames_no_tracklets_returns_zeros() -> None:
             model_path=None,
         )
     assert result == {"keypoint_count": 0, "metric_count": 0, "metric_ids": []}
+
+
+# ── StubPoseEstimator defensive-copy regression ───────────────────────────────
+
+
+def test_stub_estimator_caller_mutation_does_not_corrupt_cache() -> None:
+    """StubPoseEstimator must return per-call dict copies — mutating an
+    earlier return value must not affect later calls.
+
+    Regression test for Devin Review flag pose_estimator.py:220-221.
+    """
+    est = StubPoseEstimator(seed=42)
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    first = est.estimate(frame)
+    # Mutate a single keypoint dict in the caller's view
+    first[0]["x"] = -999.0
+    first[0]["confidence"] = 0.0
+
+    second = est.estimate(frame)
+    assert second[0]["x"] != pytest.approx(-999.0)
+    assert second[0]["confidence"] != pytest.approx(0.0)
+
+
+# ── Biomechanical drift tracklet-scoping regression ───────────────────────────
+
+
+def _drift_kp_at_angle(deg_from_vertical: float) -> list[dict[str, Any]]:
+    """Build a 17-keypoint frame with shoulders/hips set so the torso vector
+    makes ``deg_from_vertical`` degrees with vertical (in image space).
+    """
+    rad = math.radians(deg_from_vertical)
+    hip_y = 600.0
+    shoulder_y = 200.0
+    dy = hip_y - shoulder_y
+    # In image space y grows downward; vector from hip up to shoulder.
+    dx = dy * math.tan(rad)
+    cx = 640.0
+    out = [
+        {"name": name, "x": cx, "y": (hip_y + shoulder_y) / 2.0, "confidence": 0.95}
+        for name in COCO_KEYPOINT_NAMES
+    ]
+    by_name = {k["name"]: i for i, k in enumerate(out)}
+    out[by_name["left_hip"]] = {
+        "name": "left_hip", "x": cx - 30.0, "y": hip_y, "confidence": 0.95,
+    }
+    out[by_name["right_hip"]] = {
+        "name": "right_hip", "x": cx + 30.0, "y": hip_y, "confidence": 0.95,
+    }
+    out[by_name["left_shoulder"]] = {
+        "name": "left_shoulder",
+        "x": cx + dx - 50.0,
+        "y": shoulder_y,
+        "confidence": 0.95,
+    }
+    out[by_name["right_shoulder"]] = {
+        "name": "right_shoulder",
+        "x": cx + dx + 50.0,
+        "y": shoulder_y,
+        "confidence": 0.95,
+    }
+    return out
+
+
+def test_drift_returns_none_without_tracklets() -> None:
+    """Empty tracklets list must short-circuit even when frame_keypoints is
+    non-empty.  Regression test for Devin Review flag stage_pose.py:1068-1071.
+    """
+    fk = {fn: _drift_kp_at_angle(5.0) for fn in range(0, 30, 3)}
+    assert _compute_biomechanical_drift([], fk) is None
+
+
+def test_drift_returns_none_when_no_frame_in_tracklet_range() -> None:
+    """If every supplied tracklet covers a window with no frames in
+    ``frame_keypoints``, drift must return ``None`` rather than computing
+    over the unrestricted clip.
+    """
+    fk = {fn: _drift_kp_at_angle(5.0) for fn in range(0, 30, 3)}
+    far_tracklets = [
+        {"id": "t1", "start_frame": 1000, "end_frame": 2000},
+        {"id": "t2", "start_frame": 3000, "end_frame": 4000},
+    ]
+    assert _compute_biomechanical_drift(far_tracklets, fk) is None
+
+
+def test_drift_only_uses_frames_inside_tracklet_ranges() -> None:
+    """Frames outside the supplied tracklets' ranges must NOT influence the
+    drift signal.  We seed a small 'good' window inside the tracklets'
+    range and a much larger 'declining' window outside — if the function
+    correctly filters by tracklet range, the result is ``None`` (n < 6 or
+    early == late ≈ 0); the buggy version would have aggregated the noisy
+    out-of-range frames and reported a trend.
+    """
+    fk: dict[int, list[dict[str, Any]]] = {}
+    # In-range: 6 frames at 5° (small angle, stable)
+    for fn in range(0, 18, 3):
+        fk[fn] = _drift_kp_at_angle(5.0)
+    # Out-of-range: 30 frames sweeping from 0° to 60° — would be picked up
+    # by the buggy clip-wide variant and falsely classified as "declining".
+    for i, fn in enumerate(range(100, 200, 3)):
+        fk[fn] = _drift_kp_at_angle(2.0 * i)
+
+    tracklets = [
+        {"id": "t1", "start_frame": 0, "end_frame": 17},
+        {"id": "t2", "start_frame": 0, "end_frame": 17},
+    ]
+    result = _compute_biomechanical_drift(tracklets, fk)
+    # Either None (if the in-range slice is too short / too quiet to register)
+    # or "stable" — must NOT be "declining" (which the buggy variant produced).
+    if result is not None:
+        assert result["metric_value"]["consistency_trend"] == "stable"
+
+
+def test_drift_scoped_within_tracklets_detects_declining_trend() -> None:
+    """When a clear declining trend exists inside the tracklets' frame
+    ranges, the function should detect it.
+    """
+    fk: dict[int, list[dict[str, Any]]] = {}
+    # 9 frames inside the tracklet range, sweeping 0° → ~24° (clearly declining)
+    for i, fn in enumerate(range(0, 27, 3)):
+        fk[fn] = _drift_kp_at_angle(3.0 * i)
+
+    tracklets = [
+        {"id": "t1", "start_frame": 0, "end_frame": 26},
+        {"id": "t2", "start_frame": 0, "end_frame": 26},
+    ]
+    result = _compute_biomechanical_drift(tracklets, fk)
+    assert result is not None
+    assert result["metric_name"] == "pose_biomechanical_drift"
+    assert result["metric_value"]["consistency_trend"] == "declining"

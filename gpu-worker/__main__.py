@@ -244,6 +244,18 @@ def _dispatch(
         analytics_safe = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
 
+        # ``open_video`` silently falls back to ``MockVideoSource`` when the
+        # URI is empty.  That is desirable in unit tests, but in a deployed
+        # worker an empty ``input_uri`` for a pose job almost certainly means
+        # the dispatcher dropped the artifact — log loudly so we don't silently
+        # produce metrics from synthetic frames.
+        if not input_uri:
+            log.warning(
+                "stage_pose_input_uri_missing_using_mock_source",
+                job_id=job_id,
+                clip_id=clip_id,
+            )
+
         with video_ingest.open_video(input_uri or None, fps_fallback=fps) as source:
             return stage_pose.run(
                 clip_id,

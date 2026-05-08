@@ -1075,13 +1075,32 @@ def _compute_biomechanical_drift(
 ) -> dict[str, Any] | None:
     """Detect biomechanical drift across OL tracklets in a clip.
 
-    Compares mean torso angles in the first-third vs last-third of the clip.
+    Compares mean torso angles in the first-third vs last-third of the
+    on-screen window for the supplied tracklets.  ``frame_keypoints`` is the
+    clip-wide per-frame keypoints map; we restrict the analysis to frames
+    that fall inside at least one of ``tracklets``' ``[start_frame,
+    end_frame]`` ranges so frames where no relevant player is on screen do
+    not dilute the drift signal.
+
     Declining = later reps have higher torso angles (fatigue / sloppy technique).
     """
     if not frame_keypoints:
         return None
 
-    frames = sorted(frame_keypoints.keys())
+    # Build the union of frame ranges covered by the supplied tracklets and
+    # only consider frames inside at least one range.  Tracklets without a
+    # well-formed ``[start_frame, end_frame]`` are dropped.
+    ranges = [
+        (int(t.get("start_frame", 0)), int(t.get("end_frame", 0)))
+        for t in tracklets
+    ]
+    ranges = [(s, e) for s, e in ranges if e >= s]
+    if not ranges:
+        return None
+
+    frames = sorted(
+        fn for fn in frame_keypoints if any(s <= fn <= e for s, e in ranges)
+    )
     n = len(frames)
     if n < 6:
         return None

@@ -218,7 +218,10 @@ class StubPoseEstimator(PoseEstimatorBase):
         ]
 
     def estimate(self, frame: np.ndarray) -> list[dict[str, Any]]:
-        return list(self._keypoints)
+        # Per-call dict copies: callers that mutate keypoint dicts (e.g. to
+        # adjust confidences in tests, or to attach derived fields downstream)
+        # must not be able to corrupt the cached skeleton on this estimator.
+        return [dict(k) for k in self._keypoints]
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

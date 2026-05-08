@@ -276,17 +276,20 @@ async def list_pose_keypoints(
 ) -> list[PoseKeypointsResponse]:
     """List raw pose keypoints, optionally filtered by tracklet.
 
-    Never available to player-role users.
+    Player- and viewer-role users are blocked: raw keypoints are an internal
+    coaching artifact and must never be surfaced in player- or fan-facing
+    views, regardless of any per-metric ``analytics_safe`` flag.
     """
-    if current_user.role == UserRole.player:
+    if current_user.role in (UserRole.player, UserRole.viewer):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Pose keypoints are not available in player-facing views",
         )
 
-    q = select(PoseKeypoints).order_by(PoseKeypoints.created_at.desc()).limit(limit).offset(offset)
+    q = select(PoseKeypoints)
     if tracklet_id is not None:
         q = q.where(PoseKeypoints.tracklet_id == tracklet_id)
+    q = q.order_by(PoseKeypoints.created_at.desc()).limit(limit).offset(offset)
 
     result = await db.execute(q)
     return [PoseKeypointsResponse.from_orm(pk) for pk in result.scalars().all()]
@@ -298,8 +301,11 @@ async def get_pose_keypoints(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> PoseKeypointsResponse:
-    """Get a single pose-keypoints row by ID."""
-    if current_user.role == UserRole.player:
+    """Get a single pose-keypoints row by ID.
+
+    Player- and viewer-role users are blocked (see ``list_pose_keypoints``).
+    """
+    if current_user.role in (UserRole.player, UserRole.viewer):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Pose keypoints are not available in player-facing views",

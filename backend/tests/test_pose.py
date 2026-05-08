@@ -229,6 +229,42 @@ def test_pose_keypoints_list_player_forbidden() -> None:
     assert resp.status_code == 403
 
 
+def test_pose_keypoints_list_viewer_forbidden() -> None:
+    """Viewers must not see raw pose keypoints — they are an internal
+    coaching artifact. Regression test for Devin Review flag pose.py:282-286.
+    """
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    viewer = _make_user(UserRole.viewer)
+
+    app.dependency_overrides[get_current_user] = lambda: viewer
+    app.dependency_overrides[get_db] = _mock_db_override()
+
+    with TestClient(app) as c:
+        resp = c.get("/api/v1/pose/keypoints")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+
+
+def test_pose_keypoints_detail_viewer_forbidden() -> None:
+    """Viewers must not see raw pose keypoints by ID either."""
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    viewer = _make_user(UserRole.viewer)
+
+    app.dependency_overrides[get_current_user] = lambda: viewer
+    app.dependency_overrides[get_db] = _mock_db_override()
+
+    with TestClient(app) as c:
+        resp = c.get(f"/api/v1/pose/keypoints/{uuid.uuid4()}")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+
+
 def test_pose_keypoints_list_coach_allowed() -> None:
     from app.database import get_db
     from app.deps import get_current_user
