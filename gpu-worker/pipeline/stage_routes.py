@@ -248,7 +248,7 @@ def _classify_route(
         if angle_deg < _SLANT_ANGLE_MAX:
             return ("go", 0.7)
         if angle_deg > _OUT_ANGLE_MIN:
-            return ("corner", 0.6) if lateral > 0 == (start_y > 0) else ("post", 0.6)
+            return ("corner", 0.6) if (lateral > 0) == (start_y > 0) else ("post", 0.6)
         return ("seam", 0.6)
 
     if depth > _INTERMEDIATE_DEPTH_YD:
