@@ -101,6 +101,7 @@ class CorrectionType(str, enum.Enum):
     personnel_tag = "personnel_tag"
     leverage_tag = "leverage_tag"
     effort_tag = "effort_tag"
+    pose_biomechanics_tag = "pose_biomechanics_tag"
 
 
 class ActiveLearningReason(str, enum.Enum):
@@ -632,6 +633,8 @@ class PoseKeypoints(Base):
     head_yaw_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
     # 0.0–1.0 confidence based on keypoint visibility and head occlusion
     head_orientation_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Per-frame computed biomechanics angles (hip_flexion_degrees, torso_angle_degrees, etc.)
+    biomechanics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="SET NULL"),

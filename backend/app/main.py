@@ -22,6 +22,7 @@ from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
+from app.routers.pose import router as pose_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
@@ -72,3 +73,4 @@ app.include_router(metrics_router)
 app.include_router(mlops_router)
 app.include_router(self_scout_router)
 app.include_router(correction_analytics_router)
+app.include_router(pose_router)
