@@ -67,6 +67,8 @@ class MetricCreate(BaseModel):
     model_version_id: uuid.UUID | None = None
     calibration_version_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
+    is_suppressed: bool = False
+    suppression_reason: str | None = None
 
 
 class MetricResponse(BaseModel):
@@ -190,6 +192,8 @@ async def create_metric(
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
         job_id=body.job_id,
+        is_suppressed=body.is_suppressed,
+        suppression_reason=body.suppression_reason,
     )
     db.add(metric)
     await db.flush()

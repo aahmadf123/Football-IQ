@@ -71,6 +71,10 @@ class JobType(str, enum.Enum):
     labels = "labels"
     metrics = "metrics"
     render = "render"
+    routes = "routes"
+    coverage = "coverage"
+    oline = "oline"
+    self_scout = "self_scout"
 
 
 class ModelStage(str, enum.Enum):
@@ -92,6 +96,11 @@ class CorrectionType(str, enum.Enum):
     player_identity = "player_identity"
     event_tag = "event_tag"
     formation_tag = "formation_tag"
+    route_tag = "route_tag"
+    coverage_tag = "coverage_tag"
+    personnel_tag = "personnel_tag"
+    leverage_tag = "leverage_tag"
+    effort_tag = "effort_tag"
 
 
 class ActiveLearningReason(str, enum.Enum):
@@ -220,6 +229,12 @@ class Clip(Base):
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("processing_jobs.id", ondelete="SET NULL"), nullable=True
     )
+    # ── Phase 2 columns ───────────────────────────────────────────────────
+    personnel_grouping: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    down: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    distance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    field_zone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -388,6 +403,9 @@ class Tracklet(Base):
     track_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Team label ("home" / "away" / "unknown") for team-level tracking before identity
     team_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Phase 2: position group and side of ball for downstream analytics
+    position_group: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    side_of_ball: Mapped[str | None] = mapped_column(String(10), nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="SET NULL"),

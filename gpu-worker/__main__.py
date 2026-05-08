@@ -140,14 +140,18 @@ def _dispatch(
     """Route to the correct pipeline stage module."""
     from pipeline import (
         stage_calibrate,
+        stage_coverage,
         stage_detect,
         stage_events,
         stage_ingest,
         stage_labels,
         stage_metrics,
+        stage_oline,
         stage_reid,
         stage_render,
+        stage_routes,
         stage_segment,
+        stage_self_scout,
         stage_track,
         r2 as r2_mod,
     )
@@ -200,6 +204,35 @@ def _dispatch(
         fps = float(input_artifacts.get("fps", 30))
         return stage_metrics.run(clip_id, tracklets, events_list,
                                  analytics_safe, fps, job_id)
+
+    elif job_type == "routes":
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list = input_artifacts.get("events", [])
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_routes.run(clip_id, tracklets, events_list, fps)
+
+    elif job_type == "coverage":
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list = input_artifacts.get("events", [])
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_coverage.run(clip_id, tracklets, events_list, fps)
+
+    elif job_type == "oline":
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list = input_artifacts.get("events", [])
+        analytics_safe = bool(input_artifacts.get("analytics_safe", False))
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_oline.run(clip_id, tracklets, events_list,
+                               analytics_safe, fps, job_id)
+
+    elif job_type == "self_scout":
+        from pipeline import backend as backend_mod
+        video_id_for_scout = input_artifacts.get("video_id")
+        clips, labels_by_clip = backend_mod.fetch_clips_with_labels(
+            video_id=video_id_for_scout,
+        )
+        metrics_by_clip: dict[str, list[dict[str, Any]]] = {}  # populated downstream
+        return stage_self_scout.run(clips, labels_by_clip, metrics_by_clip)
 
     elif job_type == "pose":
         # Head-orientation estimation via RTMPose/ViTPose pose keypoints.
