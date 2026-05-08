@@ -224,7 +224,11 @@ class AsymmetryEntry(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@router.post("/keypoints", response_model=PoseKeypointsResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/keypoints",
+    response_model=PoseKeypointsResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_pose_keypoints(
     body: PoseKeypointsCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -237,13 +241,9 @@ async def create_pose_keypoints(
     an optional ``biomechanics`` JSONB column for pre-computed per-frame angles.
     """
     if body.tracklet_id is not None:
-        t_result = await db.execute(
-            select(Tracklet).where(Tracklet.id == body.tracklet_id)
-        )
+        t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
         if t_result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
     pk = PoseKeypoints(
         id=uuid.uuid4(),
@@ -285,12 +285,7 @@ async def list_pose_keypoints(
             detail="Pose keypoints are not available in player-facing views",
         )
 
-    q = (
-        select(PoseKeypoints)
-        .order_by(PoseKeypoints.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    q = select(PoseKeypoints).order_by(PoseKeypoints.created_at.desc()).limit(limit).offset(offset)
     if tracklet_id is not None:
         q = q.where(PoseKeypoints.tracklet_id == tracklet_id)
 
@@ -310,9 +305,7 @@ async def get_pose_keypoints(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Pose keypoints are not available in player-facing views",
         )
-    result = await db.execute(
-        select(PoseKeypoints).where(PoseKeypoints.id == keypoint_id)
-    )
+    result = await db.execute(select(PoseKeypoints).where(PoseKeypoints.id == keypoint_id))
     pk = result.scalar_one_or_none()
     if pk is None:
         raise HTTPException(
@@ -383,9 +376,7 @@ async def review_pose_metric(
     result = await db.execute(select(Metric).where(Metric.id == metric_id))
     metric = result.scalar_one_or_none()
     if metric is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
 
     if not metric.metric_name.startswith("pose_"):
         raise HTTPException(

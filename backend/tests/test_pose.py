@@ -15,11 +15,9 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.main import app
 from app.models import HeadOrientationReview, Metric, PoseKeypoints, User, UserRole
 from app.routers.pose import (
@@ -30,7 +28,7 @@ from app.routers.pose import (
     ReviewCreate,
     _position_group_metric_names,
 )
-
+from fastapi.testclient import TestClient
 
 # ── Pure-function / schema unit tests ─────────────────────────────────────────
 
@@ -352,7 +350,13 @@ def test_pose_review_coach_approve_sets_analytics_safe() -> None:
     session.execute.return_value = execute_result
     session.add = MagicMock()
     session.commit = AsyncMock()
-    session.refresh = AsyncMock(side_effect=lambda obj: setattr(obj, "created_at", datetime(2026, 1, 1, tzinfo=UTC)))
+    session.refresh = AsyncMock(
+        side_effect=lambda obj: setattr(
+            obj,
+            "created_at",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
 
     async def _db():
         yield session
