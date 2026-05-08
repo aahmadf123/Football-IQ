@@ -18,6 +18,7 @@ Environment variables (all required unless noted):
   GPU_WORKER_POLL_INTERVAL  — seconds between queue polls (default: 10)
   BACKEND_API_URL           — backend base URL for job status callbacks
   MODEL_DETECT_PATH         — path to YOLO weights (default: yolov8n.pt)
+  MODEL_POSE_PATH           — path to RTMPose .pth weights (optional; stub used when absent)
 """
 
 from __future__ import annotations
@@ -235,14 +236,37 @@ def _dispatch(
         return stage_self_scout.run(clips, labels_by_clip, metrics_by_clip)
 
     elif job_type == "pose":
-        # Head-orientation estimation via RTMPose/ViTPose pose keypoints.
-        # Derives per-frame head-yaw angles for QB progression reads,
-        # LB/Safety play-action response, and CB technique analysis.
-        # All metrics are written with experimental_flag=True and require
-        # position-coach approval before surfacing in any staff view.
-        # TODO: implement when model weights are available in R2.
-        log.info("stage_pose_stub", video_id=video_id, clip_id=clip_id)
-        return {}
+        from pipeline import stage_pose, video_ingest
+
+        model_path = os.environ.get("MODEL_POSE_PATH")
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list = input_artifacts.get("events", [])
+        analytics_safe = bool(input_artifacts.get("analytics_safe", False))
+        fps = float(input_artifacts.get("fps", 30))
+
+        # ``open_video`` silently falls back to ``MockVideoSource`` when the
+        # URI is empty.  That is desirable in unit tests, but in a deployed
+        # worker an empty ``input_uri`` for a pose job almost certainly means
+        # the dispatcher dropped the artifact — log loudly so we don't silently
+        # produce metrics from synthetic frames.
+        if not input_uri:
+            log.warning(
+                "stage_pose_input_uri_missing_using_mock_source",
+                job_id=job_id,
+                clip_id=clip_id,
+            )
+
+        with video_ingest.open_video(input_uri or None, fps_fallback=fps) as source:
+            return stage_pose.run(
+                clip_id,
+                source,
+                tracklets,
+                events_list,
+                analytics_safe,
+                fps,
+                job_id,
+                model_path,
+            )
 
     elif job_type == "render":
         tracklets = input_artifacts.get("tracklets", [])

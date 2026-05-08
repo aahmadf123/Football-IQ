@@ -46,6 +46,18 @@ def require_roles(*roles: UserRole) -> Callable[..., Coroutine[Any, Any, "User"]
 require_admin = require_roles(UserRole.admin)
 require_analyst_or_above = require_roles(UserRole.admin, UserRole.analyst)
 require_coach_or_above = require_roles(UserRole.admin, UserRole.analyst, UserRole.coach)
+
+# Sports-performance is a *parallel* track to coach, not a superset:
+# admins/analysts see everything, sportsperformance staff own injury-risk and
+# load-management views (e.g. pose asymmetry), and position coaches own
+# tactical views.  Coach is intentionally excluded from this guard so coaches
+# cannot retrieve sportsperformance-only signals; if you need both groups, use
+# ``require_any_staff`` instead.
+require_sportsperformance_or_above = require_roles(
+    UserRole.admin,
+    UserRole.analyst,
+    UserRole.sportsperformance,
+)
 require_any_staff = require_roles(
     UserRole.admin,
     UserRole.analyst,

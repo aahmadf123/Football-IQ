@@ -225,7 +225,7 @@ def create_label(
         return dict(resp.json())
 
 
-# ── Metrics (Phase 2) ────────────────────────────────────────────────────────
+# ── Metrics (Phase 2 + Pose-Lite) ────────────────────────────────────────────
 
 
 def create_metric(
@@ -233,9 +233,13 @@ def create_metric(
     metric_name: str,
     metric_value: dict[str, Any],
     *,
+    tracklet_id: str | None = None,
     unit: str | None = None,
     is_suppressed: bool = False,
     suppression_reason: str | None = None,
+    experimental_flag: bool = False,
+    analytics_safe: bool = False,
+    confidence: float | None = None,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/metrics and return the created metric dict."""
@@ -244,16 +248,58 @@ def create_metric(
         "metric_name": metric_name,
         "metric_value": metric_value,
     }
+    if tracklet_id is not None:
+        payload["tracklet_id"] = tracklet_id
     if unit is not None:
         payload["unit"] = unit
     if is_suppressed:
         payload["is_suppressed"] = is_suppressed
     if suppression_reason is not None:
         payload["suppression_reason"] = suppression_reason
+    if experimental_flag:
+        payload["experimental_flag"] = experimental_flag
+    if analytics_safe:
+        payload["analytics_safe"] = analytics_safe
+    if confidence is not None:
+        payload["confidence"] = confidence
     if job_id is not None:
         payload["job_id"] = job_id
     with _client() as c:
         resp = c.post("/api/v1/metrics", json=payload)
+        resp.raise_for_status()
+        return dict(resp.json())
+
+
+# ── Pose Keypoints (Phase 2 / Issue #6) ──────────────────────────────────────
+
+
+def create_pose_keypoints(
+    tracklet_id: str | None,
+    frame_number: int,
+    keypoints: list[dict[str, Any]],
+    *,
+    head_yaw_degrees: float | None = None,
+    head_orientation_confidence: float | None = None,
+    biomechanics: dict[str, Any] | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """POST /api/v1/pose/keypoints and return the created row dict."""
+    payload: dict[str, Any] = {
+        "frame_number": frame_number,
+        "keypoints": keypoints,
+    }
+    if tracklet_id is not None:
+        payload["tracklet_id"] = tracklet_id
+    if head_yaw_degrees is not None:
+        payload["head_yaw_degrees"] = head_yaw_degrees
+    if head_orientation_confidence is not None:
+        payload["head_orientation_confidence"] = head_orientation_confidence
+    if biomechanics is not None:
+        payload["biomechanics"] = biomechanics
+    if job_id is not None:
+        payload["job_id"] = job_id
+    with _client() as c:
+        resp = c.post("/api/v1/pose/keypoints", json=payload)
         resp.raise_for_status()
         return dict(resp.json())
 
