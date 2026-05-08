@@ -62,9 +62,7 @@ async def correction_analytics_summary(
 ) -> CorrectionAnalyticsResponse:
     """Return correction analytics summary with rate decline tracking."""
     # Total corrections
-    total_result = await db.execute(
-        select(func.count(CoachCorrection.id))
-    )
+    total_result = await db.execute(select(func.count(CoachCorrection.id)))
     total_corrections = total_result.scalar() or 0
 
     # By type
@@ -72,12 +70,12 @@ async def correction_analytics_summary(
         select(
             CoachCorrection.correction_type,
             func.count(CoachCorrection.id).label("total"),
-            func.count(CoachCorrection.id).filter(
-                CoachCorrection.training_eligible.is_(True)
-            ).label("eligible"),
-            func.count(CoachCorrection.id).filter(
-                CoachCorrection.exported_as_label.is_(True)
-            ).label("exported"),
+            func.count(CoachCorrection.id)
+            .filter(CoachCorrection.training_eligible.is_(True))
+            .label("eligible"),
+            func.count(CoachCorrection.id)
+            .filter(CoachCorrection.exported_as_label.is_(True))
+            .label("exported"),
         ).group_by(CoachCorrection.correction_type)
     )
     by_type = [
@@ -92,9 +90,7 @@ async def correction_analytics_summary(
 
     # Most corrected labels (top label_value patterns)
     recent_result = await db.execute(
-        select(CoachCorrection)
-        .order_by(CoachCorrection.created_at.desc())
-        .limit(200)
+        select(CoachCorrection).order_by(CoachCorrection.created_at.desc()).limit(200)
     )
     recent = list(recent_result.scalars().all())
     label_corrections: Counter[str] = Counter()
@@ -102,10 +98,7 @@ async def correction_analytics_summary(
         key = f"{c.correction_type.value}:{_safe_str(c.original_value)}"
         label_corrections[key] += 1
 
-    most_corrected = [
-        {"label_key": k, "count": v}
-        for k, v in label_corrections.most_common(10)
-    ]
+    most_corrected = [{"label_key": k, "count": v} for k, v in label_corrections.most_common(10)]
 
     # Weekly trend for rate decline detection
     now = datetime.now(UTC)
@@ -127,11 +120,13 @@ async def correction_analytics_summary(
             t = ct.value if hasattr(ct, "value") else str(ct)
             type_counts[t] = type_counts.get(t, 0) + 1
 
-        weekly_trends.append(WeeklyTrend(
-            week_start=week_start.isoformat(),
-            correction_count=len(week_corrections),
-            correction_types=type_counts,
-        ))
+        weekly_trends.append(
+            WeeklyTrend(
+                week_start=week_start.isoformat(),
+                correction_count=len(week_corrections),
+                correction_types=type_counts,
+            )
+        )
 
     weekly_trends.reverse()
 

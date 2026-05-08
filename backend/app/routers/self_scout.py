@@ -90,12 +90,18 @@ async def get_tendencies(
             formation_tendencies=[],
             motion_tendencies=MotionTendencyResponse(
                 with_motion=MotionTendency(
-                    total=0, run_count=0, pass_count=0,
-                    run_rate=0, pass_rate=0,
+                    total=0,
+                    run_count=0,
+                    pass_count=0,
+                    run_rate=0,
+                    pass_rate=0,
                 ),
                 without_motion=MotionTendency(
-                    total=0, run_count=0, pass_count=0,
-                    run_rate=0, pass_rate=0,
+                    total=0,
+                    run_count=0,
+                    pass_count=0,
+                    run_rate=0,
+                    pass_rate=0,
                 ),
             ),
             field_zone_tendencies=[],
@@ -104,9 +110,7 @@ async def get_tendencies(
             clip_count=0,
         )
 
-    labels_result = await db.execute(
-        select(Label).where(Label.clip_id.in_(clip_ids))
-    )
+    labels_result = await db.execute(select(Label).where(Label.clip_id.in_(clip_ids)))
     all_labels = list(labels_result.scalars().all())
 
     labels_by_clip: dict[uuid.UUID, list[Label]] = defaultdict(list)
@@ -162,8 +166,10 @@ async def get_tendencies(
     )
 
     alerts = _generate_alerts(
-        formation_tendencies, motion_tendencies,
-        field_zone_tendencies, personnel_tendencies,
+        formation_tendencies,
+        motion_tendencies,
+        field_zone_tendencies,
+        personnel_tendencies,
     )
 
     return SelfScoutResponse(
@@ -208,22 +214,22 @@ def _get_motion_detected(labels: list[Label]) -> bool:
     return False
 
 
-def _build_tendencies(
-    plays: dict[str, Counter[str]], min_plays: int = 3
-) -> list[TendencyEntry]:
+def _build_tendencies(plays: dict[str, Counter[str]], min_plays: int = 3) -> list[TendencyEntry]:
     results: list[TendencyEntry] = []
     for key, counts in plays.items():
         total = sum(counts.values())
         if total < min_plays:
             continue
-        results.append(TendencyEntry(
-            grouping_key=key,
-            total_plays=total,
-            run_count=counts.get("run", 0),
-            pass_count=counts.get("pass", 0),
-            run_rate=round(counts.get("run", 0) / total, 3),
-            pass_rate=round(counts.get("pass", 0) / total, 3),
-        ))
+        results.append(
+            TendencyEntry(
+                grouping_key=key,
+                total_plays=total,
+                run_count=counts.get("run", 0),
+                pass_count=counts.get("pass", 0),
+                run_rate=round(counts.get("run", 0) / total, 3),
+                pass_rate=round(counts.get("pass", 0) / total, 3),
+            )
+        )
     return sorted(results, key=lambda r: r.total_plays, reverse=True)
 
 
@@ -238,51 +244,59 @@ def _generate_alerts(
     for ft in formation_tendencies:
         if ft.total_plays >= 5:
             if ft.run_rate >= TENDENCY_ALERT_THRESHOLD:
-                alerts.append(TendencyAlert(
-                    alert_type="formation_tendency",
-                    message=(
-                        f"High run tendency from {ft.grouping_key}: "
-                        f"{ft.run_rate:.0%} ({ft.total_plays} plays)"
-                    ),
-                    severity="high" if ft.run_rate >= 0.85 else "medium",
-                    grouping_key=ft.grouping_key,
-                    run_rate=ft.run_rate,
-                    pass_rate=ft.pass_rate,
-                ))
+                alerts.append(
+                    TendencyAlert(
+                        alert_type="formation_tendency",
+                        message=(
+                            f"High run tendency from {ft.grouping_key}: "
+                            f"{ft.run_rate:.0%} ({ft.total_plays} plays)"
+                        ),
+                        severity="high" if ft.run_rate >= 0.85 else "medium",
+                        grouping_key=ft.grouping_key,
+                        run_rate=ft.run_rate,
+                        pass_rate=ft.pass_rate,
+                    )
+                )
             if ft.pass_rate >= TENDENCY_ALERT_THRESHOLD:
-                alerts.append(TendencyAlert(
-                    alert_type="formation_tendency",
-                    message=(
-                        f"High pass tendency from {ft.grouping_key}: "
-                        f"{ft.pass_rate:.0%} ({ft.total_plays} plays)"
-                    ),
-                    severity="high" if ft.pass_rate >= 0.85 else "medium",
-                    grouping_key=ft.grouping_key,
-                    run_rate=ft.run_rate,
-                    pass_rate=ft.pass_rate,
-                ))
+                alerts.append(
+                    TendencyAlert(
+                        alert_type="formation_tendency",
+                        message=(
+                            f"High pass tendency from {ft.grouping_key}: "
+                            f"{ft.pass_rate:.0%} ({ft.total_plays} plays)"
+                        ),
+                        severity="high" if ft.pass_rate >= 0.85 else "medium",
+                        grouping_key=ft.grouping_key,
+                        run_rate=ft.run_rate,
+                        pass_rate=ft.pass_rate,
+                    )
+                )
 
     mt = motion_tendencies.with_motion
     if mt.total >= 5:
         if mt.run_rate >= TENDENCY_ALERT_THRESHOLD:
-            alerts.append(TendencyAlert(
-                alert_type="motion_tendency",
-                message=f"High run tendency after motion: {mt.run_rate:.0%}",
-                severity="medium",
-                grouping_key="with_motion",
-                run_rate=mt.run_rate,
-                pass_rate=mt.pass_rate,
-            ))
+            alerts.append(
+                TendencyAlert(
+                    alert_type="motion_tendency",
+                    message=f"High run tendency after motion: {mt.run_rate:.0%}",
+                    severity="medium",
+                    grouping_key="with_motion",
+                    run_rate=mt.run_rate,
+                    pass_rate=mt.pass_rate,
+                )
+            )
 
     for zt in field_zone_tendencies:
         if zt.total_plays >= 5 and zt.run_rate >= TENDENCY_ALERT_THRESHOLD:
-            alerts.append(TendencyAlert(
-                alert_type="field_zone_tendency",
-                message=f"High run tendency in {zt.grouping_key}: {zt.run_rate:.0%}",
-                severity="medium",
-                grouping_key=zt.grouping_key,
-                run_rate=zt.run_rate,
-                pass_rate=zt.pass_rate,
-            ))
+            alerts.append(
+                TendencyAlert(
+                    alert_type="field_zone_tendency",
+                    message=f"High run tendency in {zt.grouping_key}: {zt.run_rate:.0%}",
+                    severity="medium",
+                    grouping_key=zt.grouping_key,
+                    run_rate=zt.run_rate,
+                    pass_rate=zt.pass_rate,
+                )
+            )
 
     return alerts
