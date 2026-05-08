@@ -115,7 +115,8 @@ async def get_tendencies(
 
     labels_by_clip: dict[uuid.UUID, list[Label]] = defaultdict(list)
     for lbl in all_labels:
-        labels_by_clip[lbl.clip_id].append(lbl)
+        if lbl.clip_id is not None:
+            labels_by_clip[lbl.clip_id].append(lbl)
 
     # ── Formation tendencies ──────────────────────────────────────────────
     formation_plays: dict[str, Counter[str]] = defaultdict(Counter)
