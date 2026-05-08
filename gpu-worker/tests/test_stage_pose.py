@@ -42,6 +42,7 @@ from pipeline.stage_pose import (
     _compute_stride_symmetry,
     _qb_shoulder_hip_separation,
     _wr_deceleration_steps,
+    _wr_hip_sink_depth,
     _wr_pre_snap_stance,
     _wr_shoulder_over_knee,
     run,
@@ -359,6 +360,60 @@ def test_wr_deceleration_1_step_not_elite() -> None:
 
 def test_wr_deceleration_too_short_returns_none() -> None:
     assert _wr_deceleration_steps([], fps=30.0, tracklet_id=None) is None
+
+
+# ── WR — hip sink depth ────────────────────────────────────────────────────────
+
+
+def _make_hip_kp_seq(
+    samples: list[tuple[int, float, float]],
+) -> list[dict[str, Any]]:
+    """Build a kp_seq with prescribed (frame_number, hip_y, hip_confidence) values.
+
+    Both hip keypoints share the same y/confidence for each entry.
+    """
+    seq: list[dict[str, Any]] = []
+    for frame_number, hip_y, hip_conf in samples:
+        entry = _make_kp_entry(frame_number)
+        for j, k in enumerate(entry["keypoints"]):
+            if k["name"] in ("left_hip", "right_hip"):
+                entry["keypoints"][j]["y"] = hip_y
+                entry["keypoints"][j]["confidence"] = hip_conf
+        seq.append(entry)
+    return seq
+
+
+def test_wr_hip_sink_depth_uses_filtered_frame_numbers() -> None:
+    """Regression: ``sink_idx`` indexes the filtered ``hip_ys`` list, so it
+    must be paired with the filtered frame numbers — not the original
+    ``kp_seq`` indices. With low-confidence frames interleaved between
+    accepted ones, using the unfiltered list produces a too-small
+    ``frames_to_sink`` and therefore an inflated ``com_drop_velocity_yps``.
+    """
+    # Deepest sink is kp_seq[3] (frame 15). hip_ys = [100, 200, 100],
+    # filtered_frame_numbers = [5, 15, 20].
+    samples = [
+        (0, 100.0, 0.05),   # filtered out
+        (5, 100.0, 0.85),   # filtered_frame_numbers[0]
+        (10, 100.0, 0.05),  # filtered out
+        (15, 200.0, 0.85),  # filtered_frame_numbers[1] — deepest sink
+        (20, 100.0, 0.85),
+    ]
+    kp_seq = _make_hip_kp_seq(samples)
+    fps = 10.0
+
+    result = _wr_hip_sink_depth(kp_seq, fps=fps, tracklet_id=None)
+    assert result is not None
+
+    depth_yards = (200.0 - 100.0) * (13.3 / 1280.0)
+    expected_velocity = round(depth_yards / ((15 - 5) / fps), 3)
+
+    assert result["metric_value"]["com_drop_velocity_yps"] == expected_velocity
+
+
+def test_wr_hip_sink_depth_low_conf_returns_none() -> None:
+    samples = [(i, 100.0, 0.05) for i in range(5)]
+    assert _wr_hip_sink_depth(_make_hip_kp_seq(samples), fps=30.0, tracklet_id=None) is None
 
 
 # ── WR — pre-snap stance ───────────────────────────────────────────────────────

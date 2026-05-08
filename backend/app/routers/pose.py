@@ -116,7 +116,7 @@ _POSITION_GROUP_METRICS: dict[str, frozenset[str]] = {
 
 
 class PoseKeypointsCreate(BaseModel):
-    tracklet_id: uuid.UUID | None = None
+    tracklet_id: uuid.UUID = Field(...)
     frame_number: int = Field(..., ge=0)
     keypoints: list[dict[str, Any]]
     head_yaw_degrees: float | None = None
@@ -240,10 +240,9 @@ async def create_pose_keypoints(
     estimator.  The keypoints are stored in the ``pose_keypoints`` table with
     an optional ``biomechanics`` JSONB column for pre-computed per-frame angles.
     """
-    if body.tracklet_id is not None:
-        t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
-        if t_result.scalar_one_or_none() is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
+    t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
+    if t_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
     pk = PoseKeypoints(
         id=uuid.uuid4(),

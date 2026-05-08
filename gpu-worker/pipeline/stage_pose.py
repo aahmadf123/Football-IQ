@@ -601,6 +601,7 @@ def _wr_hip_sink_depth(
 
     hip_ys: list[float] = []
     confs: list[float] = []
+    filtered_frame_numbers: list[int] = []
     for entry in kp_seq:
         lh = kp(entry["keypoints"], "left_hip")
         rh = kp(entry["keypoints"], "right_hip")
@@ -609,6 +610,7 @@ def _wr_hip_sink_depth(
             continue
         hip_ys.append((lh["y"] + rh["y"]) / 2.0)
         confs.append(min_conf)
+        filtered_frame_numbers.append(entry["frame_number"])
 
     if len(hip_ys) < 2:
         return None
@@ -620,10 +622,12 @@ def _wr_hip_sink_depth(
     # Approximate: 1280px wide ≈ 13.3 yd field width → 1 px ≈ 0.0104 yd
     depth_yards = depth_px * (13.3 / 1280.0)
 
-    # Velocity estimate: depth over time of deepest sink
+    # Velocity estimate: depth over time of deepest sink. ``sink_idx`` indexes
+    # the filtered ``hip_ys`` list, so it must be paired with
+    # ``filtered_frame_numbers`` rather than the unfiltered ``kp_seq``.
     sink_idx = hip_ys.index(max_y)
     if sink_idx > 0:
-        frames_to_sink = kp_seq[sink_idx]["frame_number"] - kp_seq[0]["frame_number"]
+        frames_to_sink = filtered_frame_numbers[sink_idx] - filtered_frame_numbers[0]
         time_to_sink = frames_to_sink / max(fps, 1.0)
         com_velocity = depth_yards / max(time_to_sink, 0.001)
     else:

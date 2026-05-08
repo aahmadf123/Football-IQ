@@ -74,19 +74,32 @@ def test_position_group_metrics_unknown_group_returns_all() -> None:
 
 
 def test_pose_keypoints_create_valid() -> None:
+    tid = uuid.uuid4()
     data = PoseKeypointsCreate(
+        tracklet_id=tid,
         frame_number=42,
         keypoints=[{"name": "nose", "x": 640.0, "y": 100.0, "confidence": 0.9}],
     )
     assert data.frame_number == 42
-    assert data.tracklet_id is None
+    assert data.tracklet_id == tid
+
+
+def test_pose_keypoints_create_missing_tracklet_id_rejected() -> None:
+    import pydantic
+
+    # tracklet_id is required because the underlying DB column is NOT NULL.
+    with pytest.raises(pydantic.ValidationError):
+        PoseKeypointsCreate(
+            frame_number=0,
+            keypoints=[{"name": "nose", "x": 1.0, "y": 1.0, "confidence": 0.9}],
+        )
 
 
 def test_pose_keypoints_create_negative_frame_rejected() -> None:
     import pydantic
 
     with pytest.raises(pydantic.ValidationError):
-        PoseKeypointsCreate(frame_number=-1, keypoints=[])
+        PoseKeypointsCreate(tracklet_id=uuid.uuid4(), frame_number=-1, keypoints=[])
 
 
 def test_pose_keypoints_create_invalid_confidence_rejected() -> None:
@@ -94,6 +107,7 @@ def test_pose_keypoints_create_invalid_confidence_rejected() -> None:
 
     with pytest.raises(pydantic.ValidationError):
         PoseKeypointsCreate(
+            tracklet_id=uuid.uuid4(),
             frame_number=0,
             keypoints=[],
             head_orientation_confidence=1.5,  # > 1.0
