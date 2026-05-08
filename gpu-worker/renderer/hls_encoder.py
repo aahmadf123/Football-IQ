@@ -116,7 +116,7 @@ def _encode_hls(source: Path, playlist_path: Path) -> None:
     )
     if result.returncode != 0:
         log.error("ffmpeg_hls_encode_failed", stderr=result.stderr[-2000:])
-        raise RuntimeError(f"ffmpeg HLS encode failed: {result.stderr[-500:]}")
+        raise RuntimeError(f"ffmpeg HLS encode failed: {result.stderr[-2000:]}")
     log.info("ffmpeg_hls_encode_ok")
 
 

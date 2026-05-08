@@ -18,7 +18,6 @@ def _load_stdlib_queue() -> None:
             return
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        import builtins
 
         g = globals()
         for _name in ("Empty", "Full", "Queue", "LifoQueue", "PriorityQueue", "SimpleQueue"):

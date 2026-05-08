@@ -101,6 +101,7 @@ export default function ClipReviewResponsive({
         } catch {
           // network error — keep polling
         }
+        if (cancelled) break;
         await new Promise<void>((resolve) => setTimeout(resolve, JOB_POLL_MS));
       }
     };

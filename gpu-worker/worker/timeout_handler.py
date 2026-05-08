@@ -90,6 +90,10 @@ def run_with_timeout(
         finally:
             finished.set()
 
+    # daemon=True so the thread does not prevent process exit when the main
+    # worker shuts down.  The worst-case outcome of an abrupt kill is a job
+    # stuck in "running" state, which the nightly cleanup sweep already handles
+    # by requeuing any job started more than PERIOD_BREAK_TIMEOUT_SECONDS ago.
     thread = threading.Thread(target=_target, daemon=True)
     thread.start()
     completed = finished.wait(timeout=float(timeout_seconds))
