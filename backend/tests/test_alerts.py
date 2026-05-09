@@ -21,7 +21,6 @@ from app.models import Alert, AlertSeverity, AlertType, User, UserRole
 from app.routers.alerts import AlertCreate, AlertResponse
 from fastapi.testclient import TestClient
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

@@ -13,16 +13,13 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from app.main import app
 from app.models import User, UserRole
 from app.routers.alerts_sse import _connections, publish_alert
 from fastapi.testclient import TestClient
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,9 +42,7 @@ def test_publish_alert_fans_to_matching_group() -> None:
     _connections[conn_id] = (q, "OL")
 
     try:
-        publish_alert(
-            {"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"}
-        )
+        publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
         assert not q.empty()
         event = q.get_nowait()
         assert event["position_group"] == "OL"
@@ -61,9 +56,7 @@ def test_publish_alert_skips_non_matching_group() -> None:
     _connections[conn_id] = (q, "WR")
 
     try:
-        publish_alert(
-            {"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"}
-        )
+        publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
         assert q.empty()
     finally:
         _connections.pop(conn_id, None)

@@ -30,12 +30,11 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.deps import get_current_user
 from app.models import User, UserRole
-from fastapi import HTTPException, status
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts-sse"])
@@ -57,7 +56,7 @@ def publish_alert(alert_dict: dict) -> None:
     """
     pg = alert_dict.get("position_group")
     fanned = 0
-    for conn_id, (q, conn_pg) in list(_connections.items()):
+    for _conn_id, (q, conn_pg) in list(_connections.items()):
         if conn_pg is not None and pg and conn_pg.upper() != str(pg).upper():
             continue
         if not q.full():
@@ -83,8 +82,8 @@ async def _sse_generator(
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
                 yield f"data: {json.dumps(event)}\n\n"
-            except asyncio.TimeoutError:
-                yield "data: {\"type\": \"keepalive\"}\n\n"
+            except TimeoutError:
+                yield 'data: {"type": "keepalive"}\n\n'
     finally:
         _connections.pop(conn_id, None)
         log.info("sse_client_disconnected", conn_id=conn_id)

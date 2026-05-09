@@ -74,7 +74,7 @@ class AlertResponse(BaseModel):
     created_at: str
 
     @classmethod
-    def from_orm(cls, a: Alert) -> "AlertResponse":
+    def from_orm(cls, a: Alert) -> AlertResponse:
         return cls(
             id=a.id,
             player_id=a.player_id,
@@ -127,6 +127,8 @@ async def create_alert(
         period_name=body.period_name,
         session_id=body.session_id,
         job_id=body.job_id,
+        is_acknowledged=False,
+        created_at=datetime.now(UTC),
     )
     db.add(alert)
     await db.flush()

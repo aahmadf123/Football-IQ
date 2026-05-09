@@ -89,7 +89,9 @@ class PositionGroupAlertConfig(BaseModel):
     position_group: str = Field(..., description="Position group identifier (e.g. OL, WR, QB)")
     bio_deviation: BioDeviationThresholds = Field(default_factory=BioDeviationThresholds)
     effort_anomaly: EffortAnomalyThresholds = Field(default_factory=EffortAnomalyThresholds)
-    formation_anomaly: FormationAnomalyThresholds = Field(default_factory=FormationAnomalyThresholds)
+    formation_anomaly: FormationAnomalyThresholds = Field(
+        default_factory=FormationAnomalyThresholds
+    )
 
 
 class AlertConfigRequest(BaseModel):

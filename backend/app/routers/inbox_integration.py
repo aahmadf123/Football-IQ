@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.deps import get_current_user, require_any_staff
+from app.deps import require_any_staff
 from app.models import (
     Clip,
     FieldCalibration,
@@ -38,7 +38,6 @@ from app.models import (
     JobType,
     ProcessingJob,
     User,
-    UserRole,
     Video,
 )
 
@@ -88,7 +87,7 @@ class JobStatusItem(BaseModel):
     created_at: str
 
     @classmethod
-    def from_orm(cls, j: ProcessingJob) -> "JobStatusItem":
+    def from_orm(cls, j: ProcessingJob) -> JobStatusItem:
         return cls(
             job_id=j.id,
             video_id=j.video_id,
@@ -185,9 +184,7 @@ async def list_active_jobs(
 
 async def _build_video_inbox_item(db: AsyncSession, video: Video) -> VideoInboxItem:
     """Build a VideoInboxItem by aggregating job and clip data for one video."""
-    jobs_result = await db.execute(
-        select(ProcessingJob).where(ProcessingJob.video_id == video.id)
-    )
+    jobs_result = await db.execute(select(ProcessingJob).where(ProcessingJob.video_id == video.id))
     jobs = jobs_result.scalars().all()
 
     total_jobs = len(jobs)
@@ -217,9 +214,7 @@ async def _build_video_inbox_item(db: AsyncSession, video: Video) -> VideoInboxI
         cal_safe_pct = round(safe / len(calibrations) * 100, 1)
 
     # Pose pipeline active: check if any pose job succeeded
-    pose_active = any(
-        j.job_type == JobType.pose and j.status == JobStatus.succeeded for j in jobs
-    )
+    pose_active = any(j.job_type == JobType.pose and j.status == JobStatus.succeeded for j in jobs)
 
     return VideoInboxItem(
         video_id=video.id,

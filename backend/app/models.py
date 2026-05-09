@@ -44,7 +44,7 @@ from app.database import Base
 # ── Enumerations ──────────────────────────────────────────────────────────────
 
 
-class UserRole(str, enum.Enum):
+class UserRole(enum.StrEnum):
     admin = "admin"
     analyst = "analyst"
     coach = "coach"
@@ -53,7 +53,7 @@ class UserRole(str, enum.Enum):
     viewer = "viewer"
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     queued = "queued"
     running = "running"
     succeeded = "succeeded"
@@ -61,7 +61,7 @@ class JobStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
-class JobType(str, enum.Enum):
+class JobType(enum.StrEnum):
     ingest = "ingest"
     segment = "segment"
     calibrate = "calibrate"
@@ -77,21 +77,21 @@ class JobType(str, enum.Enum):
     self_scout = "self_scout"
 
 
-class ModelStage(str, enum.Enum):
+class ModelStage(enum.StrEnum):
     experimental = "experimental"
     staging = "staging"
     production = "production"
     retired = "retired"
 
 
-class VideoStatus(str, enum.Enum):
+class VideoStatus(enum.StrEnum):
     uploaded = "uploaded"
     processing = "processing"
     ready = "ready"
     failed = "failed"
 
 
-class CorrectionType(str, enum.Enum):
+class CorrectionType(enum.StrEnum):
     clip_boundary = "clip_boundary"
     player_identity = "player_identity"
     event_tag = "event_tag"
@@ -104,26 +104,26 @@ class CorrectionType(str, enum.Enum):
     pose_biomechanics_tag = "pose_biomechanics_tag"
 
 
-class ActiveLearningReason(str, enum.Enum):
+class ActiveLearningReason(enum.StrEnum):
     low_confidence = "low_confidence"
     uncertainty_sampling = "uncertainty_sampling"
     regression = "regression"
     hard_negative = "hard_negative"
 
 
-class ActiveLearningStatus(str, enum.Enum):
+class ActiveLearningStatus(enum.StrEnum):
     queued = "queued"
     in_review = "in_review"
     resolved = "resolved"
 
 
-class AlertType(str, enum.Enum):
+class AlertType(enum.StrEnum):
     bio_deviation = "bio_deviation"
     effort_anomaly = "effort_anomaly"
     formation_anomaly = "formation_anomaly"
 
 
-class AlertSeverity(str, enum.Enum):
+class AlertSeverity(enum.StrEnum):
     low = "low"
     medium = "medium"
     high = "high"
