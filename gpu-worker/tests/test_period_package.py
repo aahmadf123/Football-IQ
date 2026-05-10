@@ -13,6 +13,8 @@ Covers:
 import sys
 import os
 
+import pytest
+
 # Allow imports from gpu-worker root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -246,6 +248,3 @@ def test_build_all_alerts_combined() -> None:
         pose_metrics=None,
     )
     assert len(package["all_alerts"]) == len(package["effort_summary"]["effort_alerts"])
-
-
-import pytest

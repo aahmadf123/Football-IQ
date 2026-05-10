@@ -42,8 +42,12 @@ def _handle_signal(signum: int, _frame: Any) -> None:
     _shutdown = True
 
 
-signal.signal(signal.SIGTERM, _handle_signal)
-signal.signal(signal.SIGINT, _handle_signal)
+def _register_signal_handlers() -> None:
+    try:
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGINT, _handle_signal)
+    except ValueError:
+        log.warning("autoscale_signal_registration_skipped_non_main_thread")
 
 
 # ── Scale actions ─────────────────────────────────────────────────────────────
@@ -114,6 +118,7 @@ def run_autoscale_loop() -> None:
     Intended to run as a lightweight sidecar alongside the main GPU worker.
     """
     log.info("autoscale_loop_starting", poll_interval=POLL_INTERVAL)
+    _register_signal_handlers()
     burst_active = False
 
     with httpx.Client() as client:

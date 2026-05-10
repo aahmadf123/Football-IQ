@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import structlog
-from fastapi import Depends, Query
+from fastapi import Depends, HTTPException, Query, status
 
 from app.deps import get_current_user
 from app.models import User, UserRole
@@ -41,16 +41,15 @@ async def position_group_filter(
         description=(
             "Restrict results to this position group.  "
             "Admins and analysts may omit to see all groups.  "
-            "Coaches default to their assigned position group if not overridden."
+            "Coaches are always scoped to their assigned position group."
         ),
     ),
 ) -> str | None:
     """Return the effective position-group scope for the current request.
 
     - admin / analyst: honour the query param (None = all groups)
-    - coach: defaults to the user's ``position_group`` attribute; may override
-      downward (i.e. a WR coach cannot query OL data)
-    - sportsperformance: same as coach — restricted to their group
+    - coach / sportsperformance: always scoped to the user's ``position_group``
+      attribute (query overrides are rejected if mismatched)
     - player / viewer: not permitted at alert endpoints (blocked upstream)
 
     Returns:
@@ -63,17 +62,20 @@ async def position_group_filter(
 
     user_pg: str | None = getattr(current_user, "position_group", None)
 
-    if position_group is not None:
-        if user_pg and position_group.upper() != user_pg.upper():
+    if position_group is not None and user_pg is not None:
+        if position_group.upper() != user_pg.upper():
             log.warning(
                 "position_filter_cross_group_attempt",
                 user_id=str(current_user.id),
                 user_pg=user_pg,
                 requested_pg=position_group,
             )
-        return position_group.upper()
+        return user_pg.upper()
 
     if user_pg:
         return user_pg.upper()
 
-    return None
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Position group access is restricted to your assigned group",
+    )

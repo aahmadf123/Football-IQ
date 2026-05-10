@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 class JobCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
+    id: uuid.UUID | None = None
     video_id: uuid.UUID
     job_type: JobType
     priority: int = 0
@@ -112,7 +113,7 @@ async def create_job(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
 
     job = ProcessingJob(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
         video_id=body.video_id,
         job_type=body.job_type,
         status=JobStatus.queued,

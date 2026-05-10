@@ -27,7 +27,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -42,13 +42,13 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts-sse"])
 # ── In-process pub/sub registry ───────────────────────────────────────────────
 # Maps connection_id → (queue, position_group_filter)
 # position_group_filter=None means "receive all groups" (admin/analyst)
-_connections: dict[str, tuple[asyncio.Queue[dict], str | None]] = {}
+_connections: dict[str, tuple[asyncio.Queue[dict[str, Any]], str | None]] = {}
 
 _KEEPALIVE_SECONDS = 25
 _QUEUE_MAX_SIZE = 200
 
 
-def publish_alert(alert_dict: dict) -> None:
+def publish_alert(alert_dict: dict[str, Any]) -> None:
     """Fan an alert dict to all connected SSE clients whose filter matches.
 
     Called by the alerts REST router after persisting the alert, or directly
@@ -122,16 +122,24 @@ async def stream_alerts(
         )
 
     # Determine effective position group filter
-    effective_pg: str | None = position_group
-    if effective_pg is None:
-        effective_pg = getattr(current_user, "position_group", None)
-    if effective_pg is not None:
-        effective_pg = effective_pg.upper()
+    user_pg = getattr(current_user, "position_group", None)
     if current_user.role in (UserRole.admin, UserRole.analyst):
-        effective_pg = position_group.upper() if position_group else None
+        effective_pg: str | None = position_group.upper() if position_group else None
+    else:
+        if user_pg is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Position group access is restricted to your assigned group",
+            )
+        if position_group and position_group.upper() != user_pg.upper():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Position group override is not allowed for your role",
+            )
+        effective_pg = user_pg.upper()
 
     conn_id = str(uuid.uuid4())
-    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
     _connections[conn_id] = (queue, effective_pg)
 
     log.info(

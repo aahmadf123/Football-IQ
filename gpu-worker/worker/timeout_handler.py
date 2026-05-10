@@ -104,7 +104,11 @@ def run_with_timeout(
             job_id=job_id,
             timeout_seconds=timeout_seconds,
         )
-        _handle_timeout(job_id=job_id, job_payload=job_payload)
+        _handle_timeout(
+            job_id=job_id,
+            job_payload=job_payload,
+            timeout_seconds=timeout_seconds,
+        )
         raise JobTimeoutError(
             f"Job {job_id} exceeded {timeout_seconds}s timeout — requeued for nightly processing"
         )
@@ -121,10 +125,11 @@ def run_with_timeout(
 def _handle_timeout(
     job_id: str,
     job_payload: dict[str, Any] | None,
+    timeout_seconds: int,
 ) -> None:
     """Mark the job failed in the backend and requeue it for nightly processing."""
     error_msg = (
-        f"Same-session job exceeded {PERIOD_BREAK_TIMEOUT_SECONDS}s window; "
+        f"Same-session job exceeded {timeout_seconds}s window; "
         "requeued for nightly full-quality processing."
     )
     try:
@@ -132,7 +137,7 @@ def _handle_timeout(
     except Exception as exc:
         log.warning("timeout_handle_backend_error", job_id=job_id, error=str(exc))
 
-    if job_payload:
+    if job_payload is not None:
         _requeue_for_nightly(job_id, job_payload)
 
 

@@ -137,15 +137,17 @@ def _create_backend_job(
         return
 
     payload: dict[str, Any] = {
+        "id": job_id,
         "video_id": video_id,
         "job_type": job_type,
         "priority": priority,
         "input_artifacts": input_artifacts,
     }
+    jobs_url = f"{BACKEND_API_URL.rstrip('/')}/api/v1/jobs"
 
     def _do(c: httpx.Client) -> None:
         try:
-            resp = c.post("/api/v1/jobs", json=payload, timeout=10)
+            resp = c.post(jobs_url, json=payload, timeout=10)
             resp.raise_for_status()
             log.info("backend_job_created", job_id=job_id, video_id=video_id)
         except Exception as exc:
@@ -154,5 +156,5 @@ def _create_backend_job(
     if client is not None:
         _do(client)
     else:
-        with httpx.Client(base_url=BACKEND_API_URL) as c:
+        with httpx.Client() as c:
             _do(c)

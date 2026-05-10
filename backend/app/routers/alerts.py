@@ -29,6 +29,7 @@ from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
 from app.models import Alert, AlertSeverity, AlertType, User, UserRole
 from app.position_filter import position_group_filter
+from app.routers.alerts_sse import publish_alert
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
@@ -132,6 +133,13 @@ async def create_alert(
     )
     db.add(alert)
     await db.flush()
+    response = AlertResponse.from_orm(alert)
+
+    try:
+        publish_alert(response.model_dump(mode="json"))
+    except Exception as exc:
+        log.warning("alert_sse_publish_failed", alert_id=str(alert.id), error=str(exc))
+
     log.info(
         "alert_created",
         alert_id=str(alert.id),
@@ -139,7 +147,7 @@ async def create_alert(
         position_group=alert.position_group,
         severity=body.severity.value,
     )
-    return AlertResponse.from_orm(alert)
+    return response
 
 
 @router.get("", response_model=list[AlertResponse])

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import sys
 import os
-import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -181,10 +180,8 @@ class TestAutoscaleLoop:
         import worker.autoscale as autoscale_mod
         importlib.reload(autoscale_mod)
 
-        # Simulate: first call returns depth=0 while burst_active=True
-        # We inject burst_active by patching the initial state inside the loop
         call_log: list[str] = []
-        depths = iter([0])
+        depths = iter([2, 0])
 
         def fake_depth(**_kwargs: object) -> int:
             try:
@@ -192,24 +189,26 @@ class TestAutoscaleLoop:
             except StopIteration:
                 return 0
 
+        def fake_burst(**_kwargs: object) -> bool:
+            call_log.append("burst")
+            return True
+
         def fake_scale_down(**_kwargs: object) -> bool:
             call_log.append("scale_down")
+            autoscale_mod._shutdown = True  # type: ignore[attr-defined]
             return True
 
         autoscale_mod._shutdown = False  # type: ignore[attr-defined]
 
-        # Manually prime burst_active by wrapping run_autoscale_loop
-        original_loop = autoscale_mod.run_autoscale_loop
+        with (
+            patch.object(autoscale_mod, "get_same_session_queue_depth", fake_depth),
+            patch.object(autoscale_mod, "request_burst", fake_burst),
+            patch.object(autoscale_mod, "request_scale_down", fake_scale_down),
+            patch("time.sleep", return_value=None),
+        ):
+            autoscale_mod.run_autoscale_loop()
 
-        def patched_loop() -> None:
-            # We'll test _call_scale_api indirectly by calling request_scale_down
-            # directly with a non-empty → empty depth transition
-            pass
-
-        # Direct unit test of the scale-down branch
-        with patch.object(autoscale_mod, "request_scale_down", fake_scale_down):
-            autoscale_mod.request_scale_down()
-
+        assert "burst" in call_log
         assert "scale_down" in call_log
 
     def test_loop_handles_depth_error_gracefully(self) -> None:

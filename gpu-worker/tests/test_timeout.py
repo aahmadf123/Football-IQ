@@ -139,6 +139,28 @@ class TestRunWithTimeoutExpiry:
         mock_requeue.assert_not_called()
         barrier.set()
 
+    def test_empty_payload_still_requeues(self) -> None:
+        """An explicit empty payload still triggers nightly requeue."""
+        barrier = __import__("threading").Event()
+
+        def slow_fn() -> None:
+            barrier.wait(timeout=30)
+
+        with (
+            patch("worker.timeout_handler._update_job_failed"),
+            patch("worker.timeout_handler._requeue_for_nightly") as mock_requeue,
+            pytest.raises(JobTimeoutError),
+        ):
+            run_with_timeout(
+                slow_fn,
+                job_id="job-7b",
+                job_payload={},
+                timeout_seconds=1,
+            )
+
+        mock_requeue.assert_called_once_with("job-7b", {})
+        barrier.set()
+
 
 # ── Exception propagation ─────────────────────────────────────────────────────
 

@@ -13,12 +13,14 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.main import app
 from app.models import Alert, AlertSeverity, AlertType, User, UserRole
+from app.position_filter import position_group_filter
 from app.routers.alerts import AlertCreate, AlertResponse
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -177,6 +179,35 @@ def test_create_alert_coach_allowed() -> None:
     assert resp.status_code == 201
 
 
+def test_create_alert_publishes_to_sse() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    coach = _make_user(UserRole.coach, "OL")
+    app.dependency_overrides[get_current_user] = lambda: coach
+    app.dependency_overrides[get_db] = _mock_db()
+
+    with (
+        patch("app.routers.alerts.publish_alert") as mock_publish,
+        TestClient(app) as c,
+    ):
+        resp = c.post(
+            "/api/v1/alerts",
+            json={
+                "position_group": "OL",
+                "alert_type": "effort_anomaly",
+                "severity": "medium",
+                "confidence": 0.7,
+                "metric_name": "sprint_to_ball",
+                "metric_value": {"max_speed_yps": 3.1},
+            },
+        )
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 201
+    mock_publish.assert_called_once()
+
+
 def test_list_alerts_player_blocked() -> None:
     from app.database import get_db
     from app.deps import get_current_user
@@ -281,3 +312,18 @@ def test_alert_response_carries_required_fields() -> None:
     assert resp.player_id is not None
     assert resp.created_at is not None
     assert resp.position_group is not None
+
+
+@pytest.mark.asyncio
+async def test_position_group_filter_blocks_unassigned_coach() -> None:
+    coach = _make_user(UserRole.coach, None)
+    with pytest.raises(HTTPException) as exc:
+        await position_group_filter(current_user=coach, position_group=None)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_position_group_filter_coach_cannot_override_cross_group() -> None:
+    coach = _make_user(UserRole.coach, "WR")
+    effective_pg = await position_group_filter(current_user=coach, position_group="OL")
+    assert effective_pg == "WR"

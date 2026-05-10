@@ -158,6 +158,21 @@ def test_stream_coach_receives_connected_event() -> None:
     assert "connection_id" in payload
 
 
+def test_stream_coach_cannot_override_position_group() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    coach = _make_user(UserRole.coach, "OL")
+    app.dependency_overrides[get_current_user] = lambda: coach
+    app.dependency_overrides[get_db] = _mock_db_override()
+
+    with TestClient(app) as c:
+        resp = c.get("/api/v1/alerts/stream?position_group=WR")
+
+    app.dependency_overrides.clear()
+    assert resp.status_code == 403
+
+
 def test_stream_delivers_published_alert() -> None:
     from app.database import get_db
     from app.deps import get_current_user

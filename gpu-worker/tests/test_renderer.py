@@ -62,6 +62,7 @@ class TestPeriodRendererRun:
         self, width: int = 1920, height: int = 1080, frames: int = 3
     ) -> MagicMock:
         cap = MagicMock()
+        cap.isOpened.return_value = True
         cap.get.side_effect = lambda prop: {
             3: float(width),   # CAP_PROP_FRAME_WIDTH
             4: float(height),  # CAP_PROP_FRAME_HEIGHT
@@ -148,6 +149,45 @@ class TestPeriodRendererRun:
 
         # Should have at least one rectangle call for the warning banner
         assert mock_rect.call_count >= 1
+
+    def test_video_capture_open_failure_raises_value_error(self) -> None:
+        from renderer.period_renderer import run
+
+        cap = MagicMock()
+        cap.isOpened.return_value = False
+
+        with (
+            patch("cv2.VideoCapture", return_value=cap),
+            pytest.raises(ValueError, match="Unable to open source video"),
+        ):
+            run(
+                clip_id="c-open-fail",
+                video_path=Path("/fake/missing.mp4"),
+                tracklets=[],
+                labels=[],
+                analytics_safe=True,
+                fps=30.0,
+            )
+
+    def test_video_writer_open_failure_raises_value_error(self) -> None:
+        from renderer.period_renderer import run
+
+        writer = MagicMock()
+        writer.isOpened.return_value = False
+
+        with (
+            patch("cv2.VideoCapture", return_value=self._make_mock_cap(frames=1)),
+            patch("cv2.VideoWriter", return_value=writer),
+            pytest.raises(ValueError, match="Unable to create output video"),
+        ):
+            run(
+                clip_id="c-writer-fail",
+                video_path=Path("/fake/clip.mp4"),
+                tracklets=[],
+                labels=[],
+                analytics_safe=True,
+                fps=30.0,
+            )
 
 
 # ── hls_encoder ───────────────────────────────────────────────────────────────

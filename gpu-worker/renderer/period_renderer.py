@@ -92,6 +92,10 @@ def _render_reduced(
     fps: float,
 ) -> None:
     cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        cap.release()
+        raise ValueError(f"Unable to open source video for period render: {video_path}")
+
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -102,6 +106,10 @@ def _render_reduced(
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(out_path), fourcc, fps, (out_w, out_h))
+    if not writer.isOpened():
+        cap.release()
+        writer.release()
+        raise ValueError(f"Unable to create output video for period render: {out_path}")
 
     # Pre-build track lookup scaled to output resolution
     frame_tracks: dict[int, list[tuple[list[float], tuple[int, int, int], int]]] = {}
