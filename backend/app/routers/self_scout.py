@@ -6,7 +6,7 @@ pre-snap tells and formation/motion/field-zone/personnel tendencies.
 
 import uuid
 from collections import Counter, defaultdict
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, Query
@@ -365,7 +365,7 @@ def _get_concept_family(labels: list[Label]) -> str | None:
     return None
 
 
-def _get_label_text(label_value: dict[object, object]) -> str:
+def _get_label_text(label_value: dict[str, Any]) -> str:
     parts: list[str] = []
     for value in label_value.values():
         if isinstance(value, str | int | float | bool):
