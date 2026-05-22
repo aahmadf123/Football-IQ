@@ -124,27 +124,18 @@ async def get_tendencies(
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(get_current_user)],
     video_id: uuid.UUID | None = Query(default=None),
-    season: str | None = Query(default=None),
-    week_start: int | None = Query(default=None, ge=1),
-    week_end: int | None = Query(default=None, ge=1),
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> SelfScoutResponse:
     """Compute and return self-scout tendency analysis."""
     log.info(
         "self_scout_tendencies_requested",
         video_id=str(video_id) if video_id is not None else None,
-        season=season,
-        week_start=week_start,
-        week_end=week_end,
         limit=limit,
     )
     return await _run_tendency_engine(
         db=db,
         video_id=video_id,
         limit=limit,
-        season=season,
-        week_start=week_start,
-        week_end=week_end,
     )
 
 
@@ -171,9 +162,6 @@ async def _run_tendency_engine(
     db: AsyncSession,
     video_id: uuid.UUID | None,
     limit: int,
-    season: str | None = None,
-    week_start: int | None = None,
-    week_end: int | None = None,
 ) -> SelfScoutResponse:
     q = select(Clip).order_by(Clip.start_time, Clip.id).limit(limit)
     if video_id is not None:
