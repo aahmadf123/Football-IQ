@@ -488,12 +488,12 @@ function LowSampleBadge() {
   );
 }
 
-function FormationTable({ data }: { data: TendencyEntry[] }) {
+function FormationTable({ data, label = "Formation" }: { data: TendencyEntry[]; label?: string }) {
   return (
     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
       <thead>
         <tr style={{ borderBottom: "2px solid #374151", textAlign: "left" }}>
-          <th style={{ padding: "8px" }}>Formation</th>
+          <th style={{ padding: "8px" }}>{label}</th>
           <th style={{ padding: "8px", textAlign: "center" }}>Plays</th>
           <th style={{ padding: "8px", textAlign: "center" }}>Run</th>
           <th style={{ padding: "8px", textAlign: "center" }}>Pass</th>
@@ -873,14 +873,14 @@ export default function SelfScoutDashboard() {
         {activeTab === "field_zone" && (
           <>
             <h3 style={{ margin: "0 0 12px 0" }}>Field Zone Tendencies</h3>
-            <FormationTable data={sampleFieldZoneTendencies} />
+            <FormationTable data={sampleFieldZoneTendencies} label="Field Zone" />
           </>
         )}
 
         {activeTab === "personnel" && (
           <>
             <h3 style={{ margin: "0 0 12px 0" }}>Personnel Grouping Tendencies</h3>
-            <FormationTable data={samplePersonnelTendencies} />
+            <FormationTable data={samplePersonnelTendencies} label="Personnel" />
           </>
         )}
 
