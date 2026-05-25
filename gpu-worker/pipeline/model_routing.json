@@ -1,0 +1,9 @@
+{
+  "segment":    {"same_session": "optical-flow-fast", "nightly": "optical-flow-fast"},
+  "detect":     {"same_session": "yolov8n",           "nightly": "yolov8m"},
+  "track":      {"same_session": "iou-tracker",       "nightly": "iou-tracker"},
+  "reid":       {"same_session": "jersey-ocr",        "nightly": "jersey-ocr"},
+  "pose":       {"same_session": "rtmpose-t",         "nightly": "rtmpose-m"},
+  "render":     {"same_session": "ffmpeg-overlay",    "nightly": "ffmpeg-overlay"},
+  "embeddings": {"same_session": "none",              "nightly": "none"}
+}

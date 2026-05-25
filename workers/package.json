@@ -16,12 +16,12 @@
     "format": "prettier --write src"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260518.1",
+    "@cloudflare/workers-types": "^4.20260525.1",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.17.0",
     "eslint": "^10.4.0",
     "prettier": "^3.4.2",
     "typescript": "^6.0.3",
-    "wrangler": "^4.92.0"
+    "wrangler": "^4.94.0"
   }
 }
