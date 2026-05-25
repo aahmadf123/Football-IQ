@@ -107,22 +107,28 @@ def ack_message(client: httpx.Client, lease_id: str) -> None:
 
 def process_job(job: dict[str, Any]) -> None:
     """Dispatch a single job to the appropriate processing stage."""
+    from pipeline import model_router
+
     job_id: str = job.get("jobId", "unknown")
     job_type: str = job.get("jobType", "")
     video_id: str = job.get("videoId", "")
     clip_id: str = job.get("clipId", "")
     input_uri: str = job.get("inputUri", "")
+    priority: int = int(job.get("priority", 0))
     # Artifacts passed in from a preceding stage (e.g. detections for track stage)
     input_artifacts: dict[str, Any] = job.get("inputArtifacts", {})
 
     log.info("processing_job", job_id=job_id, job_type=job_type,
-             video_id=video_id, clip_id=clip_id)
+             video_id=video_id, clip_id=clip_id, priority=priority)
 
     _update_job_status(job_id, "running")
 
     try:
         artifacts = _dispatch(job_type, video_id, clip_id, input_uri,
                               input_artifacts, job_id)
+        artifacts = dict(artifacts or {})
+        routing = model_router.build_routing_artifact(job_type, priority)
+        artifacts.setdefault("model_routing", {}).update(routing)
         _update_job_status(job_id, "succeeded", output_artifacts=artifacts)
         log.info("job_succeeded", job_id=job_id)
     except Exception as exc:
