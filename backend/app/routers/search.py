@@ -244,12 +244,13 @@ async def _run_vector_search(
         "ORDER BY pe.vector <=> CAST(:anchor AS vector) ASC "
         "LIMIT :k"
     )
+    from sqlalchemy.dialects.postgresql import ARRAY, UUID
+
     sql = text(sql_str)
     if candidate_clip_ids is not None:
-        sql = sql.bindparams(bindparam("candidate_clip_ids", expanding=False))
+        sql = sql.bindparams(bindparam("candidate_clip_ids", type_=ARRAY(UUID(as_uuid=True))))
     if exclude_clip_ids:
-        sql = sql.bindparams(bindparam("exclude_clip_ids", expanding=False))
-
+        sql = sql.bindparams(bindparam("exclude_clip_ids", type_=ARRAY(UUID(as_uuid=True))))
     result = await db.execute(sql, params)
     out: list[SimilarResult] = []
     for row in result.mappings():
