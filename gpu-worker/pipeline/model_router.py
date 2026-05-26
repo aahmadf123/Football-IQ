@@ -59,12 +59,20 @@ SAM3_1: str = "sam3.1"
 IOU_TRACKER: str = "iou-tracker"
 SAM3_MASK_TRACKER: str = "sam3-mask-tracker"
 
+# Embedding variant — see ``docs/embeddings-architecture.md`` §11 and
+# ``gpu-worker/pipeline/stage_embed.py``.
+PLAY_EMBED_BASELINE: str = "play-embed-clip-vitb32-baseline"
+
 # Variants that are NEVER allowed on the same-session path because they
-# are heavy / experimental / require a HF token at runtime.  If a routing
-# config tries to put one of these in the same_session bucket, the
-# router falls back to the default same-session variant and logs a
-# warning — see ``select_model``.
-NIGHTLY_ONLY_VARIANTS: frozenset[str] = frozenset({SAM3_1, SAM3_MASK_TRACKER})
+# are heavy / experimental / require a HF token at runtime, or — in the
+# case of ``PLAY_EMBED_BASELINE`` — because their work product is only
+# useful to retrospective search and would compete with detect/track/pose
+# for the period-break window.  If a routing config tries to put one of
+# these in the same_session bucket, the router falls back to the default
+# same-session variant and logs a warning — see ``select_model``.
+NIGHTLY_ONLY_VARIANTS: frozenset[str] = frozenset(
+    {SAM3_1, SAM3_MASK_TRACKER, PLAY_EMBED_BASELINE}
+)
 
 # Returned for any stage that is not in the routing table.
 UNKNOWN_STAGE_FALLBACK: str = "default"
@@ -90,7 +98,7 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "reid":       {_SAME_SESSION_KEY: "jersey-ocr",        _NIGHTLY_KEY: "jersey-ocr"},
     "pose":       {_SAME_SESSION_KEY: RTMPOSE_FAST,        _NIGHTLY_KEY: RTMPOSE_MEDIUM},
     "render":     {_SAME_SESSION_KEY: "ffmpeg-overlay",    _NIGHTLY_KEY: "ffmpeg-overlay"},
-    "embeddings": {_SAME_SESSION_KEY: "none",              _NIGHTLY_KEY: "none"},
+    "embeddings": {_SAME_SESSION_KEY: "none",              _NIGHTLY_KEY: PLAY_EMBED_BASELINE},
 }
 
 

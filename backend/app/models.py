@@ -36,10 +36,11 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.types import Vector
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ class JobType(enum.StrEnum):
     coverage = "coverage"
     oline = "oline"
     self_scout = "self_scout"
+    embeddings = "embeddings"
 
 
 class ModelStage(enum.StrEnum):
@@ -815,3 +817,146 @@ class ActiveLearningQueueItem(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ── Phase 3: learned play embeddings (Issue #8, design in #77) ────────────────
+
+
+# Embedding-vector dimensions are pinned to the design doc shape so the
+# pgvector column DDL, the fusion arithmetic in ``stage_embed`` and the
+# similarity search router all agree on the same numbers without having to
+# read schema metadata at runtime.
+PLAY_EMBEDDING_DIM: int = 256
+PLAY_EMBEDDING_VISUAL_DIM: int = 192
+PLAY_EMBEDDING_STRUCTURED_DIM: int = 64
+
+
+class PlayEmbedding(Base):
+    """A learned 256-d embedding describing one play (or play sub-chunk).
+
+    The primary retrievable vector is the fused ``vector`` column; the
+    sub-embeddings are retained so the retrieval router can re-weight
+    structured vs. visual contribution at query time without re-running
+    the encoder. ``UNIQUE (clip_id, chunk_kind, model_version_id)`` is the
+    upsert key.
+
+    ``is_experimental`` defaults to True — embeddings only flip to False
+    when a derived concept cluster has been reviewed and accepted by a
+    coach via ``EmbeddingClusterProposal``.
+    """
+
+    __tablename__ = "playembeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chunk_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="play")
+    snap_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Retrievable fused vector + retained sub-embeddings.
+    vector: Mapped[list[float]] = mapped_column(Vector(PLAY_EMBEDDING_DIM), nullable=False)
+    visual_vector: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_VISUAL_DIM), nullable=True
+    )
+    structured_vector: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_STRUCTURED_DIM), nullable=True
+    )
+
+    # Lineage
+    model_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    calibration_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("field_calibrations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # IDs of ``labels`` rows that fed the structured encoder; lets us
+    # target-re-embed only clips whose labels have since been corrected.
+    source_label_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+    used_sam_masks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Quality / governance
+    embedding_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_experimental: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    clip: Mapped["Clip"] = relationship("Clip")
+    model_version: Mapped["ModelVersion"] = relationship("ModelVersion")
+
+
+class EmbeddingClusterProposal(Base):
+    """An experimental concept cluster surfaced from playembeddings.
+
+    Produced by an offline clustering job over ``playembeddings.vector``
+    (HDBSCAN in v1). Each row is one cluster; ``member_clip_ids`` lists
+    the clips that fell into it.  Proposals are coach-reviewed: an
+    ``accept`` flips affiliated embeddings to ``is_experimental=False``
+    and is expected to be followed by ``coach_corrections`` rows for the
+    member clips.  A ``reject`` hides the proposal from further review.
+
+    All proposals carry ``status='pending'`` until reviewed, and nothing
+    in this table is ever surfaced on production dashboards — it lives
+    behind the coach review surface only.
+    """
+
+    __tablename__ = "embedding_cluster_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    model_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    # Cluster discriminator — usually the HDBSCAN cluster label as a string,
+    # so a single batch produces ``"0"``, ``"1"``, ... unique within the run.
+    cluster_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Working name the discovery job assigned (e.g. "embedding_cluster_3");
+    # coach renames it on accept.
+    proposed_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    member_clip_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+    # Cluster centroid in the same 256-d space as PlayEmbedding.vector.
+    centroid: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_DIM), nullable=True
+    )
+    member_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cohesion_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Review workflow
+    # status: "pending" | "accepted" | "rejected"
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    # is_experimental stays True until an accept also exports it as a
+    # coach correction; the search router relies on this flag to keep
+    # cluster output out of production results.
+    is_experimental: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # On accept, the name the coach chose for the concept (e.g. "mesh-like
+    # RPO read"). Null while pending.
+    accepted_label_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    model_version: Mapped["ModelVersion"] = relationship("ModelVersion")
+    reviewer: Mapped["User | None"] = relationship("User", foreign_keys=[reviewed_by])

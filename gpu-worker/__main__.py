@@ -279,6 +279,64 @@ def _dispatch(
                 model_path,
             )
 
+    elif job_type == "embeddings":
+        # Nightly-only by design (issue #76 + docs/embeddings-architecture.md
+        # §11). The variant ``play-embed-clip-vitb32-baseline`` is the only
+        # one in NIGHTLY_ONLY_VARIANTS for ``embeddings`` so the routing
+        # safety guard already prevents same-session execution.
+        from pipeline import stage_embed
+        from pipeline import backend as backend_mod
+
+        variant = model_router.select_model("embeddings", priority)
+        if variant == "none":
+            log.info("stage_embed_skipped_no_variant", clip_id=clip_id)
+            return {"embedding_skipped": True}
+        if model_router.is_same_session(priority):
+            log.warning(
+                "stage_embed_rejected_same_session",
+                clip_id=clip_id,
+                priority=priority,
+            )
+            return {"embedding_skipped": True, "reason": "same_session_blocked"}
+
+        model_version_id = input_artifacts.get("model_version_id")
+        if not model_version_id:
+            log.warning("stage_embed_missing_model_version_id", clip_id=clip_id)
+            return {"embedding_skipped": True, "reason": "missing_model_version_id"}
+
+        result = stage_embed.run(
+            clip_id=clip_id,
+            clip=input_artifacts.get("clip", {}),
+            tracklets=input_artifacts.get("tracklets", []),
+            track_points=input_artifacts.get("track_points", []),
+            pose_keypoints=input_artifacts.get("pose_keypoints", []),
+            labels=input_artifacts.get("labels", []),
+            events=input_artifacts.get("events", []),
+            fps=float(input_artifacts.get("fps", 60.0)),
+            sam_masks=input_artifacts.get("sam_masks"),
+        )
+        backend_mod.create_play_embedding(
+            clip_id=clip_id,
+            model_version_id=str(model_version_id),
+            vector=result.vector,
+            visual_vector=result.visual_vector,
+            structured_vector=result.structured_vector,
+            chunk_kind=result.chunk_kind,
+            snap_anchor=result.snap_anchor,
+            used_sam_masks=result.used_sam_masks,
+            embedding_confidence=result.embedding_confidence,
+            source_label_ids=result.source_label_ids,
+            calibration_version_id=input_artifacts.get("calibration_version_id"),
+            is_experimental=True,
+            job_id=job_id,
+        )
+        return {
+            "embedding_written": True,
+            "snap_anchor": result.snap_anchor,
+            "used_sam_masks": result.used_sam_masks,
+            "embedding_confidence": result.embedding_confidence,
+        }
+
     elif job_type == "render":
         tracklets = input_artifacts.get("tracklets", [])
         labels_list: list[dict[str, Any]] = input_artifacts.get("labels", [])

@@ -15,11 +15,13 @@ from app.routers.alerts_sse import router as alerts_sse_router
 from app.routers.auth import router as auth_router
 from app.routers.calibrations import router as calibrations_router
 from app.routers.clips import router as clips_router
+from app.routers.concept_proposals import router as concept_proposals_router
 from app.routers.correction_analytics import (
     router as correction_analytics_router,
 )
 from app.routers.correction_sync import router as correction_sync_router
 from app.routers.corrections import router as corrections_router
+from app.routers.embeddings import router as embeddings_router
 from app.routers.events import router as events_router
 from app.routers.inbox_integration import router as inbox_router
 from app.routers.jobs import router as jobs_router
@@ -27,6 +29,7 @@ from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
 from app.routers.pose import router as pose_router
+from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
@@ -82,3 +85,6 @@ app.include_router(alerts_router)
 app.include_router(inbox_router)
 app.include_router(correction_sync_router)
 app.include_router(pose_router)
+app.include_router(embeddings_router)
+app.include_router(search_router)
+app.include_router(concept_proposals_router)
