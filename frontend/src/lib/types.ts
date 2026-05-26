@@ -27,8 +27,11 @@ export interface ApiJob {
   job_type: string;
   status: string;
   priority: number;
+  pipeline_mode?: string | null;
+  is_same_session?: boolean;
   error_stage?: string | null;
   error_message?: string | null;
+  nightly_followup_job_id?: string | null;
   created_at: string;
 }
 

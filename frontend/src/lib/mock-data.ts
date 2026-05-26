@@ -122,12 +122,14 @@ export const footballData: FootballData = {
     video("v3", "Opponent Cutup Import.mp4", "uploaded"),
   ],
   jobs: [
-    job("Ingestion", "succeeded", 9),
-    job("Calibration", "succeeded", 8),
-    job("Detection", "succeeded", 8),
-    job("Tracking", "running", 8),
-    job("Pose Estimation", "queued", 5),
-    job("Analytics", "queued", 5),
+    job("Ingestion", "succeeded", 10, "same_session"),
+    job("Calibration", "succeeded", 10, "same_session"),
+    job("Detection", "succeeded", 10, "same_session"),
+    job("Tracking", "running", 10, "same_session"),
+    job("Pose Estimation", "queued", 10, "same_session"),
+    job("render", "queued", 10, "same_session"),
+    job("Detection (Full)", "queued", 0, "nightly"),
+    job("render_hls", "queued", 0, "nightly"),
   ],
   selfScout: sampleSelfScout,
   players: [
@@ -183,8 +185,16 @@ function video(id: string, filename: string, status: string) {
   return { id, filename, status, duration_seconds: 7080, fps: 60, width: 3840, height: 2160, created_at: "2026-05-14T14:00:00Z" };
 }
 
-function job(job_type: string, status: string, priority: number) {
-  return { id: job_type.toLowerCase().replaceAll(" ", "-"), job_type, status, priority, created_at: "2026-05-14T14:00:00Z" };
+function job(job_type: string, status: string, priority: number, pipeline_mode?: string) {
+  return {
+    id: job_type.toLowerCase().replaceAll(" ", "-"),
+    job_type,
+    status,
+    priority,
+    pipeline_mode: pipeline_mode ?? (priority >= 10 ? "same_session" : "nightly"),
+    is_same_session: priority >= 10,
+    created_at: "2026-05-14T14:00:00Z",
+  };
 }
 
 function player(jersey: string, name: string, position: string, group: string, maxSpeed: number, distance: number, separation: number, confidence: number, trendData: number[]) {

@@ -72,11 +72,17 @@ class JobType(enum.StrEnum):
     labels = "labels"
     metrics = "metrics"
     render = "render"
+    render_hls = "render_hls"
     routes = "routes"
     coverage = "coverage"
     oline = "oline"
     self_scout = "self_scout"
     embeddings = "embeddings"
+
+
+class PipelineMode(enum.StrEnum):
+    same_session = "same_session"
+    nightly = "nightly"
 
 
 class ModelStage(enum.StrEnum):
@@ -302,10 +308,16 @@ class ProcessingJob(Base):
         Enum(JobStatus, name="job_status"), nullable=False, default=JobStatus.queued
     )
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pipeline_mode: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None, index=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_stage: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nightly_followup_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     input_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     output_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(

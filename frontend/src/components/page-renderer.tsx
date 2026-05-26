@@ -197,8 +197,124 @@ function Dashboard() {
         </div>
       </section>
 
+      <PracticeInbox jobs={data.jobs} />
+
       <BottomInsights data={data} />
     </div>
+  );
+}
+
+function PracticeInbox({ jobs }: { jobs: readonly import("@/lib/types").ApiJob[] }) {
+  const sameSession = jobs.filter((j) => j.is_same_session || j.pipeline_mode === "same_session");
+  const nightly = jobs.filter((j) => !j.is_same_session && j.pipeline_mode !== "same_session");
+
+  const statusColor = (s: string) => {
+    if (s === "succeeded") return "var(--accent-green, #4ade80)";
+    if (s === "running") return "var(--accent-amber, #fbbf24)";
+    if (s === "failed") return "var(--accent-red, #f87171)";
+    return "var(--text-muted, #94a3b8)";
+  };
+
+  const modeLabel = (j: import("@/lib/types").ApiJob) =>
+    j.pipeline_mode === "same_session" || j.is_same_session
+      ? "Same-Session"
+      : "Nightly";
+
+  const modeBadge = (j: import("@/lib/types").ApiJob) => {
+    const label = modeLabel(j);
+    const bg = label === "Same-Session"
+      ? "oklch(0.65 0.18 145 / 0.25)"
+      : "oklch(0.55 0.12 250 / 0.25)";
+    return (
+      <span
+        style={{
+          display: "inline-block",
+          padding: "1px 6px",
+          borderRadius: 4,
+          fontSize: "0.65rem",
+          fontWeight: 700,
+          background: bg,
+          color: "var(--text)",
+          marginLeft: 6,
+        }}
+      >
+        {label}
+      </span>
+    );
+  };
+
+  const renderJobRow = (j: import("@/lib/types").ApiJob) => (
+    <div
+      key={j.id}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "4px 0",
+        borderBottom: "1px solid var(--line-soft, #333)",
+        fontSize: "0.78rem",
+      }}
+    >
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: statusColor(j.status),
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ flex: 1, fontWeight: 600 }}>
+        {j.job_type}
+        {modeBadge(j)}
+      </span>
+      <span style={{ color: statusColor(j.status), fontWeight: 600, textTransform: "capitalize" }}>
+        {j.status}
+      </span>
+    </div>
+  );
+
+  return (
+    <section className="panel panel-pad span-12">
+      <h2 className="panel-title">Practice Inbox — Processing Status</h2>
+      <p className="kicker" style={{ marginBottom: 8 }}>
+        {sameSession.length} same-session · {nightly.length} nightly
+      </p>
+      {sameSession.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <h3
+            style={{
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--accent-green, #4ade80)",
+              marginBottom: 4,
+            }}
+          >
+            Same-Session (period-break)
+          </h3>
+          {sameSession.map(renderJobRow)}
+        </div>
+      )}
+      {nightly.length > 0 && (
+        <div>
+          <h3
+            style={{
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--text-muted, #94a3b8)",
+              marginBottom: 4,
+            }}
+          >
+            Nightly (full quality)
+          </h3>
+          {nightly.map(renderJobRow)}
+        </div>
+      )}
+    </section>
   );
 }
 

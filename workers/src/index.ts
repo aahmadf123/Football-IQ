@@ -99,20 +99,29 @@ export default {
         videoId: string;
         jobType: string;
         priority?: number;
+        pipelineMode?: "same_session" | "nightly";
         inputUri: string;
       };
       if (!body.jobId || !body.videoId || !body.jobType || !body.inputUri) {
         return json({ error: "jobId, videoId, jobType, and inputUri are required" }, 400);
       }
+      const priority = body.priority ?? 0;
       await enqueueVideoProcessingJob(env, {
         jobId: body.jobId,
         videoId: body.videoId,
         jobType: body.jobType,
-        priority: body.priority ?? 0,
+        priority,
+        pipelineMode: body.pipelineMode,
         inputUri: body.inputUri,
         submittedAt: new Date().toISOString(),
       });
-      return json({ queued: true, jobId: body.jobId }, 202);
+      const isSameSession = priority >= 10;
+      return json({
+        queued: true,
+        jobId: body.jobId,
+        pipelineMode: isSameSession ? "same_session" : "nightly",
+        queue: isSameSession ? "same-session-jobs" : "video-processing-jobs",
+      }, 202);
     }
 
     return json({ error: "Not found" }, 404);
