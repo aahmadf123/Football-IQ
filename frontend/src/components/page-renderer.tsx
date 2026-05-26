@@ -120,7 +120,7 @@ export function PageRenderer({ page }: { page: PageKey }) {
         </div>
       )}
       {page === "dashboard" && <Dashboard data={data} />}
-      {page === "video-and-plays" && <VideoAndPlays data={data} />}
+      {page === "video-and-plays" && <VideoAndPlays data={data} onUploadClick={handleUploadClick} />}
       {page === "players" && <Players data={data} />}
       {page === "analytics" && <Analytics data={data} />}
       {page === "self-scout" && <SelfScout data={data} />}
@@ -223,7 +223,7 @@ function Dashboard({ data }: { data: FootballData }) {
   );
 }
 
-function VideoAndPlays({ data }: { data: FootballData }) {
+function VideoAndPlays({ data, onUploadClick }: { data: FootballData; onUploadClick: () => void }) {
   return (
     <div className="content-grid">
       <section className="panel span-7">
@@ -232,7 +232,7 @@ function VideoAndPlays({ data }: { data: FootballData }) {
             <h2 className="panel-title">Clip Review</h2>
             <p className="kicker">Editable boundaries, overlays, comments, and labels</p>
           </div>
-          <button className="control-button primary" onClick={handleUploadClick}><Upload size={15} /> Upload Film</button>
+          <button className="control-button primary" onClick={onUploadClick}><Upload size={15} /> Upload Film</button>
         </div>
         <FieldStage />
         <VideoControls />
