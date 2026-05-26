@@ -118,8 +118,9 @@ conservative because the model is out-of-domain.
 > **`LearnedPlaySegmenter` is the recommended next investment.**
 > The rules+ML hybrid already beats optical flow on the spike corpus
 > while staying within the Issue #16 same-session latency budget
-> (~10% over the optical-flow baseline). The `_score_gap` /
-> `_duration_prior` seam is where a trained boundary model
+> (~10% over the optical-flow baseline). The inline gap-score
+> composition in `segment()` + `_duration_prior` is where a trained
+> boundary model
 > (e.g. fine-tuned on coach corrections) will plug in once we have
 > enough labelled boundaries to train one. Until then, `learned_play`
 > stays opt-in via `SEGMENTER_VARIANT` and the same-session default

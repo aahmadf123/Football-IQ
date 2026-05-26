@@ -64,6 +64,10 @@ def test_validate_boundary_rejects_missing_fields() -> None:
     assert not validate_boundary("not a dict")  # type: ignore[arg-type]
 
 
+def test_validate_boundary_rejects_negative_time() -> None:
+    assert not validate_boundary({"time_s": -0.1, "confidence": 0.5, "source": "x"})
+
+
 # ── Stub segmenter ────────────────────────────────────────────────────────────
 
 
@@ -219,6 +223,7 @@ def test_get_segmenter_default_is_optical_flow() -> None:
     assert isinstance(get_segmenter(None), OpticalFlowSegmenter)
     assert isinstance(get_segmenter(""), OpticalFlowSegmenter)
     assert isinstance(get_segmenter(OPTICAL_FLOW), OpticalFlowSegmenter)
+    assert isinstance(get_segmenter("optical-flow-fast"), OpticalFlowSegmenter)
 
 
 def test_get_segmenter_learned_returns_learned() -> None:

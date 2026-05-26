@@ -63,6 +63,7 @@ SOURCE_STUB = "stub"
 
 # Variant identifiers used by the factory + stage_segment env knob.
 OPTICAL_FLOW = "optical_flow"
+OPTICAL_FLOW_FAST = "optical-flow-fast"
 SPORTSBD = "sportsbd"
 LEARNED_PLAY = "learned_play"
 STUB_SEGMENTER = "stub"
@@ -267,9 +268,10 @@ class LearnedPlaySegmenter(SegmenterBase):
        suppressed and end-of-play huddles get reinforced.
     4. Drop low-confidence candidates below ``min_confidence``.
 
-    The seam for a future trained boundary model is the ``_score_gap``
-    method: swap the rules-based score for a model probability and the
-    rest of the pipeline keeps working unchanged.
+    The seam for a future trained boundary model is the inline
+    ``base`` score composition in ``segment()``: swap the rules-based
+    score for a model probability and keep the existing duration-prior
+    weighting / post-filter pipeline unchanged.
     """
 
     source = SOURCE_LEARNED
@@ -370,7 +372,7 @@ def get_segmenter(variant: str | None) -> SegmenterBase:
     """
     v = (variant or "").lower().strip()
 
-    if v in ("", OPTICAL_FLOW):
+    if v in ("", OPTICAL_FLOW, OPTICAL_FLOW_FAST):
         return OpticalFlowSegmenter()
 
     if v == SPORTSBD:
@@ -398,6 +400,8 @@ def validate_boundary(boundary: dict[str, Any]) -> bool:
     if not isinstance(boundary, dict):
         return False
     if not isinstance(boundary.get("time_s"), (int, float)):
+        return False
+    if float(boundary["time_s"]) < 0.0:
         return False
     conf = boundary.get("confidence")
     if not isinstance(conf, (int, float)) or not 0.0 <= float(conf) <= 1.0:
