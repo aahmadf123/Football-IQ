@@ -93,7 +93,7 @@ Applied to: D2, D3, D4, D7, D8.
 ### 3.2 NVENC — Hardware-Accelerated Encode
 
 The same `hwaccel.py` module provides:
-- `nvenc_ffmpeg_args()` — returns ffmpeg codec flags for NVENC H.264, or `libx264` fallback.
+- `nvenc_ffmpeg_codec_args()` — returns ffmpeg codec flags for NVENC H.264, or `libx264` fallback.
 - `probe_nvenc()` — one-time check for NVENC availability (cached).
 
 Applied to: E3 (HLS encoder). E1/E2 remain on `cv2.VideoWriter` with `mp4v` because OpenCV's NVENC support requires a custom build; the overlay render is I/O-bound on drawing, not on the final encode.
