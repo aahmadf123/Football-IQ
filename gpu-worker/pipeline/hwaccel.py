@@ -55,6 +55,22 @@ def probe_nvdec() -> bool:
         log.info("nvdec_unavailable_no_gpu")
         return False
 
+    try:
+        build_info = cv2.getBuildInformation()
+    except Exception:
+        log.warning("nvdec_unavailable_opencv_build_info_error")
+        return False
+
+    ffmpeg_enabled = False
+    for line in build_info.splitlines():
+        if "ffmpeg" in line.lower() and "yes" in line.lower():
+            ffmpeg_enabled = True
+            break
+
+    if not ffmpeg_enabled:
+        log.info("nvdec_unavailable_no_opencv_ffmpeg")
+        return False
+
     log.info("nvdec_available")
     return True
 
