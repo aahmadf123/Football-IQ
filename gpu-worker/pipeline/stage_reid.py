@@ -46,27 +46,81 @@ def run(
         if p.get("jersey_number") is not None
     }
 
+    adapter = _get_reid_adapter()
     cap = cv2.VideoCapture(str(video_path))
     assigned = 0
 
+    # Gallery of (embedding, player_id) built from already-identified tracklets.
+    gallery: list[tuple[np.ndarray, str]] = []
+
     for tracklet in tracklets:
         if tracklet.get("player_id"):
-            continue  # already assigned
+            # Seed the gallery so later tracklets can match against known players.
+            if adapter is not None:
+                emb = _extract_tracklet_embedding(tracklet, cap, adapter)
+                if emb is not None:
+                    gallery.append((emb, tracklet["player_id"]))
+            continue
 
-        player_id = _identify_tracklet(tracklet, cap, jersey_map)
+        player_id = _identify_tracklet(tracklet, cap, jersey_map, adapter, gallery)
         if player_id:
             _patch_tracklet(tracklet["id"], player_id, backend_api_url)
             assigned += 1
+            if adapter is not None:
+                emb = _extract_tracklet_embedding(tracklet, cap, adapter)
+                if emb is not None:
+                    gallery.append((emb, player_id))
 
     cap.release()
     log.info("stage_reid_done", clip_id=clip_id, assigned=assigned)
     return {"assigned": assigned, "total": len(tracklets)}
 
 
+def _extract_tracklet_embedding(
+    tracklet: dict[str, Any],
+    cap: Any,
+    adapter: "NvidiaReIDAdapter",
+) -> "np.ndarray | None":
+    """Extract a representative L2-normalised embedding for a tracklet."""
+    points = tracklet.get("track_points", [])
+    if not points:
+        return None
+    mid = len(points) // 2
+    sample_indices = list({0, mid, len(points) - 1})
+    embeddings: list[np.ndarray] = []
+    for idx in sample_indices:
+        pt = points[idx]
+        bbox = pt.get("bbox")
+        if not bbox:
+            continue
+        cap.set(cv2.CAP_PROP_POS_FRAMES, pt.get("frame_number", 0))
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        h, w = frame.shape[:2]
+        crop = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+        if crop.size == 0:
+            continue
+        try:
+            embeddings.append(adapter.extract_embedding(crop))
+        except Exception as exc:
+            log.warning("reid_embedding_failed", error=str(exc))
+    if not embeddings:
+        return None
+    avg: np.ndarray = np.mean(embeddings, axis=0)
+    norm = float(np.linalg.norm(avg))
+    if norm > 1e-6:
+        avg = avg / norm
+    return avg
+
+
 def _identify_tracklet(
     tracklet: dict[str, Any],
     cap: Any,
     jersey_map: dict[int, str],
+    adapter: "NvidiaReIDAdapter | None" = None,
+    gallery: "list[tuple[np.ndarray, str]] | None" = None,
 ) -> str | None:
     """Return a player_id UUID string if we can identify this tracklet, else None."""
     points = tracklet.get("track_points", [])
@@ -90,6 +144,23 @@ def _identify_tracklet(
         number = _ocr_jersey(frame, bbox)
         if number is not None and number in jersey_map:
             return jersey_map[number]
+
+    # OCR found nothing — fall back to appearance-based matching via the ReID adapter.
+    if adapter is not None and gallery:
+        try:
+            emb = _extract_tracklet_embedding(tracklet, cap, adapter)
+            if emb is not None:
+                best_pid: str | None = None
+                best_sim = -1.0
+                for ref_emb, pid in gallery:
+                    sim = adapter.match(emb, ref_emb)
+                    if sim >= adapter._threshold and sim > best_sim:
+                        best_sim = sim
+                        best_pid = pid
+                if best_pid is not None:
+                    return best_pid
+        except Exception as exc:
+            log.warning("reid_gallery_match_failed", error=str(exc))
 
     return None
 
