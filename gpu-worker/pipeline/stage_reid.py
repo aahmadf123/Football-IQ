@@ -13,6 +13,7 @@ Output: Tracklets updated with player_id via PATCH /api/v1/tracklets/{id}.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -121,6 +122,93 @@ def _ocr_jersey(frame: Any, bbox: list[float]) -> int | None:
         if text and re.fullmatch(r"\d{1,2}", text) and int(conf) >= MIN_OCR_CONFIDENCE:
             return int(text)
     return None
+
+
+# ── NVIDIA TAO ReIdentificationNet adapter (Phase 2.5 spike) ──────────────
+
+
+class NvidiaReIDAdapter:
+    """Optional Re-ID adapter using NVIDIA TAO ReIdentificationNet.
+
+    Extracts 256-d appearance embeddings from player bounding-box crops and
+    compares them across tracklets using cosine similarity.  Falls back
+    gracefully to jersey OCR when weights or VRAM are unavailable.
+
+    Activation: set ``REID_MODEL=nvidia-tao:/path/to/resnet50_reid.onnx``.
+
+    The model expects 256×128 RGB crops and outputs a 256-d L2-normalised
+    embedding vector.
+
+    Args:
+        model_path: Path to the ``.onnx`` weights file.
+        device_id:  CUDA device ordinal (default 0).
+        threshold:  Cosine-similarity threshold for a positive match (default 0.6).
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        device_id: int = 0,
+        threshold: float = 0.6,
+    ) -> None:
+        from pathlib import Path as _P
+
+        weights = _P(model_path)
+        if not weights.is_file():
+            raise FileNotFoundError(
+                f"TAO ReIdentificationNet weights not found: {weights}. "
+                "Download from NGC: ngc registry model download-version "
+                "nvidia/tao/reidentificationnet:deployable_onnx_v1.0"
+            )
+
+        try:
+            import onnxruntime as ort  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise ImportError(
+                "onnxruntime-gpu is required for NvidiaReIDAdapter. "
+                "Install with: pip install onnxruntime-gpu"
+            ) from exc
+
+        providers = [("CUDAExecutionProvider", {"device_id": device_id})]
+        self._session = ort.InferenceSession(str(weights), providers=providers)
+        self._input_name = self._session.get_inputs()[0].name
+        self._threshold = threshold
+        log.info("nvidia_reid_initialized", model_path=model_path, device_id=device_id)
+
+    def extract_embedding(self, crop: np.ndarray) -> np.ndarray:
+        """Return a 256-d L2-normalised embedding for a BGR player crop."""
+        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb, (128, 256))
+        blob = resized.astype(np.float32).transpose(2, 0, 1)[np.newaxis] / 255.0
+        outputs = self._session.run(None, {self._input_name: blob})
+        emb = outputs[0].flatten().astype(np.float64)
+        norm = np.linalg.norm(emb)
+        if norm > 1e-6:
+            emb /= norm
+        return emb
+
+    def match(self, emb_a: np.ndarray, emb_b: np.ndarray) -> float:
+        """Return cosine similarity between two embeddings."""
+        return float(np.dot(emb_a, emb_b))
+
+    def is_match(self, emb_a: np.ndarray, emb_b: np.ndarray) -> bool:
+        return self.match(emb_a, emb_b) >= self._threshold
+
+
+_NVIDIA_TAO_PREFIX = "nvidia-tao:"
+
+
+def _get_reid_adapter() -> NvidiaReIDAdapter | None:
+    """Return an NvidiaReIDAdapter if configured and available, else None."""
+    reid_model = os.environ.get("REID_MODEL", "")
+    if not reid_model.startswith(_NVIDIA_TAO_PREFIX):
+        return None
+    weights = reid_model[len(_NVIDIA_TAO_PREFIX):]
+    try:
+        return NvidiaReIDAdapter(weights)
+    except (ImportError, FileNotFoundError, RuntimeError) as exc:
+        log.warning("nvidia_reid_unavailable_fallback", error=str(exc))
+        return None
 
 
 def _patch_tracklet(tracklet_id: str, player_id: str, backend_api_url: str) -> None:

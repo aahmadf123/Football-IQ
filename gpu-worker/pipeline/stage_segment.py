@@ -54,7 +54,9 @@ def _uri_to_r2_key(uri: str) -> str:
 
 
 def _segment(video_id: str, video_path: Path, job_id: str) -> dict[str, Any]:
-    cap = cv2.VideoCapture(str(video_path))
+    from pipeline.hwaccel import nvdec_video_capture
+
+    cap = nvdec_video_capture(video_path)
     native_fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / native_fps

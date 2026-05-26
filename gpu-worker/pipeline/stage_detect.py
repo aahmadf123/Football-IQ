@@ -60,8 +60,10 @@ def _uri_to_r2_key(uri: str) -> str:
 def _detect(video_path: Path) -> dict[str, Any]:
     from ultralytics import YOLO  # type: ignore[import-untyped]
 
+    from pipeline.hwaccel import nvdec_video_capture
+
     model = YOLO(MODEL_PATH)
-    cap = cv2.VideoCapture(str(video_path))
+    cap = nvdec_video_capture(video_path)
     fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
     detections: dict[str, list[dict[str, Any]]] = {}

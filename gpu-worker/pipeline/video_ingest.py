@@ -98,7 +98,9 @@ class LocalFileVideoSource(VideoSource):
         if not self._path.exists():
             raise FileNotFoundError(f"Video file not found: {self._path}")
 
-        cap = cv2.VideoCapture(str(self._path))
+        from pipeline.hwaccel import nvdec_video_capture
+
+        cap = nvdec_video_capture(self._path)
         if not cap.isOpened():
             raise OSError(f"OpenCV could not open: {self._path}")
 
@@ -150,7 +152,9 @@ class LocalFileVideoSource(VideoSource):
 
     def iter_frames(self, stride: int = 1) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, BGR frame) for every `stride`-th frame."""
-        cap = self._cv2.VideoCapture(str(self._path))
+        from pipeline.hwaccel import nvdec_video_capture
+
+        cap = nvdec_video_capture(self._path)
         if not cap.isOpened():
             log.error("video_source_open_failed", path=str(self._path))
             return

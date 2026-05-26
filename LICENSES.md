@@ -83,6 +83,30 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## NVIDIA Video Codec SDK (NVDEC / NVENC)
+
+| Field | Detail |
+|---|---|
+| **Component** | NVIDIA Video Codec SDK — hardware-accelerated video decode (NVDEC) and encode (NVENC) |
+| **License** | MIT-style permissive license (NVIDIA Video Codec SDK License Agreement) |
+| **Access** | Bundled with NVIDIA GPU drivers (≥ 470.x); no separate download required for runtime use. SDK headers available at https://developer.nvidia.com/video-codec-sdk |
+| **Commercial use** | Yes — freely usable in commercial products |
+| **Football-IQ usage** | Phase 2.5 — Issue #76: `pipeline/hwaccel.py` provides NVDEC-accelerated `cv2.VideoCapture` and NVENC-accelerated ffmpeg encode for `renderer/hls_encoder.py`. Transparent CPU fallback when GPU is unavailable. |
+| **Notes** | NVDEC/NVENC capabilities are accessed through OpenCV's FFmpeg backend and the `ffmpeg` CLI (`h264_nvenc`). No NVIDIA SDK headers are compiled into Football-IQ. The driver-level codec libraries (`libnvcuvid.so`, `libnvidia-encode.so`) are part of the standard NVIDIA driver installation. |
+
+---
+
+## ONNX Runtime (GPU)
+
+| Field | Detail |
+|---|---|
+| **Library** | `onnxruntime-gpu` by Microsoft |
+| **License** | MIT |
+| **Access** | `pip install onnxruntime-gpu` — no account required |
+| **Football-IQ usage** | Phase 2.5 — Issue #76: optional runtime for NVIDIA TAO BodyPose3DNet and ReIdentificationNet ONNX models in `pipeline/pose_estimator.py` and `pipeline/stage_reid.py`. Only loaded when the corresponding model is configured. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.
@@ -92,4 +116,4 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
-*Last updated: May 25, 2026*
+*Last updated: May 26, 2026*
