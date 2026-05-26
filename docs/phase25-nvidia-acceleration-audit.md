@@ -121,9 +121,9 @@ NVIDIA DeepStream SDK is **explicitly deferred** from Phase 2.5 for the followin
 
 4. **Operational complexity:** DeepStream requires the DeepStream container (`nvcr.io/nvidia/deepstream:*`), a specific GStreamer version, and the `deepstream-app` configuration format. This adds significant operational surface area for the GPU worker Docker image.
 
-5. **Incremental path exists:** NVDEC/NVENC via OpenCV + ffmpeg flags gives us 60–80% of the decode/encode speedup with zero architectural change and clean CPU fallback. DeepStream can be revisited in Phase 4 if we move to real-time streaming or multi-camera setups.
+5. **Incremental path exists:** NVDEC/NVENC via OpenCV + ffmpeg flags gives us 60–80% of the decode/encode speedup with zero architectural change and clean CPU fallback. DeepStream can be revisited in Phase 4 if we move to real-time streaming at sustained high concurrency.
 
-**Recommendation:** Revisit DeepStream in Phase 4 when/if Football-IQ needs real-time multi-camera streaming or when the batch workload exceeds 10 concurrent clips.
+**Recommendation:** Revisit DeepStream in Phase 4 when/if Football-IQ needs real-time streaming at scale or when the batch workload exceeds 10 concurrent clips. Multi-camera streaming remains out of scope for the current product.
 
 ---
 

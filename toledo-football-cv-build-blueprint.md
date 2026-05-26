@@ -173,7 +173,7 @@ The best Phase 1 choice is likely Cloudflare Pages + Workers + R2 for the user-f
 
 ### Capture layer
 
-Start with stable overhead practice capture. The preferred setup is one high, wide drone or elevated tactical camera that keeps all 22 players and field markings visible. If budget allows, add a second angle only after the single-angle pipeline is reliable. The second angle should solve a specific problem such as jersey number visibility, end-zone line play, or sideline occlusions.
+Start with stable overhead practice capture. The preferred setup is one high, wide drone or elevated tactical camera that keeps all 22 players and field markings visible. Multi-camera capture is out of scope for the current Football-IQ product.
 
 Minimum capture standards:
 
@@ -181,7 +181,7 @@ Minimum capture standards:
 - Manual or locked exposure when lighting is stable.
 - Consistent altitude and field framing.
 - Field markings visible throughout the play.
-- Standard naming convention for practice date, period, drill, and camera.
+- Standard naming convention for practice date, period, drill, and fixed source tag (`DRONEA`).
 
 ### Data layer
 
@@ -406,4 +406,3 @@ The current plan is strong technically, but it needs more operational discipline
 6. Freeze MVP scope around the features coaches actually say they would use weekly.
 
 The winning version of this project is not the one with the most impressive model list. The winning version is the one that the coaching staff trusts, corrects, and uses every week because it saves time, reveals tendencies, and improves player development.
-
