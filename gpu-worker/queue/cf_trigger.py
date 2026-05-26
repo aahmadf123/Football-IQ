@@ -68,12 +68,15 @@ def dispatch_on_upload(
     job_id = str(uuid.uuid4())
     priority = SAME_SESSION_PRIORITY if is_same_session else NIGHTLY_PRIORITY
 
+    pipeline_mode = "same_session" if is_same_session else "nightly"
+
     payload: dict[str, Any] = {
         "jobId": job_id,
         "jobType": job_type,
         "videoId": video_id,
         "inputUri": storage_uri,
         "priority": priority,
+        "pipelineMode": pipeline_mode,
     }
     if clip_id:
         payload["clipId"] = clip_id

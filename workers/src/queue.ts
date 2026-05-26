@@ -4,11 +4,15 @@
 
 import type { Env } from "./types.js";
 
+/** Same-session priority threshold — must match gpu-worker/queue/same_session_queue.py. */
+const SAME_SESSION_PRIORITY = 10;
+
 export interface VideoProcessingJob {
   jobId: string;
   videoId: string;
   jobType: string;
   priority: number;
+  pipelineMode?: "same_session" | "nightly";
   inputUri: string;
   submittedAt: string;
 }
@@ -23,7 +27,16 @@ export async function enqueueVideoProcessingJob(
   env: Env,
   job: VideoProcessingJob,
 ): Promise<void> {
-  await env.VIDEO_PROCESSING_QUEUE.send(job);
+  const isSameSession = job.priority >= SAME_SESSION_PRIORITY;
+  const enriched = {
+    ...job,
+    pipelineMode: job.pipelineMode ?? (isSameSession ? "same_session" : "nightly"),
+  };
+  if (isSameSession) {
+    await env.SAME_SESSION_QUEUE.send(enriched);
+  } else {
+    await env.VIDEO_PROCESSING_QUEUE.send(enriched);
+  }
 }
 
 export async function enqueueNightlyTrainingExport(

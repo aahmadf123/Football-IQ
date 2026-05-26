@@ -106,8 +106,15 @@ def ack_message(client: httpx.Client, lease_id: str) -> None:
 # ── Job processing ────────────────────────────────────────────────────────────
 
 def process_job(job: dict[str, Any]) -> None:
-    """Dispatch a single job to the appropriate processing stage."""
+    """Dispatch a single job to the appropriate processing stage.
+
+    Same-session jobs (priority >= SAME_SESSION_PRIORITY) are wrapped in the
+    8-minute timeout handler.  If the job exceeds the deadline it is requeued
+    for nightly processing and the backend job record is marked failed.
+    """
     from pipeline import model_router
+    from pipeline.lightweight_config import should_skip_stage
+    from worker.timeout_handler import JobTimeoutError, run_with_timeout
 
     job_id: str = job.get("jobId", "unknown")
     job_type: str = job.get("jobType", "")
@@ -115,22 +122,57 @@ def process_job(job: dict[str, Any]) -> None:
     clip_id: str = job.get("clipId", "")
     input_uri: str = job.get("inputUri", "")
     priority: int = int(job.get("priority", 0))
-    # Artifacts passed in from a preceding stage (e.g. detections for track stage)
     input_artifacts: dict[str, Any] = job.get("inputArtifacts", {})
+    is_same_session = model_router.is_same_session(priority)
 
-    log.info("processing_job", job_id=job_id, job_type=job_type,
-             video_id=video_id, clip_id=clip_id, priority=priority)
+    log.info(
+        "processing_job",
+        job_id=job_id,
+        job_type=job_type,
+        video_id=video_id,
+        clip_id=clip_id,
+        priority=priority,
+        pipeline_mode="same_session" if is_same_session else "nightly",
+    )
+
+    if should_skip_stage(job_type, priority):
+        log.info("stage_skipped_lightweight_path", job_type=job_type, job_id=job_id)
+        _update_job_status(
+            job_id, "succeeded",
+            output_artifacts={"skipped": True, "reason": "same_session_lightweight_path"},
+        )
+        return
 
     _update_job_status(job_id, "running")
 
     try:
-        artifacts = _dispatch(job_type, video_id, clip_id, input_uri,
-                              input_artifacts, job_id, priority)
+        if is_same_session:
+            artifacts = run_with_timeout(
+                _dispatch,
+                args=(job_type, video_id, clip_id, input_uri,
+                      input_artifacts, job_id, priority),
+                job_id=job_id,
+                job_payload=job,
+            )
+        else:
+            artifacts = _dispatch(
+                job_type, video_id, clip_id, input_uri,
+                input_artifacts, job_id, priority,
+            )
         artifacts = dict(artifacts or {})
         routing = model_router.build_routing_artifact(job_type, priority)
         artifacts.setdefault("model_routing", {}).update(routing)
+        if is_same_session:
+            artifacts["pipeline_mode"] = "same_session"
         _update_job_status(job_id, "succeeded", output_artifacts=artifacts)
         log.info("job_succeeded", job_id=job_id)
+
+        # After a same-session render completes, queue the nightly HLS follow-up.
+        if is_same_session and job_type == "render":
+            _queue_nightly_hls_followup(job, artifacts)
+
+    except JobTimeoutError:
+        log.warning("job_timeout_handled", job_id=job_id, priority=priority)
     except Exception as exc:
         log.error("job_failed", job_id=job_id, error=str(exc))
         _update_job_status(job_id, "failed", error_message=str(exc))
@@ -338,6 +380,9 @@ def _dispatch(
         }
 
     elif job_type == "render":
+        from pipeline.lightweight_config import use_period_renderer
+        from renderer import period_renderer
+
         tracklets = input_artifacts.get("tracklets", [])
         labels_list: list[dict[str, Any]] = input_artifacts.get("labels", [])
         metrics_list: list[dict[str, Any]] = input_artifacts.get("metrics", [])
@@ -345,12 +390,33 @@ def _dispatch(
         fps = float(input_artifacts.get("fps", 30))
         video_path = r2_mod.download_to_temp(_uri_to_r2_key(input_uri))
         try:
+            if use_period_renderer(priority):
+                return period_renderer.run(
+                    clip_id, video_path, tracklets, labels_list,
+                    analytics_safe, fps,
+                )
             return stage_render.run(
                 clip_id, video_path, tracklets, labels_list, metrics_list,
                 analytics_safe, fps, BACKEND_API_URL,
             )
         finally:
             video_path.unlink(missing_ok=True)
+
+    elif job_type == "render_hls":
+        from renderer import hls_encoder
+
+        overlay_uri = input_artifacts.get("overlay_uri") or input_artifacts.get(
+            "period_overlay_uri", ""
+        )
+        fps = float(input_artifacts.get("fps", 30))
+        if not overlay_uri:
+            log.warning("render_hls_missing_overlay_uri", job_id=job_id)
+            return {"hls_skipped": True, "reason": "no_overlay_uri"}
+        overlay_path = r2_mod.download_to_temp(_uri_to_r2_key(overlay_uri))
+        try:
+            return hls_encoder.run(clip_id, overlay_path, fps)
+        finally:
+            overlay_path.unlink(missing_ok=True)
 
     else:
         log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
@@ -361,6 +427,76 @@ def _uri_to_r2_key(uri: str) -> str:
     if uri.startswith("r2://"):
         return "/".join(uri.split("/")[3:])
     return uri
+
+
+def _queue_nightly_hls_followup(
+    original_job: dict[str, Any],
+    render_artifacts: dict[str, Any],
+) -> None:
+    """Queue a nightly follow-up render_hls job after same-session render."""
+    import uuid as _uuid
+
+    from queue.same_session_queue import NIGHTLY_PRIORITY, push_nightly_job
+
+    clip_id = original_job.get("clipId", "")
+    video_id = original_job.get("videoId", "")
+    overlay_uri = (
+        render_artifacts.get("period_overlay_uri")
+        or render_artifacts.get("overlay_uri", "")
+    )
+    followup_job_id = str(_uuid.uuid4())
+
+    followup_payload: dict[str, Any] = {
+        "jobId": followup_job_id,
+        "jobType": "render_hls",
+        "videoId": video_id,
+        "clipId": clip_id,
+        "inputUri": overlay_uri,
+        "priority": NIGHTLY_PRIORITY,
+        "inputArtifacts": {
+            "overlay_uri": overlay_uri,
+            "fps": render_artifacts.get("fps", 30),
+            "pipeline_mode": "nightly",
+            "_same_session_origin_job": original_job.get("jobId"),
+        },
+    }
+
+    try:
+        msg_id = push_nightly_job(followup_payload)
+        log.info(
+            "nightly_hls_followup_queued",
+            followup_job_id=followup_job_id,
+            clip_id=clip_id,
+            message_id=msg_id,
+        )
+    except Exception as exc:
+        log.error(
+            "nightly_hls_followup_queue_failed",
+            clip_id=clip_id,
+            error=str(exc),
+        )
+
+    # Best-effort: create a backend job record for the follow-up.
+    if BACKEND_API_URL:
+        try:
+            with httpx.Client(base_url=BACKEND_API_URL, timeout=10) as c:
+                c.post(
+                    "/api/v1/jobs",
+                    json={
+                        "id": followup_job_id,
+                        "video_id": video_id,
+                        "job_type": "render_hls",
+                        "priority": NIGHTLY_PRIORITY,
+                        "pipeline_mode": "nightly",
+                        "input_artifacts": followup_payload["inputArtifacts"],
+                    },
+                )
+        except Exception as exc:
+            log.warning(
+                "nightly_hls_followup_backend_create_failed",
+                followup_job_id=followup_job_id,
+                error=str(exc),
+            )
 
 
 def _update_job_status(

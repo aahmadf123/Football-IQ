@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
-from app.models import JobStatus, JobType, ProcessingJob, User, Video
+from app.models import JobStatus, JobType, PipelineMode, ProcessingJob, User, Video
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -27,6 +27,7 @@ class JobCreate(BaseModel):
     video_id: uuid.UUID
     job_type: JobType
     priority: int = 0
+    pipeline_mode: str | None = None
     input_artifacts: dict[str, Any] | None = None
     model_version_id: uuid.UUID | None = None
 
@@ -47,8 +48,11 @@ class JobResponse(BaseModel):
     job_type: str
     status: str
     priority: int
+    pipeline_mode: str | None
+    is_same_session: bool
     error_stage: str | None
     error_message: str | None
+    nightly_followup_job_id: uuid.UUID | None
     input_artifacts: dict[str, Any] | None
     output_artifacts: dict[str, Any] | None
     model_version_id: uuid.UUID | None
@@ -65,8 +69,11 @@ class JobResponse(BaseModel):
             job_type=j.job_type.value,
             status=j.status.value,
             priority=j.priority,
+            pipeline_mode=j.pipeline_mode,
+            is_same_session=j.priority >= 10,
             error_stage=j.error_stage,
             error_message=j.error_message,
+            nightly_followup_job_id=j.nightly_followup_job_id,
             input_artifacts=j.input_artifacts,
             output_artifacts=j.output_artifacts,
             model_version_id=j.model_version_id,
@@ -112,12 +119,16 @@ async def create_job(
     if vid_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
 
+    mode = body.pipeline_mode or (
+        PipelineMode.same_session if body.priority >= 10 else PipelineMode.nightly
+    )
     job = ProcessingJob(
         id=body.id or uuid.uuid4(),
         video_id=body.video_id,
         job_type=body.job_type,
         status=JobStatus.queued,
         priority=body.priority,
+        pipeline_mode=mode,
         input_artifacts=body.input_artifacts,
         model_version_id=body.model_version_id,
     )
@@ -197,6 +208,7 @@ async def retry_job(
         job_type=original.job_type,
         status=JobStatus.queued,
         priority=original.priority,
+        pipeline_mode=original.pipeline_mode,
         input_artifacts=original.input_artifacts,
         model_version_id=original.model_version_id,
     )

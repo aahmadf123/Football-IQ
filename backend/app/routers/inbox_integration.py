@@ -79,7 +79,9 @@ class JobStatusItem(BaseModel):
     job_type: str
     status: str
     priority: int
+    pipeline_mode: str | None
     is_same_session: bool
+    nightly_followup_job_id: uuid.UUID | None
     started_at: str | None
     finished_at: str | None
     error_stage: str | None
@@ -95,7 +97,9 @@ class JobStatusItem(BaseModel):
             job_type=j.job_type.value,
             status=j.status.value,
             priority=j.priority,
+            pipeline_mode=j.pipeline_mode,
             is_same_session=j.priority >= _SAME_SESSION_PRIORITY,
+            nightly_followup_job_id=j.nightly_followup_job_id,
             started_at=j.started_at.isoformat() if j.started_at else None,
             finished_at=j.finished_at.isoformat() if j.finished_at else None,
             error_stage=j.error_stage,
