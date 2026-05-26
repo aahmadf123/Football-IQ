@@ -399,7 +399,8 @@ def validate_boundary(boundary: dict[str, Any]) -> bool:
     """Return True iff ``boundary`` matches the documented schema."""
     if not isinstance(boundary, dict):
         return False
-    if not isinstance(boundary.get("time_s"), (int, float)):
+    time_s = boundary.get("time_s")
+    if not isinstance(time_s, (int, float)) or float(time_s) < 0.0:
         return False
     if float(boundary["time_s"]) < 0.0:
         return False
