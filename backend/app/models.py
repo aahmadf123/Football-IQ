@@ -876,7 +876,7 @@ class PlayEmbedding(Base):
     )
     # IDs of ``labels`` rows that fed the structured encoder; lets us
     # target-re-embed only clips whose labels have since been corrected.
-    source_label_ids: Mapped[list[str]] = mapped_column(
+    source_label_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list
     )
     used_sam_masks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -928,7 +928,7 @@ class EmbeddingClusterProposal(Base):
     # coach renames it on accept.
     proposed_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    member_clip_ids: Mapped[list[str]] = mapped_column(
+    member_clip_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list
     )
     # Cluster centroid in the same 256-d space as PlayEmbedding.vector.

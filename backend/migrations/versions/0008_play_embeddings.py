@@ -149,7 +149,7 @@ def upgrade() -> None:
         ),
         sa.Column("member_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("cohesion_score", sa.Float(), nullable=True),
-        sa.Column("status", sa.String(20), nullable=False, server_default="pending", index=True),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
         sa.Column(
             "is_experimental",
             sa.Boolean(),

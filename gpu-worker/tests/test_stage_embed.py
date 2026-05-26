@@ -95,7 +95,7 @@ def test_select_keyframe_indices_returns_eight_evenly_spaced_frames() -> None:
     assert idx[0] == 70
     assert idx[-1] == 190
     # Strictly increasing for the default 120-frame window.
-    assert all(b >= a for a, b in zip(idx, idx[1:], strict=False))
+    assert all(b > a for a, b in zip(idx, idx[1:], strict=False))
 
 
 def test_select_keyframe_indices_handles_single_frame_request() -> None:
