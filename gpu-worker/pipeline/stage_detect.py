@@ -65,7 +65,7 @@ def run(
         detector_kwargs: dict[str, Any] = {
             "confidence_threshold": DETECTION_CONF,
         }
-        if variant is None or selected_variant.startswith("yolo"):
+        if variant is None:
             detector_kwargs["model_path"] = MODEL_PATH
 
         detector = get_detector(selected_variant, **detector_kwargs)
