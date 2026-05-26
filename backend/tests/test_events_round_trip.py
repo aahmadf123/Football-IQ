@@ -215,7 +215,9 @@ def test_list_events_filter_by_event_type_compiles_into_sql() -> None:
         app.dependency_overrides.clear()
 
     assert resp.status_code == 200, resp.text
-    assert "events.event_type" in seen_sql["sql"]
+    sql = seen_sql["sql"]
+    assert "WHERE" in sql
+    assert "events.event_type" in sql.split("WHERE", 1)[1]
 
 
 def test_list_events_returns_404_when_clip_missing() -> None:

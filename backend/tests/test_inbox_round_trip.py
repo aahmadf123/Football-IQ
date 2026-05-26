@@ -177,7 +177,12 @@ def test_inbox_status_returns_empty_list_when_no_videos() -> None:
 
 def test_inbox_status_blocks_unauthorized_roles() -> None:
     """Players cannot view processing status."""
+
+    async def _db() -> AsyncGenerator[Any, None]:
+        yield AsyncMock()
+
     app.dependency_overrides[get_current_user] = lambda: _make_user(UserRole.player)
+    app.dependency_overrides[get_db] = _db
     try:
         with TestClient(app) as c:
             resp = c.get("/api/v1/inbox/status")
@@ -299,10 +304,12 @@ def test_inbox_jobs_same_session_only_filter_compiles_into_sql() -> None:
 
     assert resp.status_code == 200, resp.text
     sql = seen_sql["sql"]
+    assert "WHERE" in sql
+    where_clause = sql.split("WHERE", 1)[1]
     # Active-status filter must always be applied.
-    assert "processing_jobs.status" in sql
+    assert "processing_jobs.status" in where_clause
     # Same-session filter is priority-based.
-    assert "processing_jobs.priority" in sql
+    assert "processing_jobs.priority" in where_clause
 
 
 def test_inbox_jobs_filters_by_video_id() -> None:
@@ -330,4 +337,6 @@ def test_inbox_jobs_filters_by_video_id() -> None:
         app.dependency_overrides.clear()
 
     assert resp.status_code == 200, resp.text
-    assert "processing_jobs.video_id" in seen_sql["sql"]
+    sql = seen_sql["sql"]
+    assert "WHERE" in sql
+    assert "processing_jobs.video_id" in sql.split("WHERE", 1)[1]

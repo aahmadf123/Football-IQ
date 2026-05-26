@@ -153,7 +153,11 @@ def test_create_correction_returns_404_when_clip_missing() -> None:
 
 
 def test_create_correction_rejects_invalid_type() -> None:
+    async def _db() -> AsyncGenerator[Any, None]:
+        yield AsyncMock()
+
     _override_auth()
+    app.dependency_overrides[get_db] = _db
     try:
         with TestClient(app) as c:
             resp = c.post(
@@ -226,8 +230,10 @@ def test_list_corrections_filters_by_clip_id_and_exported() -> None:
 
     assert resp.status_code == 200, resp.text
     sql = seen_sql["sql"]
-    assert "coach_corrections.clip_id" in sql
-    assert "coach_corrections.exported_as_label" in sql
+    assert "WHERE" in sql
+    where_clause = sql.split("WHERE", 1)[1]
+    assert "coach_corrections.clip_id" in where_clause
+    assert "coach_corrections.exported_as_label" in where_clause
 
 
 # ── Bulk sync (iPad) ──────────────────────────────────────────────────────────
@@ -246,15 +252,12 @@ def test_sync_corrections_persists_each_item() -> None:
             text = str(stmt)
             result = MagicMock()
             if "FROM clips" in text:
-                # Extract whichever clip id the where-clause is filtering on
-                # by trial: just return the first matching clip we know.
-                for c in stmt.whereclause.get_children():
-                    # Walk literal binds to find the UUID
-                    for grandchild in c.get_children():
-                        val = getattr(grandchild, "value", None)
-                        if isinstance(val, uuid.UUID) and val in clip_map:
-                            result.scalar_one_or_none.return_value = clip_map[val]
-                            return result
+                # Extract the clip_id from the compiled bind parameters.
+                compiled = stmt.compile(compile_kwargs={"literal_binds": False})
+                for val in compiled.params.values():
+                    if isinstance(val, uuid.UUID) and val in clip_map:
+                        result.scalar_one_or_none.return_value = clip_map[val]
+                        return result
                 result.scalar_one_or_none.return_value = clip_a
             else:
                 # Dedup lookup → no prior correction
@@ -360,17 +363,19 @@ def test_sync_corrections_dedup_skips_recent_duplicate() -> None:
     existing = _make_correction(clip_id=clip.id)
 
     call_count = {"n": 0}
+    dedup_sql: dict[str, str] = {}
 
     async def _db() -> AsyncGenerator[Any, None]:
         session = AsyncMock()
 
-        async def _execute(_stmt: Any) -> Any:
+        async def _execute(stmt: Any) -> Any:
             call_count["n"] += 1
             result = MagicMock()
             # Sequence per item: 1) clip lookup, 2) dedup lookup
             if call_count["n"] % 2 == 1:
                 result.scalar_one_or_none.return_value = clip
             else:
+                dedup_sql["sql"] = str(stmt.compile(compile_kwargs={"literal_binds": False}))
                 result.scalar_one_or_none.return_value = existing
             return result
 
@@ -403,6 +408,13 @@ def test_sync_corrections_dedup_skips_recent_duplicate() -> None:
     assert body["synced_count"] == 0
     assert body["skipped_count"] == 1
     assert captured == []
+
+    # Verify the dedup query includes the created_at window predicate.
+    assert "sql" in dedup_sql, "dedup lookup query was not captured"
+    sql = dedup_sql["sql"]
+    assert "WHERE" in sql
+    where_clause = sql.split("WHERE", 1)[1]
+    assert "coach_corrections.created_at" in where_clause
 
 
 # ── Correction analytics summary ──────────────────────────────────────────────

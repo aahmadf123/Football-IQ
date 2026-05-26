@@ -132,13 +132,18 @@ def test_list_jobs_filters_by_status_job_type_and_video() -> None:
 
     assert resp.status_code == 200, resp.text
     sql = seen_sql["sql"]
-    assert "processing_jobs.status" in sql
-    assert "processing_jobs.job_type" in sql
-    assert "processing_jobs.video_id" in sql
+    assert "WHERE" in sql
+    assert "processing_jobs.status" in sql.split("WHERE")[1]
+    assert "processing_jobs.job_type" in sql.split("WHERE")[1]
+    assert "processing_jobs.video_id" in sql.split("WHERE")[1]
 
 
 def test_list_jobs_rejects_invalid_status() -> None:
+    async def _db() -> AsyncGenerator[Any, None]:
+        yield AsyncMock()
+
     _override_auth()
+    app.dependency_overrides[get_db] = _db
     try:
         with TestClient(app) as c:
             resp = c.get("/api/v1/jobs", params={"status": "exploded"})
