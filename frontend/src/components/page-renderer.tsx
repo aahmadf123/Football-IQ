@@ -20,7 +20,18 @@ export function PageRenderer({ page }: { page: PageKey }) {
   return (
     <FootballShell activePage={page}>
       {source === "fallback" && (
-        <div className="panel panel-pad" style={{ marginBottom: 12, color: "var(--muted)" }}>
+        <div
+          className="fallback-banner"
+          style={{
+            marginBottom: 8,
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "1px solid var(--line-soft)",
+            background: "oklch(0.18 0.04 252 / 0.6)",
+            color: "var(--muted)",
+            fontSize: "0.74rem",
+          }}
+        >
           {loading ? "Checking live API..." : "Using polished fallback data. Connect NEXT_PUBLIC_API_URL for live data."}
           {error ? ` ${error}` : ""}
         </div>
@@ -42,16 +53,16 @@ export function PageRenderer({ page }: { page: PageKey }) {
 
 function Dashboard({ data }: { data: FootballData }) {
   return (
-    <div className="content-grid">
-      <section className="panel span-8">
+    <div className="dashboard-page content-grid">
+      <section className="panel span-8 dash-film">
         <div className="panel-header">
           <div>
             <h2 className="panel-title">Practice Film</h2>
             <p className="kicker">Play 42 / 112 · Formation Trips Right · Personnel 11</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="icon-button" aria-label="Previous play"><ArrowLeft size={18} /></button>
-            <button className="icon-button" aria-label="Next play"><ArrowRight size={18} /></button>
+            <button className="icon-button" aria-label="Previous play"><ArrowLeft size={16} /></button>
+            <button className="icon-button" aria-label="Next play"><ArrowRight size={16} /></button>
           </div>
         </div>
         <div className="tabs">
@@ -63,10 +74,10 @@ function Dashboard({ data }: { data: FootballData }) {
         <VideoControls />
       </section>
 
-      <aside className="span-4 content-grid">
+      <aside className="span-4 content-grid dash-side">
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Key Play Metrics</h2>
-          <div className="metric-grid" style={{ marginTop: 12 }}>
+          <div className="metric-grid" style={{ marginTop: 10 }}>
             <Metric label="Max Speed" value="19.6" unit="MPH" />
             <Metric label="Separation" value="2.8" unit="YDS" />
             <Metric label="Yards Gained" value="8.4" unit="YDS" />
@@ -75,42 +86,42 @@ function Dashboard({ data }: { data: FootballData }) {
         </section>
         <section className="panel panel-pad span-7">
           <h2 className="panel-title">Player Tracking</h2>
-          <div style={{ marginTop: 12 }}><MiniField dense /></div>
+          <div style={{ marginTop: 8 }}><MiniField dense /></div>
         </section>
-        <section className="panel panel-pad span-5">
+        <section className="panel panel-pad span-5 dash-result">
           <h2 className="panel-title">Play Result</h2>
-          <p style={{ color: "var(--green)", fontSize: "1.3rem", fontWeight: 900 }}>Gain</p>
+          <p className="result-headline">Gain</p>
           <p className="kicker">8 yards</p>
-          <hr style={{ borderColor: "var(--line-soft)" }} />
+          <hr style={{ borderColor: "var(--line-soft)", margin: "8px 0" }} />
           <MetricLine label="Run Concept" value="Inside Zone" />
           <MetricLine label="Def. Front" value="4-3 Over" />
         </section>
       </aside>
 
-      <section className="panel panel-pad span-3">
-        <PlayerFocus player={data.players[0]} />
+      <section className="panel panel-pad span-3 dash-card">
+        <PlayerFocus player={data.players[0]} compact />
       </section>
-      <section className="panel panel-pad span-3">
+      <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Biomechanics</h2>
-        <PlayerPortrait player={data.players[0]} />
-        <div className="list-stack" style={{ marginTop: 12 }}>
+        <PlayerPortrait player={data.players[0]} compact />
+        <div className="list-stack" style={{ marginTop: 8 }}>
           <MetricLine label="Pad Level" value="-4.2°" />
           <MetricLine label="Torso Angle" value="18.6°" />
           <MetricLine label="Stride Length" value="6.2 ft" />
           <MetricLine label="Symmetry Score" value="92%" />
         </div>
       </section>
-      <section className="panel panel-pad span-3">
+      <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Formation Recognition</h2>
         <p className="kicker">Trips Right</p>
         <MiniField />
-        <div className="status-pill warning" style={{ marginTop: 10 }}>Motion Detected</div>
+        <div className="status-pill warning" style={{ marginTop: 8 }}>Motion Detected</div>
       </section>
-      <section className="panel panel-pad span-3">
+      <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Effectiveness Summary</h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 18, marginTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10 }}>
           <div className="donut"><div>112<br /><small>Plays</small></div></div>
-          <div className="list-stack" style={{ flex: 1 }}>
+          <div className="list-stack" style={{ flex: 1, gap: 4 }}>
             <MetricLine label="Great" value="28" />
             <MetricLine label="Good" value="40" />
             <MetricLine label="Average" value="28" />
@@ -425,12 +436,12 @@ function SettingsView({ data }: { data: FootballData }) {
   );
 }
 
-function PlayerFocus({ player }: { player: PlayerSummary }) {
+function PlayerFocus({ player, compact = false }: { player: PlayerSummary; compact?: boolean }) {
   return (
     <>
       <h2 className="panel-title">Player Focus</h2>
-      <PlayerPortrait player={player} />
-      <div className="metric-grid" style={{ marginTop: 12, gridTemplateColumns: "repeat(3, 1fr)" }}>
+      <PlayerPortrait player={player} compact={compact} />
+      <div className="metric-grid" style={{ marginTop: compact ? 8 : 12, gridTemplateColumns: "repeat(3, 1fr)" }}>
         <Metric label="Distance" value={String(player.distance)} unit="YDS" />
         <Metric label="Max Speed" value={String(player.maxSpeed)} unit="MPH" />
         <Metric label="Avg Sep" value={String(player.separation)} unit="YDS" />

@@ -668,6 +668,183 @@ a {
 .pipeline-stage.warning i { background: var(--gold); }
 .pipeline-stage.running i { background: var(--blue); }
 
+/* ---------- Dashboard: compact single-viewport layout ---------- */
+.dashboard-page {
+  gap: 10px;
+}
+
+.dashboard-page .panel {
+  border-radius: 9px;
+}
+
+.dashboard-page .panel-pad {
+  padding: 11px 12px;
+}
+
+.dashboard-page .panel-header {
+  padding: 10px 12px;
+}
+
+.dashboard-page .panel-title {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.dashboard-page .kicker {
+  font-size: 0.7rem;
+  margin-top: 2px;
+}
+
+.dashboard-page .tabs {
+  padding: 0 12px 6px;
+  gap: 6px;
+}
+
+.dashboard-page .tab-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+}
+
+.dashboard-page .icon-button {
+  min-height: 32px;
+  width: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+}
+
+.dashboard-page .field-stage {
+  min-height: 240px;
+}
+
+.dashboard-page .yard-number {
+  font-size: 1.55rem;
+}
+
+.dashboard-page .midfield-logo {
+  width: 96px;
+}
+
+.dashboard-page .video-controls {
+  padding: 8px 12px;
+}
+
+.dashboard-page .timeline-dots {
+  padding: 6px 12px 8px;
+  gap: 12px;
+}
+
+.dashboard-page .metric-grid {
+  gap: 6px;
+}
+
+.dashboard-page .metric-card {
+  padding: 8px 10px;
+  border-radius: 7px;
+}
+
+.dashboard-page .metric-card span {
+  font-size: 0.66rem;
+}
+
+.dashboard-page .metric-card strong {
+  margin-top: 3px;
+  font-size: 1.08rem;
+}
+
+.dashboard-page .metric-card small {
+  margin-top: 2px;
+  font-size: 0.62rem;
+}
+
+.dashboard-page .mini-field {
+  min-height: 130px;
+}
+
+.dashboard-page .player-dot {
+  width: 18px;
+  height: 18px;
+  font-size: 0.56rem;
+}
+
+.dashboard-page .list-stack {
+  gap: 6px;
+}
+
+.dashboard-page .small-label {
+  font-size: 0.7rem;
+}
+
+.dashboard-page .dash-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-page .dash-result .result-headline {
+  margin: 6px 0 0;
+  color: var(--green);
+  font-size: 1.2rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-page .donut {
+  width: 92px;
+}
+
+.dashboard-page .donut > div {
+  width: 56px;
+  font-size: 0.85rem;
+}
+
+.dashboard-page .status-pill {
+  min-height: 20px;
+  font-size: 0.66rem;
+  padding: 3px 8px;
+}
+
+.dashboard-page .insight-row {
+  padding: 7px 9px;
+}
+
+.dashboard-page .insight-row small {
+  font-size: 0.7rem;
+}
+
+.dashboard-page .chart-box {
+  min-height: 110px;
+}
+
+.dashboard-page .clip-grid {
+  gap: 7px;
+}
+
+.dashboard-page .clip-card {
+  padding: 7px;
+}
+
+.dashboard-page .clip-thumb {
+  min-height: 52px;
+}
+
+.dashboard-page .clip-card strong {
+  font-size: 0.78rem;
+}
+
+.dashboard-page .clip-card small {
+  font-size: 0.66rem;
+}
+
+@media (min-height: 820px) {
+  .dashboard-page .field-stage {
+    min-height: 286px;
+  }
+  .dashboard-page .mini-field {
+    min-height: 150px;
+  }
+}
+
 @media (max-width: 1240px) {
   .app-shell {
     grid-template-columns: 220px minmax(0, 1fr);
