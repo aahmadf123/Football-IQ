@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AppStateProvider } from "@/lib/app-state";
 
 export const metadata: Metadata = {
   title: "Football-IQ | Toledo Football Analytics",
@@ -12,7 +13,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppStateProvider>{children}</AppStateProvider>
+      </body>
     </html>
   );
 }

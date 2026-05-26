@@ -22,8 +22,15 @@ import {
   UsersRound,
   Zap,
 } from "lucide-react";
-import { footballData, pageTitles } from "@/lib/mock-data";
+import { pageTitles } from "@/lib/mock-data";
 import type { PageKey } from "@/lib/types";
+import {
+  SESSION_LABELS,
+  SIDE_LABELS,
+  useAppState,
+  type SessionType,
+  type SideOfBall,
+} from "@/lib/app-state";
 
 const navItems = [
   { key: "dashboard", label: "Dashboard", href: "/", icon: Home },
@@ -39,6 +46,15 @@ const navItems = [
   { key: "settings", label: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
+function formatDateLabel(value: string): string {
+  try {
+    const d = new Date(value + "T12:00:00");
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return value;
+  }
+}
+
 export function FootballShell({
   activePage,
   children,
@@ -47,6 +63,22 @@ export function FootballShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const {
+    sessionType,
+    setSessionType,
+    sideOfBall,
+    setSideOfBall,
+    selectedDate,
+    setSelectedDate,
+    availableDates,
+    data,
+    uploads,
+    filteredPlays,
+  } = useAppState();
+
+  const titleEntry = pageTitles[activePage];
+  const totalPlays = filteredPlays.length;
+  const totalClips = data.clips.length + uploads.length;
 
   return (
     <div className="app-shell">
@@ -71,25 +103,61 @@ export function FootballShell({
         </div>
 
         <div className="top-actions">
-          <button type="button" className="select-pill" aria-label="Practice session">
+          <label className="select-pill" aria-label="Select date">
+            <CalendarDays size={18} />
+            <span>
+              Practice Date
+              <strong>{formatDateLabel(selectedDate)}</strong>
+            </span>
+            <ChevronDown size={16} />
+            <select
+              className="pill-select"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            >
+              {availableDates.map((d) => (
+                <option key={d} value={d}>{formatDateLabel(d)}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="select-pill" aria-label="Session type">
             <CalendarDays size={18} />
             <span>
               Session Type
-              <strong>Practice & Games</strong>
+              <strong>{SESSION_LABELS[sessionType]}</strong>
             </span>
             <ChevronDown size={16} />
-          </button>
-          <button type="button" className="select-pill" aria-label="Play filter">
+            <select
+              className="pill-select"
+              value={sessionType}
+              onChange={(e) => setSessionType(e.target.value as SessionType)}
+            >
+              {(Object.keys(SESSION_LABELS) as SessionType[]).map((k) => (
+                <option key={k} value={k}>{SESSION_LABELS[k]}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="select-pill" aria-label="Side of ball">
             <BarChart3 size={18} />
             <span>
               Side of Ball
-              <strong>All (Off & Def)</strong>
+              <strong>{SIDE_LABELS[sideOfBall]}</strong>
             </span>
             <ChevronDown size={16} />
-          </button>
-          <div className="user-pill" aria-label="User profile">
-            UT
-          </div>
+            <select
+              className="pill-select"
+              value={sideOfBall}
+              onChange={(e) => setSideOfBall(e.target.value as SideOfBall)}
+            >
+              {(Object.keys(SIDE_LABELS) as SideOfBall[]).map((k) => (
+                <option key={k} value={k}>{SIDE_LABELS[k]}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="user-pill" aria-label="User profile">UT</div>
         </div>
       </header>
 
@@ -97,7 +165,10 @@ export function FootballShell({
         <nav className="nav-list" aria-label="Football IQ navigation">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || activePage === item.key;
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/" && pathname?.startsWith(item.href)) ||
+              activePage === item.key;
             return (
               <Link key={item.key} href={item.href} className={`nav-link ${isActive ? "active" : ""}`}>
                 <Icon size={18} />
@@ -110,11 +181,11 @@ export function FootballShell({
         <section className="panel panel-pad">
           <h2 className="panel-title">Session Summary</h2>
           <div className="list-stack" style={{ marginTop: 12 }}>
-            <MetricLine label="Opponent Film" value="Games & Scrim" />
-            <MetricLine label="Offense Plays" value="Comp. Tracked" />
-            <MetricLine label="Defense Plays" value="Comp. Tracked" />
-            <MetricLine label="Practice / Game" value="Full Custom" />
-            <MetricLine label="Total Clips" value="Active Roster" />
+            <MetricLine label="Session" value={SESSION_LABELS[sessionType]} />
+            <MetricLine label="Side of Ball" value={SIDE_LABELS[sideOfBall]} />
+            <MetricLine label="Date" value={formatDateLabel(selectedDate)} />
+            <MetricLine label="Plays" value={String(totalPlays)} />
+            <MetricLine label="Clips" value={String(totalClips)} />
           </div>
         </section>
 
@@ -128,8 +199,8 @@ export function FootballShell({
       <main className="main">
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: activePage === "dashboard" ? 6 : 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: activePage === "dashboard" ? "1.0rem" : "1.1rem" }}>{pageTitles[activePage].title}</h2>
-            <p className="kicker" style={{ fontSize: activePage === "dashboard" ? "0.72rem" : undefined }}>{pageTitles[activePage].subtitle}</p>
+            <h2 style={{ margin: 0, fontSize: activePage === "dashboard" ? "1.0rem" : "1.1rem" }}>{titleEntry.title}</h2>
+            <p className="kicker" style={{ fontSize: activePage === "dashboard" ? "0.72rem" : undefined }}>{titleEntry.subtitle}</p>
           </div>
           {activePage === "dashboard" && <span className="live-badge" style={{ background: "var(--blue)" }}>Processed</span>}
         </div>
@@ -141,7 +212,7 @@ export function FootballShell({
           <h2 className="panel-title" style={{ color: "var(--gold)" }}>System Status</h2>
           <div className="list-stack" style={{ marginTop: 12 }}>
             <StatusLine icon={<Radio size={16} />} label="R2 Buckets" value="Connected" tone="good" />
-            <StatusLine icon={<Activity size={16} />} label="Processing" value="Pending upload" tone="good" />
+            <StatusLine icon={<Activity size={16} />} label="Processing" value={uploads.length ? `${uploads.length} queued` : "Idle"} tone="good" />
             <StatusLine icon={<UsersRound size={16} />} label="Auto ML IQ" value="Enabled" tone="good" />
             <StatusLine icon={<Zap size={16} />} label="Model Version" value="v2.4.1" tone="good" />
           </div>
@@ -165,7 +236,7 @@ export function FootballShell({
         <section className="panel panel-pad">
           <h2 className="panel-title" style={{ color: "var(--gold)" }}>Model Pipeline</h2>
           <div className="list-stack" style={{ marginTop: 12 }}>
-            {footballData.jobs.map((job) => (
+            {data.jobs.map((job) => (
               <div key={job.id} className={`pipeline-stage ${job.status === "running" ? "running" : ""}`}>
                 <i />
                 <span>{job.job_type}</span>

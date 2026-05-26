@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,137 +9,100 @@ import {
   Filter,
   Pause,
   Search,
+  Trash2,
   Upload,
+  UserRound,
 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
 import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
-import { useFootballIqData } from "@/lib/api";
+import { useAppState, SIDE_LABELS } from "@/lib/app-state";
 import type { FootballData, PageKey, PlayerSummary, PlaySummary, TendencyEntry } from "@/lib/types";
-import { useRef } from "react";
 
 export function PageRenderer({ page }: { page: PageKey }) {
-  const { data, source, loading, error, refresh } = useFootballIqData();
+  const state = useAppState();
+  const { data, addUploads } = state;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handleUploadClick = () => fileInputRef.current?.click();
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-      const workerBase = process.env.NEXT_PUBLIC_WORKER_URL || "";
-      
-      const targetBase = workerBase || apiBase;
-      if (!targetBase) {
-        alert("Please configure NEXT_PUBLIC_API_URL or NEXT_PUBLIC_WORKER_URL to upload directly to R2 bucket.");
-        return;
-      }
-
-      // 1. Get presigned upload URL
-      const uploadUrlRes = await fetch(`${targetBase}/api/v1/videos/upload-url`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer sample-token"
-        },
-        body: JSON.stringify({ filename: file.name })
-      });
-
-      if (!uploadUrlRes.ok) {
-        throw new Error(`Failed to get presigned upload URL: ${uploadUrlRes.statusText}`);
-      }
-
-      const { uploadUrl, key } = await uploadUrlRes.json() as { uploadUrl: string; key: string };
-
-      // 2. Put file to R2
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": file.type || "video/mp4",
-        },
-        body: file
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error("Failed to upload file to Cloudflare R2 bucket.");
-      }
-
-      // 3. Register with backend
-      const registerRes = await fetch(`${apiBase || workerBase}/api/v1/videos`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer sample-token"
-        },
-        body: JSON.stringify({
-          filename: file.name,
-          storage_uri: `r2://raw-video/${key}`
-        })
-      });
-
-      if (!registerRes.ok) {
-        // Fallback local registration logic if api database isn't fully ready
-        console.warn("API database registration skipped/failed, keeping local state updated.");
-      }
-
-      alert(`Successfully uploaded ${file.name} to R2 bucket!`);
-      if (refresh) refresh(file.name);
+      const created = await addUploads(files);
+      setUploadStatus(`Uploaded ${created.length} clip${created.length === 1 ? "" : "s"} ready for review`);
+      setTimeout(() => setUploadStatus(null), 4000);
     } catch (err) {
-      console.error(err);
-      alert(`Upload error: ${err instanceof Error ? err.message : String(err)}`);
+      setUploadStatus(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      // Reset input so the same file can be re-selected
+      event.target.value = "";
     }
   };
 
   return (
     <FootballShell activePage={page}>
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileChange} 
-        accept="video/mp4" 
-        style={{ display: "none" }} 
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="video/*"
+        multiple
+        style={{ display: "none" }}
       />
-      {source === "fallback" && (
+      {uploadStatus && (
         <div
-          className="fallback-banner"
+          className="upload-toast"
           style={{
             marginBottom: 8,
             padding: "6px 12px",
             borderRadius: 8,
             border: "1px solid var(--line-soft)",
-            background: "oklch(0.18 0.04 252 / 0.6)",
-            color: "var(--muted)",
-            fontSize: "0.74rem",
+            background: "oklch(0.30 0.10 145 / 0.55)",
+            color: "var(--text)",
+            fontSize: "0.78rem",
+            fontWeight: 700,
           }}
         >
-          {loading ? "Checking live API..." : "Using polished fallback data. Connect NEXT_PUBLIC_API_URL for live data."}
-          {error ? ` ${error}` : ""}
+          {uploadStatus}
         </div>
       )}
-      {page === "dashboard" && <Dashboard data={data} />}
-      {page === "video-and-plays" && <VideoAndPlays data={data} onUploadClick={handleUploadClick} />}
-      {page === "players" && <Players data={data} />}
+      {page === "dashboard" && <Dashboard />}
+      {page === "video-and-plays" && <VideoAndPlays onUploadClick={handleUploadClick} />}
+      {page === "players" && <Players />}
       {page === "analytics" && <Analytics data={data} />}
       {page === "self-scout" && <SelfScout data={data} />}
       {page === "opponent-scout" && <OpponentScout data={data} />}
-      {page === "player-development" && <PlayerDevelopment data={data} />}
+      {page === "player-development" && <PlayerDevelopment />}
       {page === "health-workload" && <HealthWorkload data={data} />}
-      {page === "reports" && <Reports data={data} />}
-      {page === "clips-highlights" && <ClipsHighlights data={data} />}
+      {page === "reports" && <Reports data={data} onUploadClick={handleUploadClick} />}
+      {page === "clips-highlights" && <ClipsHighlights />}
       {page === "settings" && <SettingsView data={data} />}
     </FootballShell>
   );
 }
 
-function Dashboard({ data }: { data: FootballData }) {
-  // Compute dynamically based on actual uploaded films/plays
-  const totalClipsUploaded = data.videos ? data.videos.length + data.clips.length : data.clips.length;
-  const derivedPlayCount = data.plays ? data.plays.length : 4;
-  const showPlayNum = derivedPlayCount > 4 ? derivedPlayCount : 42;
+function Dashboard() {
+  const {
+    data,
+    sideOfBall,
+    filteredPlays,
+    currentPlay,
+    currentPlayIndex,
+    nextPlay,
+    prevPlay,
+    selectedPlayer,
+    setSelectedPlayerId,
+    filteredPlayers,
+    uploads,
+  } = useAppState();
+
+  const totalClipsUploaded = data.videos.length + data.clips.length + uploads.length;
+  const playLabel = currentPlay
+    ? `Play ${currentPlay.number} · ${currentPlay.formation} · Personnel ${currentPlay.personnel} (${SIDE_LABELS[sideOfBall]})`
+    : `No plays for ${SIDE_LABELS[sideOfBall]}`;
 
   return (
     <div className="dashboard-page content-grid">
@@ -146,18 +110,28 @@ function Dashboard({ data }: { data: FootballData }) {
         <div className="panel-header">
           <div>
             <h2 className="panel-title">Practice / Game Film</h2>
-            <p className="kicker">Play {showPlayNum} / {totalClipsUploaded} · Formation Trips Right · Personnel 11 (Both Offense & Defense Session Tracking)</p>
+            <p className="kicker">{playLabel} · {currentPlayIndex + 1} / {filteredPlays.length || 0} · {totalClipsUploaded} total clips</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="icon-button" aria-label="Previous play"><ArrowLeft size={16} /></button>
-            <button className="icon-button" aria-label="Next play"><ArrowRight size={16} /></button>
+            <button
+              className="icon-button"
+              aria-label="Previous play"
+              onClick={prevPlay}
+              disabled={filteredPlays.length === 0}
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Next play"
+              onClick={nextPlay}
+              disabled={filteredPlays.length === 0}
+            >
+              <ArrowRight size={16} />
+            </button>
           </div>
         </div>
-        <div className="tabs">
-          {["All-22 View"].map((tab, index) => (
-            <button key={tab} type="button" className={`tab-button ${index === 0 ? "active" : ""}`}>{tab}</button>
-          ))}
-        </div>
+        <FilmTabs />
         <FieldStage />
         <VideoControls />
       </section>
@@ -166,10 +140,10 @@ function Dashboard({ data }: { data: FootballData }) {
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Key Play Metrics</h2>
           <div className="metric-grid" style={{ marginTop: 10 }}>
-            <Metric label="Max Speed" value="19.6" unit="MPH" />
-            <Metric label="Separation" value="2.8" unit="YDS" />
-            <Metric label="Yards Gained" value="8.4" unit="YDS" />
-            <Metric label="Time to Throw" value="2.45" unit="SEC" />
+            <Metric label="Max Speed" value={String(selectedPlayer.maxSpeed)} unit="MPH" />
+            <Metric label="Separation" value={String(selectedPlayer.separation)} unit="YDS" />
+            <Metric label="Yards Gained" value={String(currentPlay?.yards ?? 0)} unit="YDS" />
+            <Metric label="Confidence" value={`${Math.round((currentPlay?.confidence ?? 0) * 100)}%`} unit="" />
           </div>
         </section>
         <section className="panel panel-pad span-7">
@@ -178,20 +152,25 @@ function Dashboard({ data }: { data: FootballData }) {
         </section>
         <section className="panel panel-pad span-5 dash-result">
           <h2 className="panel-title">Play Result</h2>
-          <p className="result-headline">Gain</p>
-          <p className="kicker">8 yards</p>
+          <p className="result-headline">{currentPlay?.result ?? "—"}</p>
+          <p className="kicker">{currentPlay ? `${currentPlay.yards} yards` : "Select a play"}</p>
           <hr style={{ borderColor: "var(--line-soft)", margin: "8px 0" }} />
-          <MetricLine label="Run Concept" value="Inside Zone" />
-          <MetricLine label="Def. Front" value="4-3 Over" />
+          <MetricLine label="Concept" value={currentPlay?.concept ?? "—"} />
+          <MetricLine label="Formation" value={currentPlay?.formation ?? "—"} />
         </section>
       </aside>
 
       <section className="panel panel-pad span-3 dash-card">
-        <PlayerFocus player={data.players[0]} compact />
+        <PlayerFocus
+          player={selectedPlayer}
+          allPlayers={filteredPlayers.length ? filteredPlayers : data.players}
+          onSelect={setSelectedPlayerId}
+          compact
+        />
       </section>
       <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Biomechanics</h2>
-        <PlayerPortrait player={data.players[0]} compact />
+        <PlayerPortrait player={selectedPlayer} compact />
         <div className="list-stack" style={{ marginTop: 8 }}>
           <MetricLine label="Pad Level" value="-4.2°" />
           <MetricLine label="Torso Angle" value="18.6°" />
@@ -201,19 +180,19 @@ function Dashboard({ data }: { data: FootballData }) {
       </section>
       <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Formation Recognition</h2>
-        <p className="kicker">Trips Right</p>
+        <p className="kicker">{currentPlay?.formation ?? "—"}</p>
         <MiniField />
         <div className="status-pill warning" style={{ marginTop: 8 }}>Motion Detected</div>
       </section>
       <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Effectiveness Summary</h2>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10 }}>
-          <div className="donut"><div>112<br /><small>Plays</small></div></div>
+          <div className="donut"><div>{filteredPlays.length}<br /><small>Plays</small></div></div>
           <div className="list-stack" style={{ flex: 1, gap: 4 }}>
-            <MetricLine label="Great" value="28" />
-            <MetricLine label="Good" value="40" />
-            <MetricLine label="Average" value="28" />
-            <MetricLine label="Needs Work" value="16" />
+            <MetricLine label="Great" value={String(filteredPlays.filter((p) => p.confidence > 0.9).length)} />
+            <MetricLine label="Good" value={String(filteredPlays.filter((p) => p.confidence > 0.8 && p.confidence <= 0.9).length)} />
+            <MetricLine label="Average" value={String(filteredPlays.filter((p) => p.confidence > 0.7 && p.confidence <= 0.8).length)} />
+            <MetricLine label="Needs Work" value={String(filteredPlays.filter((p) => p.confidence <= 0.7).length)} />
           </div>
         </div>
       </section>
@@ -223,7 +202,27 @@ function Dashboard({ data }: { data: FootballData }) {
   );
 }
 
-function VideoAndPlays({ data, onUploadClick }: { data: FootballData; onUploadClick: () => void }) {
+function FilmTabs() {
+  const [active, setActive] = useState(0);
+  const tabs = ["All-22 View", "Endzone", "Sideline", "Wireframe"];
+  return (
+    <div className="tabs">
+      {tabs.map((tab, index) => (
+        <button
+          key={tab}
+          type="button"
+          className={`tab-button ${index === active ? "active" : ""}`}
+          onClick={() => setActive(index)}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
+  const { data, filteredPlays, currentPlayIndex, setCurrentPlayIndex, uploads, removeUpload } = useAppState();
   return (
     <div className="content-grid">
       <section className="panel span-7">
@@ -240,7 +239,20 @@ function VideoAndPlays({ data, onUploadClick }: { data: FootballData; onUploadCl
       <section className="panel panel-pad span-5">
         <h2 className="panel-title">Play Tags & Corrections</h2>
         <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.plays.map((play) => <PlayRow key={play.number} play={play} />)}
+          {filteredPlays.length === 0 && (
+            <div className="kicker">No plays match the current filter.</div>
+          )}
+          {filteredPlays.map((play, i) => (
+            <button
+              key={play.number}
+              type="button"
+              className="row-button"
+              data-active={i === currentPlayIndex}
+              onClick={() => setCurrentPlayIndex(i)}
+            >
+              <PlayRow play={play} />
+            </button>
+          ))}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button className="control-button primary"><CheckCircle2 size={15} /> Approve</button>
@@ -249,42 +261,102 @@ function VideoAndPlays({ data, onUploadClick }: { data: FootballData; onUploadCl
       </section>
       <section className="panel panel-pad span-6">
         <h2 className="panel-title">Play List</h2>
-        <TableRows data={data.plays} />
+        <TableRows data={filteredPlays} onSelect={setCurrentPlayIndex} />
       </section>
       <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Event Timeline</h2>
-        <TrendLine data={[18, 31, 37, 49, 54, 63, 72, 78]} />
+        <h2 className="panel-title">Uploaded Clips</h2>
+        {uploads.length === 0 ? (
+          <div className="kicker" style={{ marginTop: 8 }}>No client uploads yet. Click <strong>Upload Film</strong> to add MP4/MOV files.</div>
+        ) : (
+          <div className="list-stack" style={{ marginTop: 10 }}>
+            {uploads.map((u) => (
+              <div key={u.id} className="status-row" style={{ gridTemplateColumns: "1fr auto auto" }}>
+                <div>
+                  <strong>{u.filename}</strong>
+                  <div className="kicker">{(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB · {new Date(u.uploadedAt).toLocaleString()}</div>
+                </div>
+                {u.objectUrl && (
+                  <a className="control-button" href={u.objectUrl} target="_blank" rel="noreferrer">Open</a>
+                )}
+                <button className="control-button" onClick={() => removeUpload(u.id)} aria-label="Remove upload">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="kicker" style={{ marginTop: 10 }}>
+          Library total: {data.videos.length + uploads.length} videos · {data.clips.length} cataloged clips
+        </div>
       </section>
     </div>
   );
 }
 
-function Players({ data }: { data: FootballData }) {
+function Players() {
+  const { data, filteredPlayers, selectedPlayer, setSelectedPlayerId } = useAppState();
+  const [query, setQuery] = useState("");
+
+  const visible = useMemo(() => {
+    const list = filteredPlayers.length ? filteredPlayers : data.players;
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.position.toLowerCase().includes(q) ||
+        p.jersey.includes(q),
+    );
+  }, [filteredPlayers, data.players, query]);
+
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-8">
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <h2 className="panel-title">Roster Intelligence</h2>
-          <button className="control-button"><Search size={15} /> Search</button>
+          <label className="search-inline">
+            <Search size={15} />
+            <input
+              placeholder="Search by name, jersey, or position"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
         </div>
         <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.players.map((player) => (
-            <div key={player.id} className="table-row">
+          {visible.length === 0 && <div className="kicker">No players match the current filter.</div>}
+          {visible.map((player) => (
+            <Link
+              key={player.id}
+              href={`/players/${encodeURIComponent(player.id)}`}
+              className="table-row table-row-link"
+              onMouseEnter={() => setSelectedPlayerId(player.id)}
+            >
               <strong>#{player.jersey} {player.name}</strong>
               <span>{player.position}</span>
               <span>{player.maxSpeed} MPH</span>
               <span>{player.distance} YDS</span>
               <span className="status-pill info">{Math.round(player.confidence * 100)}%</span>
-            </div>
+            </Link>
           ))}
         </div>
       </section>
       <section className="panel panel-pad span-4">
-        <PlayerFocus player={data.players[0]} />
+        <PlayerFocus
+          player={selectedPlayer}
+          allPlayers={visible.length ? visible : data.players}
+          onSelect={setSelectedPlayerId}
+        />
+        <Link href={`/players/${encodeURIComponent(selectedPlayer.id)}`} className="control-button primary" style={{ marginTop: 12, textDecoration: "none", justifyContent: "center" }}>
+          <UserRound size={15} /> Open Full Profile
+        </Link>
       </section>
-      {data.players.slice(0, 3).map((player) => (
+      {(visible.length ? visible : data.players).slice(0, 3).map((player) => (
         <section key={player.id} className="panel panel-pad span-4">
-          <h2 className="panel-title">Trend · #{player.jersey}</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h2 className="panel-title">Trend · #{player.jersey}</h2>
+            <Link href={`/players/${encodeURIComponent(player.id)}`} className="link-button">View</Link>
+          </div>
           <TrendLine data={player.trend} />
         </section>
       ))}
@@ -298,7 +370,7 @@ function Analytics({ data }: { data: FootballData }) {
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Key Metrics</h2>
         <div className="metric-grid" style={{ marginTop: 12 }}>
-          <Metric label="Total Plays" value="112" unit="" />
+          <Metric label="Total Plays" value={String(data.plays.length)} unit="" />
           <Metric label="xSep" value="2.64" unit="YDS" />
           <Metric label="xYards" value="11.8" unit="" />
           <Metric label="xPressure" value="95%" unit="" />
@@ -362,23 +434,26 @@ function ScoutView({ data, title, opponent }: { data: FootballData; title: strin
   );
 }
 
-function PlayerDevelopment({ data }: { data: FootballData }) {
-  const player = data.players[0];
+function PlayerDevelopment() {
+  const { data, selectedPlayer, setSelectedPlayerId, filteredPlayers } = useAppState();
+  const pool = filteredPlayers.length ? filteredPlayers : data.players;
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
-        <PlayerFocus player={player} />
-        <button className="control-button primary" style={{ marginTop: 12 }}>Approve Summary</button>
+        <PlayerFocus player={selectedPlayer} allPlayers={pool} onSelect={setSelectedPlayerId} />
+        <Link href={`/players/${encodeURIComponent(selectedPlayer.id)}`} className="control-button primary" style={{ marginTop: 12, textDecoration: "none", justifyContent: "center" }}>
+          <UserRound size={15} /> Open Full Profile
+        </Link>
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Biomechanics · Pose</h2>
-        <PlayerPortrait player={player} />
+        <PlayerPortrait player={selectedPlayer} />
         <MetricLine label="Breakpoint angle" value="18.4°" />
         <MetricLine label="Stride symmetry" value="92%" />
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Trend Lines</h2>
-        <TrendLine data={player.trend} />
+        <TrendLine data={selectedPlayer.trend} />
       </section>
       <section className="panel panel-pad span-6">
         <h2 className="panel-title">Best Teaching Clips</h2>
@@ -427,26 +502,65 @@ function HealthWorkload({ data }: { data: FootballData }) {
   );
 }
 
-function Reports({ data }: { data: FootballData }) {
+function Reports({ data, onUploadClick }: { data: FootballData; onUploadClick: () => void }) {
+  const [selections, setSelections] = useState<Record<string, boolean>>({});
+  const sections = ["Self-scout exposure", "Position group development", "Model quality", "Opponent prep package"];
+
+  const generate = () => {
+    const picked = sections.filter((s) => selections[s] !== false);
+    if (picked.length === 0) {
+      alert("Select at least one section to include in the report.");
+      return;
+    }
+    const lines = [
+      "TOLEDO FOOTBALL IQ — Coaching Report",
+      `Generated: ${new Date().toLocaleString()}`,
+      "",
+      ...picked.map((s) => `- ${s}`),
+      "",
+      `Total plays: ${data.plays.length}`,
+      `Total clips: ${data.clips.length}`,
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `toledo-football-report-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Report Builder</h2>
-        {["Self-scout exposure", "Position group development", "Model quality", "Opponent prep package"].map((label) => (
+        {sections.map((label) => (
           <div key={label} className="form-control" style={{ marginTop: 10 }}>
             <label>{label}</label>
-            <select><option>Include in packet</option></select>
+            <select
+              value={selections[label] === false ? "skip" : "include"}
+              onChange={(e) => setSelections((cur) => ({ ...cur, [label]: e.target.value === "include" }))}
+            >
+              <option value="include">Include in packet</option>
+              <option value="skip">Skip this section</option>
+            </select>
           </div>
         ))}
-        <button className="control-button primary" style={{ marginTop: 12 }}><Download size={15} /> Generate PDF</button>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="control-button primary" onClick={generate}><Download size={15} /> Generate Report</button>
+          <button className="control-button" onClick={onUploadClick}><Upload size={15} /> Add Film</button>
+        </div>
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Preview</h2>
         <div style={{ minHeight: 270, borderRadius: 7, background: "oklch(0.94 0.01 252)", color: "oklch(0.18 0.04 252)", padding: 22 }}>
           <strong>TOLEDO FOOTBALL IQ</strong>
-          <p>Practice intelligence report · May 14, 2025</p>
+          <p>Practice intelligence report · {new Date().toLocaleDateString()}</p>
           <hr />
           <p>Top insight: Inside Zone success rate is up 18% this week.</p>
+          <p>{data.plays.length} plays · {data.clips.length} clips reviewed</p>
         </div>
       </section>
       <section className="panel panel-pad span-4">
@@ -459,15 +573,35 @@ function Reports({ data }: { data: FootballData }) {
   );
 }
 
-function ClipsHighlights({ data }: { data: FootballData }) {
+function ClipsHighlights() {
+  const { data } = useAppState();
+  const [filterTag, setFilterTag] = useState<string>("All");
+  const [query, setQuery] = useState("");
+
+  const tags = useMemo(() => ["All", ...Array.from(new Set(data.clips.map((c) => c.tag)))], [data.clips]);
+
+  const visibleClips = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return data.clips.filter((c) => {
+      const okTag = filterTag === "All" || c.tag === filterTag;
+      const okQuery = !q || c.title.toLowerCase().includes(q) || c.subtitle.toLowerCase().includes(q);
+      return okTag && okQuery;
+    });
+  }, [data.clips, filterTag, query]);
+
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-8">
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <h2 className="panel-title">Clip Library</h2>
-          <button className="control-button"><Filter size={15} /> Filter</button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Filter size={15} />
+            <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="inline-select">
+              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
-        <ClipGrid data={data} />
+        <ClipGrid data={{ ...data, clips: visibleClips }} />
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Highlight Builder</h2>
@@ -476,11 +610,19 @@ function ClipsHighlights({ data }: { data: FootballData }) {
             <MetricLine key={item} label={`${index + 1}. ${item}`} value="Ready" />
           ))}
         </div>
-        <button className="control-button primary" style={{ marginTop: 12 }}>Render Reel</button>
+        <button className="control-button primary" style={{ marginTop: 12 }} onClick={() => alert(`Reel rendered with ${visibleClips.length} clips`)}>Render Reel</button>
       </section>
       <section className="panel panel-pad span-6">
         <h2 className="panel-title">Search</h2>
-        <div className="form-control"><label>Find clips</label><input placeholder="inside zone, man coverage, #11" /></div>
+        <div className="form-control">
+          <label>Find clips</label>
+          <input
+            placeholder="inside zone, man coverage, #11"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <p className="kicker" style={{ marginTop: 8 }}>{visibleClips.length} of {data.clips.length} clips shown</p>
       </section>
       <section className="panel panel-pad span-6">
         <h2 className="panel-title">Receiving / Player View</h2>
@@ -524,11 +666,35 @@ function SettingsView({ data }: { data: FootballData }) {
   );
 }
 
-function PlayerFocus({ player, compact = false }: { player: PlayerSummary; compact?: boolean }) {
+function PlayerFocus({
+  player,
+  allPlayers,
+  onSelect,
+  compact = false,
+}: {
+  player: PlayerSummary;
+  allPlayers: PlayerSummary[];
+  onSelect: (id: string) => void;
+  compact?: boolean;
+}) {
   return (
     <>
-      <h2 className="panel-title">Player Focus</h2>
-      <PlayerPortrait player={player} compact={compact} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <h2 className="panel-title">Player Focus</h2>
+        <select
+          className="inline-select"
+          value={player.id}
+          onChange={(e) => onSelect(e.target.value)}
+          aria-label="Choose player"
+        >
+          {allPlayers.map((p) => (
+            <option key={p.id} value={p.id}>#{p.jersey} {p.name}</option>
+          ))}
+        </select>
+      </div>
+      <Link href={`/players/${encodeURIComponent(player.id)}`} style={{ textDecoration: "none", color: "inherit", display: "block", marginTop: 6 }}>
+        <PlayerPortrait player={player} compact={compact} />
+      </Link>
       <div className="metric-grid" style={{ marginTop: compact ? 8 : 12, gridTemplateColumns: "repeat(3, 1fr)" }}>
         <Metric label="Distance" value={String(player.distance)} unit="YDS" />
         <Metric label="Max Speed" value={String(player.maxSpeed)} unit="MPH" />
@@ -592,7 +758,7 @@ function MetricLine({ label, value }: { label: string; value: string }) {
 
 function PlayRow({ play }: { play: PlaySummary }) {
   return (
-    <div className="status-row" style={{ gridTemplateColumns: "34px 1fr auto" }}>
+    <div className="status-row" style={{ gridTemplateColumns: "34px 1fr auto", border: "none", background: "transparent", padding: 0 }}>
       <strong>{play.number}</strong>
       <span>{play.formation} · {play.concept}</span>
       <span className={play.confidence < 0.7 ? "status-pill warning" : "status-pill"}>{Math.round(play.confidence * 100)}%</span>
@@ -600,17 +766,25 @@ function PlayRow({ play }: { play: PlaySummary }) {
   );
 }
 
-function TableRows({ data }: { data: PlaySummary[] }) {
+function TableRows({ data, onSelect }: { data: PlaySummary[]; onSelect?: (i: number) => void }) {
+  if (data.length === 0) return <div className="kicker" style={{ marginTop: 8 }}>No plays.</div>;
   return (
     <div className="list-stack" style={{ marginTop: 12 }}>
-      {data.map((play) => (
-        <div key={play.number} className="table-row">
-          <strong>Play {play.number}</strong>
-          <span>{play.formation}</span>
-          <span>{play.personnel}</span>
-          <span>{play.result}</span>
-          <span>{play.yards} YDS</span>
-        </div>
+      {data.map((play, i) => (
+        <button
+          key={play.number}
+          type="button"
+          className="row-button"
+          onClick={() => onSelect?.(i)}
+        >
+          <div className="table-row" style={{ border: "none", background: "transparent", padding: 0, width: "100%" }}>
+            <strong>Play {play.number}</strong>
+            <span>{play.formation}</span>
+            <span>{play.personnel}</span>
+            <span>{play.result}</span>
+            <span>{play.yards} YDS</span>
+          </div>
+        </button>
       ))}
     </div>
   );
@@ -654,6 +828,9 @@ function BarList({ items }: { items: Array<[string, number]> }) {
 }
 
 function ClipGrid({ data, compact = false }: { data: FootballData; compact?: boolean }) {
+  if (data.clips.length === 0) {
+    return <div className="kicker" style={{ marginTop: 12 }}>No clips to display.</div>;
+  }
   return (
     <div className="clip-grid" style={{ marginTop: 12, gridTemplateColumns: compact ? "1fr" : undefined }}>
       {data.clips.slice(0, compact ? 3 : 6).map((clip) => (
