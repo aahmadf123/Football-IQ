@@ -266,7 +266,7 @@ function AlertRow({ alert }: { alert: ApiAlert }) {
       </div>
       {alert.clip_id && (
         <Link
-          href={`/clip-review/${encodeURIComponent(alert.clip_id)}`}
+          href={`/clip-review/?clipId=${encodeURIComponent(alert.clip_id)}`}
           className="control-button"
         >
           Open clip →

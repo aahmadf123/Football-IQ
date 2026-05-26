@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { FootballShell } from "@/components/football-shell";
 import {
   fetchClip,
@@ -34,17 +35,32 @@ type ReviewState =
       playbackUnavailable: boolean;
     };
 
-export default function ClipReviewPage({
-  params,
-}: {
-  params: Promise<{ clipId: string }>;
-}) {
-  const { clipId } = use(params);
+export default function ClipReviewPage() {
   return (
     <FootballShell activePage="clip-review">
-      <ClipReviewView clipId={clipId} />
+      <Suspense fallback={<section className="panel panel-pad"><p className="kicker">Loading…</p></section>}>
+        <ClipReviewLoader />
+      </Suspense>
     </FootballShell>
   );
+}
+
+function ClipReviewLoader() {
+  const searchParams = useSearchParams();
+  const clipId = searchParams.get("clipId") ?? "";
+  if (!clipId) {
+    return (
+      <section className="panel panel-pad">
+        <h3 className="panel-title">No clip selected</h3>
+        <p className="kicker" style={{ marginTop: 8 }}>
+          Open a clip from the{" "}
+          <Link href="/library" style={{ color: "var(--gold)" }}>Library</Link>{" "}
+          to review it.
+        </p>
+      </section>
+    );
+  }
+  return <ClipReviewView clipId={clipId} />;
 }
 
 function ClipReviewView({ clipId }: { clipId: string }) {

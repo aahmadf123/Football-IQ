@@ -448,7 +448,7 @@ function ClipRow({ clip }: { clip: ApiClip }) {
   const possessionLabel = possession ? POSSESSION_LABEL[possession] : null;
   return (
     <Link
-      href={`/clip-review/${encodeURIComponent(clip.id)}`}
+      href={`/clip-review/?clipId=${encodeURIComponent(clip.id)}`}
       className="row-button"
       style={{
         display: "flex",
