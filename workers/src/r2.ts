@@ -33,9 +33,9 @@ export function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
  * The frontend PUTs the file body directly to this URL.
  */
 export function buildUploadProxyUrl(requestUrl: string, key: string): string {
+export function buildUploadProxyUrl(requestUrl: string, key: string): string {
   const base = new URL(requestUrl);
-  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
-  return `${base.origin}/api/v1/videos/upload/${encodedKey}`;
+  return `${base.origin}/api/v1/videos/upload/${encodeURIComponent(key)}`;
 }
 
 /**
