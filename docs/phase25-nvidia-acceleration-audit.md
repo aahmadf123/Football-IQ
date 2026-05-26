@@ -132,21 +132,21 @@ NVIDIA DeepStream SDK is **explicitly deferred** from Phase 2.5 for the followin
 ### Adapter
 
 `pipeline/pose_estimator.py` now includes `BodyPose3DNetEstimator`, an optional adapter behind the existing `PoseEstimatorBase` pattern. It:
-- Loads a TensorRT-optimized BodyPose3DNet `.etlt` model via TAO Toolkit inference.
+- Loads a BodyPose3DNet ONNX model via `onnxruntime`.
 - Maps BodyPose3DNet's 34-joint skeleton to COCO 17-keypoint layout for downstream compatibility.
 - Gracefully skips if weights are missing or VRAM is insufficient (falls back to RTMPose or Stub).
-- Is selectable via `MODEL_POSE_PATH=bodypose3dnet:/path/to/model.etlt`.
+- Is selectable via `MODEL_POSE_PATH=bodypose3dnet:/path/to/model.onnx`.
 
 ### Benchmark Comparison vs RTMPose
 
 | Metric | RTMPose-m (baseline) | BodyPose3DNet (spike) |
 |--------|---------------------|-----------------------|
 | Keypoints | 17 (COCO 2D) | 34 (3D) → mapped to 17 |
-| FPS (GTX 1660 Ti, 1080p) | ~430 | ~120 (TensorRT FP16) |
+| FPS (GTX 1660 Ti, 1080p) | ~430 | ~120 |
 | VRAM | ~200 MB | ~800 MB |
 | Pad-level accuracy | Good (2D hip-shoulder angle) | Better (true 3D torso vector) |
 | Stride symmetry | Good (2D ankle displacement) | Better (3D joint trajectories) |
-| Setup complexity | `pip install mmpose` | NGC download + TensorRT build |
+| Setup complexity | `pip install mmpose` | Export/download ONNX model + `onnxruntime` |
 
 **Recommendation:** Keep RTMPose-m as the production default. BodyPose3DNet is valuable for 3D biomechanics (Phase 3 pad-level improvements) but the FPS/VRAM cost is too high for same-session. Consider it for nightly-only routing.
 
