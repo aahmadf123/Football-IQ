@@ -1,8 +1,8 @@
 # Pinned to match Dockerfile: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 # torch and torchvision are pre-installed in the base image
 
-# 8.3.237+ includes Meta SAM 3.1 — required for SAM3Detector (Issue #74).
-ultralytics>=8.3.237
+# Pinned to 8.3.237 because it includes Meta SAM 3.1 — required for SAM3Detector (Issue #74).
+ultralytics==8.3.237
 opencv-python-headless==4.10.0.84
 boto3==1.35.76
 psycopg2-binary==2.9.10
