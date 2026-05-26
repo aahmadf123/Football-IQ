@@ -85,7 +85,9 @@ def _uri_to_r2_key(uri: str) -> str:
 
 
 def _detect(video_path: Path, detector: DetectorBase) -> dict[str, Any]:
-    cap = cv2.VideoCapture(str(video_path))
+    from pipeline.hwaccel import nvdec_video_capture
+
+    cap = nvdec_video_capture(video_path)
     fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
     detections: dict[str, list[dict[str, Any]]] = {}

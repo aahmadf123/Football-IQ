@@ -75,7 +75,9 @@ def _render(
     analytics_safe: bool,
     fps: float,
 ) -> None:
-    cap = cv2.VideoCapture(str(video_path))
+    from pipeline.hwaccel import nvdec_video_capture
+
+    cap = nvdec_video_capture(video_path)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")

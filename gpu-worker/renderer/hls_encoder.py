@@ -90,12 +90,14 @@ def run(
 
 
 def _encode_hls(source: Path, playlist_path: Path) -> None:
+    from pipeline.hwaccel import nvenc_ffmpeg_codec_args
+
+    codec_args = nvenc_ffmpeg_codec_args(bitrate=HLS_VIDEO_BITRATE)
     cmd = [
         "ffmpeg",
         "-y",
         "-i", str(source),
-        "-c:v", "libx264",
-        "-b:v", HLS_VIDEO_BITRATE,
+        *codec_args,
         "-c:a", "aac",
         "-b:a", HLS_AUDIO_BITRATE,
         "-profile:v", "baseline",

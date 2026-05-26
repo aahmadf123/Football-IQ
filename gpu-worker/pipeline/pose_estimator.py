@@ -224,20 +224,173 @@ class StubPoseEstimator(PoseEstimatorBase):
         return [dict(k) for k in self._keypoints]
 
 
+# ── NVIDIA BodyPose3DNet adapter (Phase 2.5 spike) ────────────────────────────
+
+# BodyPose3DNet uses a 34-joint skeleton. These indices map to COCO-17.
+_BP3D_TO_COCO: dict[int, int] = {
+    0: 0,    # nose → nose
+    1: 1,    # left_eye → left_eye
+    2: 2,    # right_eye → right_eye
+    3: 3,    # left_ear → left_ear
+    4: 4,    # right_ear → right_ear
+    5: 5,    # left_shoulder → left_shoulder
+    6: 6,    # right_shoulder → right_shoulder
+    7: 7,    # left_elbow → left_elbow
+    8: 8,    # right_elbow → right_elbow
+    9: 9,    # left_wrist → left_wrist
+    10: 10,  # right_wrist → right_wrist
+    11: 11,  # left_hip → left_hip
+    12: 12,  # right_hip → right_hip
+    13: 13,  # left_knee → left_knee
+    14: 14,  # right_knee → right_knee
+    15: 15,  # left_ankle → left_ankle
+    16: 16,  # right_ankle → right_ankle
+}
+
+
+class BodyPose3DNetEstimator(PoseEstimatorBase):
+    """NVIDIA BodyPose3DNet adapter (optional, Phase 2.5 spike).
+
+    Loads a BodyPose3DNet ONNX model via ``onnxruntime`` and maps the
+    34-joint output to the COCO 17-keypoint layout so all downstream
+    biomechanics code works unchanged.
+
+    Gracefully refuses to initialise when:
+      - Weights file is missing.
+      - VRAM is insufficient (< 700 MB free).
+      - Required libraries (``onnxruntime`` / ``onnxruntime-gpu``) are not
+        installed.
+
+    Args:
+        model_path: Path to ``.onnx`` weights (after the
+                    ``bodypose3dnet:`` prefix is stripped by the factory).
+        device_id: CUDA device ordinal (default 0).
+    """
+
+    def __init__(self, model_path: str, device_id: int = 0) -> None:
+        from pathlib import Path as _P
+
+        weights = _P(model_path)
+        if not weights.is_file():
+            raise FileNotFoundError(
+                f"BodyPose3DNet weights not found: {weights}. "
+                "Download from NGC: ngc registry model download-version "
+                "nvidia/tao/bodypose3dnet:deployable_onnx_v1.0"
+            )
+
+        if not _check_vram_mb(700, device_id):
+            raise RuntimeError(
+                "Insufficient VRAM for BodyPose3DNet (need ~700 MB free). "
+                "Falling back to RTMPose or Stub."
+            )
+
+        try:
+            import onnxruntime as ort  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise ImportError(
+                "onnxruntime-gpu is required for BodyPose3DNetEstimator. "
+                "Install with: pip install onnxruntime-gpu"
+            ) from exc
+
+        providers = [("CUDAExecutionProvider", {"device_id": device_id})]
+        self._session = ort.InferenceSession(str(weights), providers=providers)
+        self._input_name = self._session.get_inputs()[0].name
+        input_shape = self._session.get_inputs()[0].shape
+        self._input_h = int(input_shape[2]) if len(input_shape) >= 4 else 256
+        self._input_w = int(input_shape[3]) if len(input_shape) >= 4 else 192
+        log.info(
+            "bodypose3dnet_initialized",
+            model_path=model_path,
+            device_id=device_id,
+            input_shape=(self._input_h, self._input_w),
+        )
+
+    def estimate(self, frame: np.ndarray) -> list[dict[str, Any]]:
+        """Run BodyPose3DNet on one frame and return 17 COCO keypoints."""
+        import cv2  # local import to avoid top-level opencv dep in stub path
+
+        h, w = frame.shape[:2]
+        resized = cv2.resize(frame, (self._input_w, self._input_h))
+        blob = resized.astype(np.float32).transpose(2, 0, 1)[np.newaxis] / 255.0
+        outputs = self._session.run(None, {self._input_name: blob})
+        if not outputs or outputs[0].size == 0:
+            return _zero_keypoints()
+
+        raw_kps = outputs[0][0]  # shape ~ (34, 3) or (N, 34, 3)
+        if raw_kps.ndim == 3:
+            raw_kps = raw_kps[0]
+
+        result: list[dict[str, Any]] = []
+        for coco_idx in range(NUM_KEYPOINTS):
+            bp3d_idx = next(
+                (k for k, v in _BP3D_TO_COCO.items() if v == coco_idx), None
+            )
+            if bp3d_idx is not None and bp3d_idx < len(raw_kps):
+                kp_data = raw_kps[bp3d_idx]
+                result.append({
+                    "name": COCO_KEYPOINT_NAMES[coco_idx],
+                    "x": float(kp_data[0]) * w / self._input_w,
+                    "y": float(kp_data[1]) * h / self._input_h,
+                    "confidence": float(kp_data[2]) if len(kp_data) > 2 else 0.8,
+                })
+            else:
+                result.append({
+                    "name": COCO_KEYPOINT_NAMES[coco_idx],
+                    "x": 0.0, "y": 0.0, "confidence": 0.0,
+                })
+        return result
+
+
+def _check_vram_mb(required_mb: int, device_id: int = 0) -> bool:
+    """Return True if at least ``required_mb`` of free VRAM is available."""
+    import subprocess as _sp
+
+    try:
+        out = _sp.check_output(
+            [
+                "nvidia-smi",
+                f"--id={device_id}",
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            timeout=5,
+            text=True,
+        )
+        free_mb = int(out.strip())
+        return free_mb >= required_mb
+    except Exception:
+        return False
+
+
 # ── Factory ───────────────────────────────────────────────────────────────────
+
+_BODYPOSE3D_PREFIX = "bodypose3dnet:"
 
 
 def get_estimator(model_path: str | None) -> PoseEstimatorBase:
     """Return the appropriate pose estimator.
 
     Logic:
-    - If ``model_path`` is set *and* mmpose can be imported → RTMPoseEstimator
+    - ``bodypose3dnet:/path/to/model.onnx`` → BodyPose3DNetEstimator
+    - Any other non-empty path *and* mmpose importable → RTMPoseEstimator
     - Otherwise → StubPoseEstimator with a warning
 
     This makes the worker self-configuring: set ``MODEL_POSE_PATH`` to activate
     real inference; leave it unset for test / CI / pre-weight environments.
     """
-    if model_path:
+    if model_path and model_path.startswith(_BODYPOSE3D_PREFIX):
+        weights = model_path[len(_BODYPOSE3D_PREFIX):]
+        try:
+            estimator = BodyPose3DNetEstimator(weights)
+            log.info("pose_estimator_bodypose3dnet", model_path=weights)
+            return estimator
+        except (ImportError, FileNotFoundError, RuntimeError) as exc:
+            log.warning(
+                "bodypose3dnet_unavailable_fallback",
+                error=str(exc),
+            )
+
+    if model_path and not model_path.startswith(_BODYPOSE3D_PREFIX):
         try:
             estimator = RTMPoseEstimator(model_path)
             log.info("pose_estimator_rtmpose", model_path=model_path)
@@ -248,7 +401,7 @@ def get_estimator(model_path: str | None) -> PoseEstimatorBase:
                 model_path=model_path,
                 advice="Install mmpose or set MODEL_POSE_PATH='' to silence this warning",
             )
-    else:
+    elif not model_path:
         log.info("pose_estimator_stub_no_model_path")
     return StubPoseEstimator()
 

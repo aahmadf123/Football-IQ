@@ -91,7 +91,9 @@ def _render_reduced(
     analytics_safe: bool,
     fps: float,
 ) -> None:
-    cap = cv2.VideoCapture(str(video_path))
+    from pipeline.hwaccel import nvdec_video_capture
+
+    cap = nvdec_video_capture(video_path)
     if not cap.isOpened():
         cap.release()
         raise ValueError(f"Unable to open source video for period render: {video_path}")
