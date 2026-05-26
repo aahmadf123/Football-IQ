@@ -1,5 +1,6 @@
 export type PageKey =
   | "dashboard"
+  | "library"
   | "video-and-plays"
   | "players"
   | "analytics"
@@ -9,6 +10,8 @@ export type PageKey =
   | "health-workload"
   | "reports"
   | "clips-highlights"
+  | "alerts"
+  | "clip-review"
   | "settings";
 
 // Backend-aligned enums (ADR 0001). These describe API payloads, not the
@@ -42,8 +45,12 @@ export interface ApiClip {
   start_time: number;
   end_time: number;
   play_number?: number | null;
+  confidence?: number | null;
+  is_reviewed?: boolean;
   storage_uri?: string | null;
   label_data?: Record<string, unknown> | null;
+  boundary_source?: string | null;
+  boundary_confidence?: number | null;
   session_kind?: SessionKind | null;
   our_possession?: OurPossession | null;
   side_of_ball?: ApiSideOfBall | null;

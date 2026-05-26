@@ -6,11 +6,13 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  BellRing,
   CalendarDays,
   ChevronDown,
   ClipboardList,
   Clapperboard,
   FileText,
+  FolderOpen,
   HeartPulse,
   Home,
   LineChart,
@@ -35,6 +37,8 @@ import { MockBadge } from "@/components/mock-badge";
 
 const navItems = [
   { key: "dashboard", label: "Dashboard", href: "/", icon: Home },
+  { key: "library", label: "Library", href: "/library", icon: FolderOpen },
+  { key: "alerts", label: "Alerts", href: "/alerts", icon: BellRing },
   { key: "video-and-plays", label: "Video & Plays", href: "/video-and-plays", icon: MonitorPlay },
   { key: "players", label: "Players", href: "/players", icon: UserRound },
   { key: "analytics", label: "Analytics", href: "/analytics", icon: LineChart },

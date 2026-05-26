@@ -41,6 +41,18 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     title: "Clips & Highlights",
     subtitle: "Cutups, teaching clips, and recruiting-ready highlights",
   },
+  library: {
+    title: "Library",
+    subtitle: "Practice and game film grouped by date, session, opponent, and possession",
+  },
+  alerts: {
+    title: "Coaching Alerts",
+    subtitle: "Live stream of analytics and biomechanics flags from the pipeline",
+  },
+  "clip-review": {
+    title: "Clip Review",
+    subtitle: "Backend-backed clip metadata, processing status, and playback shell",
+  },
   settings: {
     title: "Settings",
     subtitle: "Team configuration, roles, model sensitivity, and integrations",
