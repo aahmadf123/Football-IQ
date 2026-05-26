@@ -208,6 +208,7 @@ async def retry_job(
         job_type=original.job_type,
         status=JobStatus.queued,
         priority=original.priority,
+        pipeline_mode=original.pipeline_mode,
         input_artifacts=original.input_artifacts,
         model_version_id=original.model_version_id,
     )
