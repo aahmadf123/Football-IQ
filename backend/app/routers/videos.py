@@ -1,17 +1,26 @@
 """Videos router — upload records, status, and presigned URL helpers."""
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
-from app.models import ProcessingJob, User, Video, VideoStatus
+from app.models import (
+    ProcessingJob,
+    SessionKind,
+    SideOfBall,
+    SourceType,
+    User,
+    Video,
+    VideoStatus,
+)
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
@@ -23,7 +32,20 @@ router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
 class VideoCreate(BaseModel):
     filename: str
     storage_uri: str
-    recorded_at: str | None = None
+    recorded_at: datetime | None = None
+    session_kind: SessionKind | None = None
+    source_type: SourceType | None = None
+    opponent_team: str | None = None
+    practice_session_id: uuid.UUID | None = None
+    our_possession: SideOfBall | None = None
+
+    @model_validator(mode="after")
+    def _opponent_required_for_game(self) -> "VideoCreate":
+        if self.session_kind == SessionKind.game and not (
+            self.opponent_team and self.opponent_team.strip()
+        ):
+            raise ValueError("opponent_team is required when session_kind='game'")
+        return self
 
 
 class VideoStatusUpdate(BaseModel):
@@ -46,6 +68,12 @@ class VideoResponse(BaseModel):
     height: int | None
     codec: str | None
     uploaded_by: uuid.UUID | None
+    recorded_at: datetime | None
+    session_kind: SessionKind | None
+    source_type: SourceType | None
+    opponent_team: str | None
+    practice_session_id: uuid.UUID | None
+    our_possession: SideOfBall | None
     metadata_: dict[str, Any] | None = None
     created_at: str
 
@@ -64,6 +92,12 @@ class VideoResponse(BaseModel):
             height=v.height,
             codec=v.codec,
             uploaded_by=v.uploaded_by,
+            recorded_at=v.recorded_at,
+            session_kind=v.session_kind,
+            source_type=v.source_type,
+            opponent_team=v.opponent_team,
+            practice_session_id=v.practice_session_id,
+            our_possession=v.our_possession,
             metadata_=v.metadata_,
             created_at=v.created_at.isoformat(),
         )
@@ -90,11 +124,34 @@ async def list_videos(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     status_filter: VideoStatus | None = Query(default=None, alias="status"),
+    recorded_after: datetime | None = Query(default=None),
+    recorded_before: datetime | None = Query(default=None),
+    session_kind: SessionKind | None = Query(default=None),
+    source_type: SourceType | None = Query(default=None),
+    opponent_team: str | None = Query(default=None),
+    practice_session_id: uuid.UUID | None = Query(default=None),
 ) -> list[VideoResponse]:
-    """List videos with optional status filter, newest first."""
-    q = select(Video).order_by(Video.created_at.desc()).limit(limit).offset(offset)
+    """List videos with Hudl-style filters; ``recorded_at`` newest first."""
+    q = (
+        select(Video)
+        .order_by(Video.recorded_at.desc().nullslast(), Video.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     if status_filter is not None:
         q = q.where(Video.status == status_filter)
+    if recorded_after is not None:
+        q = q.where(Video.recorded_at >= recorded_after)
+    if recorded_before is not None:
+        q = q.where(Video.recorded_at <= recorded_before)
+    if session_kind is not None:
+        q = q.where(Video.session_kind == session_kind)
+    if source_type is not None:
+        q = q.where(Video.source_type == source_type)
+    if opponent_team is not None:
+        q = q.where(Video.opponent_team == opponent_team)
+    if practice_session_id is not None:
+        q = q.where(Video.practice_session_id == practice_session_id)
     result = await db.execute(q)
     videos = result.scalars().all()
     return [VideoResponse.from_orm_video(v) for v in videos]
@@ -113,10 +170,22 @@ async def create_video(
         storage_uri=body.storage_uri,
         status=VideoStatus.uploaded,
         uploaded_by=current_user.id,
+        recorded_at=body.recorded_at,
+        session_kind=body.session_kind,
+        source_type=body.source_type,
+        opponent_team=body.opponent_team,
+        practice_session_id=body.practice_session_id,
+        our_possession=body.our_possession,
     )
     db.add(video)
     await db.flush()
-    log.info("video_created", video_id=str(video.id), filename=video.filename)
+    log.info(
+        "video_created",
+        video_id=str(video.id),
+        filename=video.filename,
+        session_kind=str(video.session_kind) if video.session_kind else None,
+        source_type=str(video.source_type) if video.source_type else None,
+    )
     return VideoResponse.from_orm_video(video)
 
 

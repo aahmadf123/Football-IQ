@@ -140,7 +140,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const [sessionType, setSessionType] = useState<SessionType>(persisted?.sessionType ?? "all");
   const [sideOfBall, setSideOfBall] = useState<SideOfBall>(persisted?.sideOfBall ?? "all");
-  const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? todayISO());
+  const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? "");
   const [uploads, setUploads] = useState<UploadedClip[]>([]);
 
   const [data, setData] = useState<FootballData>(initialData);
@@ -191,10 +191,24 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
     let cancelled = false;
     setApiStatus("loading");
+    // Forward the Hudl-style selected-date pill and session-type pill into
+    // the backend videos query so the library cards reflect what the coach
+    // picked. Backend supports recorded_after / recorded_before / session_kind
+    // (see GET /api/v1/videos in backend/app/routers/videos.py).
+    const videosParams = new URLSearchParams();
+    if (selectedDate) {
+      videosParams.set("recorded_after", `${selectedDate}T00:00:00Z`);
+      videosParams.set("recorded_before", `${selectedDate}T23:59:59.999999Z`);
+    }
+    if (sessionType !== "all") {
+      videosParams.set("session_kind", sessionType);
+    }
+    const videosQs = videosParams.toString();
+    const videosUrl = `${baseUrl}/api/v1/videos${videosQs ? `?${videosQs}` : ""}`;
     (async () => {
       try {
         const [videosRes, jobsRes, scoutRes] = await Promise.allSettled([
-          fetch(`${baseUrl}/api/v1/videos`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`videos ${r.status}`)))),
+          fetch(videosUrl).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`videos ${r.status}`)))),
           fetch(`${baseUrl}/api/v1/jobs`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`jobs ${r.status}`)))),
           fetch(`${baseUrl}/api/v1/self-scout/tendencies`).then((r) =>
             r.ok ? r.json() : Promise.reject(new Error(`self-scout ${r.status}`)),
@@ -227,7 +241,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [mockMode]);
+  }, [mockMode, selectedDate, sessionType]);
 
   function mergeUploadsIntoData(newUploads: UploadedClip[]) {
     setData((cur) => {
@@ -366,10 +380,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     );
   }, [getPlayerById, selectedPlayerId, filteredPlayers, data.players]);
 
-  const availableDates = useMemo(
-    () => buildDates(uploads, data.videos),
-    [uploads, data.videos],
-  );
+  const availableDates = useMemo(() => ["", ...buildDates(uploads, data.videos)], [uploads, data.videos]);
 
   const value: AppStateValue = {
     sessionType,

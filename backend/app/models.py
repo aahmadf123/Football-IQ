@@ -99,6 +99,33 @@ class VideoStatus(enum.StrEnum):
     failed = "failed"
 
 
+class SessionKind(enum.StrEnum):
+    """Operating mode of the capture session. See ADR 0001."""
+
+    practice = "practice"
+    scrimmage = "scrimmage"
+    game = "game"
+
+
+class SourceType(enum.StrEnum):
+    """How the video reached Football-IQ. ``drone`` is the default capture path
+    (single overhead camera per the ADR); ``uploaded_clip`` covers manual
+    coach uploads of pre-segmented clips."""
+
+    drone = "drone"
+    uploaded_clip = "uploaded_clip"
+
+
+class SideOfBall(enum.StrEnum):
+    """Shared vocabulary for ``Video.our_possession``, ``Clip.our_possession``,
+    and ``Clip.side_of_ball``. ``Tracklet.side_of_ball`` accepts the same
+    values but remains a ``String`` for now (see ADR 0001 §4)."""
+
+    offense = "offense"
+    defense = "defense"
+    special_teams = "special_teams"
+
+
 class CorrectionType(enum.StrEnum):
     clip_boundary = "clip_boundary"
     player_identity = "player_identity"
@@ -203,7 +230,23 @@ class Video(Base):
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    # ── Session metadata (ADR 0001 / #97) ─────────────────────────────────
+    session_kind: Mapped[SessionKind | None] = mapped_column(
+        Enum(SessionKind, name="session_kind"), nullable=True, index=True
+    )
+    source_type: Mapped[SourceType | None] = mapped_column(
+        Enum(SourceType, name="source_type"), nullable=True
+    )
+    opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    practice_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    our_possession: Mapped[SideOfBall | None] = mapped_column(
+        Enum(SideOfBall, name="side_of_ball"), nullable=True
+    )
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -255,6 +298,23 @@ class Clip(Base):
     down: Mapped[int | None] = mapped_column(Integer, nullable=True)
     distance: Mapped[float | None] = mapped_column(Float, nullable=True)
     field_zone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # ── Session / possession metadata (ADR 0001 / #98) ────────────────────
+    # ``session_kind`` is denormalized from the parent video at write time so
+    # clip-level queries don't have to JOIN videos.
+    session_kind: Mapped[SessionKind | None] = mapped_column(
+        Enum(SessionKind, name="session_kind", create_type=False), nullable=True, index=True
+    )
+    # ``our_possession`` is the Toledo side on this play (required for game
+    # clips, inherited from the parent session otherwise).
+    our_possession: Mapped[SideOfBall | None] = mapped_column(
+        Enum(SideOfBall, name="side_of_ball", create_type=False), nullable=True
+    )
+    # ``side_of_ball`` is the per-clip side promoted from ``label_data``.
+    # Same vocabulary as ``our_possession``; see ADR 0001 §3.
+    side_of_ball: Mapped[SideOfBall | None] = mapped_column(
+        Enum(SideOfBall, name="side_of_ball", create_type=False), nullable=True, index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
