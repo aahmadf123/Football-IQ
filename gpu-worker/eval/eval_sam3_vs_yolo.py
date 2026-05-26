@@ -56,7 +56,6 @@ from pipeline.tracker_models import (  # noqa: E402
     IoUTracker,
     SAM3MaskTracker,
     TrackerBase,
-    get_tracker,
 )
 
 

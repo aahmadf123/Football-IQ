@@ -7,7 +7,6 @@ identical so issue #16's downstream behaviour is preserved.
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import sys
