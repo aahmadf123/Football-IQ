@@ -1,9 +1,16 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
 import { useMocks } from "./mock-flag";
+import {
+  fetchInboxStatus,
+  registerVideo,
+  requestUploadUrl,
+  uploadToR2,
+} from "./api";
+import type { VideoInboxItem } from "./api";
 import type {
   ApiJob,
   ApiVideo,
@@ -12,6 +19,9 @@ import type {
   PlayerSummary,
   PlaySummary,
   SelfScoutResponse,
+  SessionKind,
+  SourceType,
+  OurPossession,
 } from "./types";
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
@@ -41,12 +51,27 @@ const POSITION_BY_SIDE: Record<SideOfBall, string[] | null> = {
 
 const STORAGE_KEY = "football_iq_app_state_v1";
 
+export type UploadPhase = "idle" | "requesting-url" | "uploading" | "registering" | "done" | "error";
+
 export interface UploadedClip {
   id: string;
   filename: string;
   objectUrl?: string;
   sizeBytes: number;
   uploadedAt: string;
+  storageUri?: string;
+  videoId?: string;
+  phase: UploadPhase;
+  progress: number;
+  error?: string;
+}
+
+export interface UploadMetadata {
+  recorded_at?: string | null;
+  session_kind?: SessionKind | null;
+  source_type?: SourceType | null;
+  opponent_team?: string | null;
+  our_possession?: OurPossession | null;
 }
 
 interface PersistedState {
@@ -89,8 +114,13 @@ interface AppStateValue {
 
   // Upload
   uploads: UploadedClip[];
-  addUploads: (files: FileList | File[]) => Promise<UploadedClip[]>;
+  addUploads: (files: FileList | File[], metadata?: UploadMetadata) => Promise<UploadedClip[]>;
+  retryUpload: (id: string) => void;
   removeUpload: (id: string) => void;
+
+  // Inbox
+  inboxItems: VideoInboxItem[];
+  refreshInbox: () => void;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -150,16 +180,23 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     initialData.players[0]?.id ?? "",
   );
 
+  // Inbox status from backend
+  const [inboxItems, setInboxItems] = useState<VideoInboxItem[]>([]);
+
+  // Keep a ref to the latest metadata for retries
+  const retryMetaRef = useRef<Map<string, { file: File; metadata?: UploadMetadata }>>(new Map());
+
   // Hydrate uploaded clip names from storage on mount
   useEffect(() => {
     const p = loadPersisted();
     if (p?.uploadedNames?.length) {
-      // Rehydrate as metadata-only entries (object URLs don't persist across reloads)
       const rehydrated: UploadedClip[] = p.uploadedNames.map((name, i) => ({
         id: `persist-${i}-${name}`,
         filename: name,
         sizeBytes: 0,
         uploadedAt: new Date().toISOString(),
+        phase: "done" as UploadPhase,
+        progress: 100,
       }));
       setUploads(rehydrated);
       mergeUploadsIntoData(rehydrated);
@@ -172,13 +209,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       sessionType,
       sideOfBall,
       selectedDate,
-      uploadedNames: uploads.map((u) => u.filename),
+      uploadedNames: uploads.filter((u) => u.phase === "done").map((u) => u.filename),
     });
   }, [sessionType, sideOfBall, selectedDate, uploads]);
 
   // Fetch live data when the API is configured and we are not in mock mode.
-  // Empty responses are accepted as valid live data; failures degrade to offline
-  // without silently substituting mock data.
   useEffect(() => {
     if (mockMode) {
       setApiStatus("mock");
@@ -191,10 +226,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
     let cancelled = false;
     setApiStatus("loading");
-    // Forward the Hudl-style selected-date pill and session-type pill into
-    // the backend videos query so the library cards reflect what the coach
-    // picked. Backend supports recorded_after / recorded_before / session_kind
-    // (see GET /api/v1/videos in backend/app/routers/videos.py).
     const videosParams = new URLSearchParams();
     if (selectedDate) {
       videosParams.set("recorded_after", `${selectedDate}T00:00:00Z`);
@@ -243,6 +274,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     };
   }, [mockMode, selectedDate, sessionType]);
 
+  // Fetch inbox status periodically in non-mock mode
+  const refreshInbox = useCallback(() => {
+    if (mockMode) return;
+    const base = process.env.NEXT_PUBLIC_API_URL;
+    if (!base) return;
+    fetchInboxStatus(undefined, true)
+      .then(setInboxItems)
+      .catch(() => { /* silently degrade */ });
+  }, [mockMode]);
+
+  useEffect(() => {
+    refreshInbox();
+    const id = setInterval(refreshInbox, 15_000);
+    return () => clearInterval(id);
+  }, [refreshInbox]);
+
   function mergeUploadsIntoData(newUploads: UploadedClip[]) {
     setData((cur) => {
       const existing = new Set(cur.videos.map((v) => v.filename));
@@ -252,7 +299,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       const newVideos: ApiVideo[] = [
         ...cur.videos,
         ...additions.map((u) => ({
-          id: u.id,
+          id: u.videoId ?? u.id,
           filename: u.filename,
           status: "uploaded",
           duration_seconds: null,
@@ -263,9 +310,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         })),
       ];
 
-      // Only synthesize fake clips/plays in mock mode. In default mode the
-      // upload is a real local file but has not been processed yet, so it
-      // contributes nothing to plays/clips until the backend produces them.
       if (!mockMode) {
         return { ...cur, videos: newVideos };
       }
@@ -301,7 +345,60 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
-  const addUploads = useCallback(async (files: FileList | File[]) => {
+  function updateUpload(id: string, patch: Partial<UploadedClip>) {
+    setUploads((cur) => cur.map((u) => (u.id === id ? { ...u, ...patch } : u)));
+  }
+
+  async function executeUpload(clip: UploadedClip, file: File, metadata?: UploadMetadata) {
+    const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+    // In mock mode or when Worker/API is not configured, fall back to local-only
+    if (mockMode || !workerUrl || !apiUrl) {
+      updateUpload(clip.id, { phase: "done", progress: 100 });
+      mergeUploadsIntoData([clip]);
+      return;
+    }
+
+    try {
+      // Step 1: Request upload URL from Worker
+      updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
+      const { uploadUrl } = await requestUploadUrl(file.name);
+
+      // Step 2: Upload file to R2 via Worker proxy
+      updateUpload(clip.id, { phase: "uploading", progress: 0 });
+      const r2Result = await uploadToR2(uploadUrl, file, undefined, (loaded, total) => {
+        const pct = Math.round((loaded / total) * 100);
+        updateUpload(clip.id, { progress: pct });
+      });
+
+      // Step 3: Register video with backend
+      updateUpload(clip.id, { phase: "registering", progress: 100 });
+      const video = await registerVideo({
+        filename: file.name,
+        storage_uri: r2Result.storageUri,
+        recorded_at: metadata?.recorded_at,
+        session_kind: metadata?.session_kind,
+        source_type: metadata?.source_type,
+        opponent_team: metadata?.opponent_team,
+        our_possession: metadata?.our_possession,
+      });
+
+      updateUpload(clip.id, {
+        phase: "done",
+        progress: 100,
+        storageUri: r2Result.storageUri,
+        videoId: video.id,
+      });
+      mergeUploadsIntoData([{ ...clip, videoId: video.id }]);
+      refreshInbox();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      updateUpload(clip.id, { phase: "error", error: message });
+    }
+  }
+
+  const addUploads = useCallback(async (files: FileList | File[], metadata?: UploadMetadata) => {
     const arr = Array.from(files);
     const created: UploadedClip[] = arr.map((f, i) => ({
       id: `up-${Date.now()}-${i}`,
@@ -309,11 +406,33 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       objectUrl: typeof URL !== "undefined" ? URL.createObjectURL(f) : undefined,
       sizeBytes: f.size,
       uploadedAt: new Date().toISOString(),
+      phase: "idle" as UploadPhase,
+      progress: 0,
     }));
+
     setUploads((cur) => [...cur, ...created]);
-    mergeUploadsIntoData(created);
+
+    // Store file references for retries
+    for (let i = 0; i < arr.length; i++) {
+      retryMetaRef.current.set(created[i].id, { file: arr[i], metadata });
+    }
+
+    // Execute uploads concurrently
+    for (let i = 0; i < created.length; i++) {
+      executeUpload(created[i], arr[i], metadata);
+    }
+
     return created;
-  }, []);
+  }, [mockMode, refreshInbox]);
+
+  const retryUpload = useCallback((id: string) => {
+    const meta = retryMetaRef.current.get(id);
+    if (!meta) return;
+    const clip = uploads.find((u) => u.id === id);
+    if (!clip) return;
+    updateUpload(id, { phase: "idle", progress: 0, error: undefined });
+    executeUpload(clip, meta.file, meta.metadata);
+  }, [uploads, mockMode, refreshInbox]);
 
   const removeUpload = useCallback((id: string) => {
     setUploads((cur) => {
@@ -323,6 +442,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
       return cur.filter((u) => u.id !== id);
     });
+    retryMetaRef.current.delete(id);
   }, []);
 
   // Derived: filter plays/players by side of ball
@@ -406,7 +526,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     getPlayerById,
     uploads,
     addUploads,
+    retryUpload,
     removeUpload,
+    inboxItems,
+    refreshInbox,
   };
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
