@@ -249,22 +249,22 @@ _BP3D_TO_COCO: dict[int, int] = {
 
 
 class BodyPose3DNetEstimator(PoseEstimatorBase):
-    """NVIDIA TAO BodyPose3DNet adapter (optional, Phase 2.5 spike).
+    """NVIDIA BodyPose3DNet adapter (optional, Phase 2.5 spike).
 
-    Loads a TensorRT-optimized ``.etlt`` model via ``tao_deploy`` or a
-    raw ONNX model via ``onnxruntime``.  Maps the 34-joint output to the
-    COCO 17-keypoint layout so all downstream biomechanics code works
-    unchanged.
+    Loads a BodyPose3DNet ONNX model via ``onnxruntime`` and maps the
+    34-joint output to the COCO 17-keypoint layout so all downstream
+    biomechanics code works unchanged.
 
     Gracefully refuses to initialise when:
       - Weights file is missing.
       - VRAM is insufficient (< 700 MB free).
-      - Required libraries (``onnxruntime-gpu``) are not installed.
+      - Required libraries (``onnxruntime`` / ``onnxruntime-gpu``) are not
+        installed.
 
     Args:
-        model_path: Path to ``.onnx`` or ``.etlt`` weights (after
+        model_path: Path to ``.onnx`` weights (after the
                     ``bodypose3dnet:`` prefix is stripped by the factory).
-        device_id:  CUDA device ordinal (default 0).
+        device_id: CUDA device ordinal (default 0).
     """
 
     def __init__(self, model_path: str, device_id: int = 0) -> None:
