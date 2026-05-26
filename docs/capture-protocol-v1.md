@@ -21,7 +21,7 @@ Standardize drone film collection so clips are usable for field mapping, player 
 ## Naming Convention
 Use:
 
-`TOL_{YYYYMMDD}_{period}_{series}_{play}_{scenario}_{camera}.mp4`
+`TOL_{YYYYMMDD}_{period}_{series}_{play}_{scenario}_DRONEA.mp4`
 
 Example:
 
@@ -30,7 +30,7 @@ Example:
 Where:
 - `period`: P1, P2, OTK, RZ
 - `scenario`: RUN, PASS, MOTION, REDZONE, BADLIGHT, CROWDEDBOX, MIXED
-- `camera`: DRONEA (or DRONEB if secondary)
+- Source is fixed to `DRONEA` for the single-camera capture pipeline.
 
 ## Upload Process
 1. Offload all files immediately after session to encrypted field laptop.

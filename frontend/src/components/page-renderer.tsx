@@ -131,7 +131,7 @@ function Dashboard() {
             </button>
           </div>
         </div>
-        <FilmTabs />
+        <OverlayLayerToggles />
         <FieldStage />
         <VideoControls />
       </section>
@@ -318,9 +318,9 @@ function PracticeInbox({ jobs }: { jobs: readonly import("@/lib/types").ApiJob[]
   );
 }
 
-function FilmTabs() {
+function OverlayLayerToggles() {
   const [active, setActive] = useState(0);
-  const tabs = ["All-22 View", "Endzone", "Sideline", "Wireframe"];
+  const tabs = ["Raw", "Tracks", "Formation", "Wireframe"];
   return (
     <div className="tabs">
       {tabs.map((tab, index) => (
@@ -753,7 +753,7 @@ function SettingsView({ data }: { data: FootballData }) {
     <div className="content-grid">
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">System Config</h2>
-        {["Team name", "Primary camera", "S3/R2 bucket", "Auto-export access"].map((label) => (
+        {["Team name", "Capture camera", "S3/R2 bucket", "Auto-export access"].map((label) => (
           <div key={label} className="form-control" style={{ marginTop: 10 }}>
             <label>{label}</label>
             <input defaultValue={label === "Team name" ? "Toledo Rockets" : "Configured"} />
