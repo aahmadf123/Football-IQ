@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 import { FootballShell } from "@/components/football-shell";
 import { HeatMap, PlayerPortrait, TrendLine } from "@/components/visuals";
+import { MockBadge } from "@/components/mock-badge";
 import { useAppState } from "@/lib/app-state";
 
 export function PlayerProfileClient({ id }: { id: string }) {
@@ -109,7 +110,8 @@ export function PlayerProfileClient({ id }: { id: string }) {
         </section>
 
         <section className="panel panel-pad span-6">
-          <h2 className="panel-title">Biomechanics</h2>
+          <h2 className="panel-title">Biomechanics <MockBadge status="mock" /></h2>
+          {/* Sample values — per-player biomechanics wire-up tracked in #100. */}
           <div className="list-stack" style={{ marginTop: 12 }}>
             <MetricLine label="Pad Level" value="-4.2°" />
             <MetricLine label="Torso Angle" value="18.6°" />
