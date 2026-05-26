@@ -54,16 +54,12 @@ export function FootballShell({
         <div className="brand-lockup">
           <Image
             src="/brand/toledo-rocket.png"
-            width={152}
-            height={88}
-            alt="Toledo Rockets"
-            className="rocket-mark"
+            width={184}
+            height={52}
+            alt="Toledo Football IQ"
+            style={{ width: "auto", height: "36px", objectFit: "contain" }}
             priority
           />
-          <div className="brand-text">
-            <p className="brand-title">Toledo</p>
-            <p className="brand-subtitle">Football IQ</p>
-          </div>
         </div>
 
         <div className="mission">
@@ -78,16 +74,16 @@ export function FootballShell({
           <button type="button" className="select-pill" aria-label="Practice session">
             <CalendarDays size={18} />
             <span>
-              Practice Session
-              <strong>May 14, 2025</strong>
+              Session Type
+              <strong>Practice & Games</strong>
             </span>
             <ChevronDown size={16} />
           </button>
           <button type="button" className="select-pill" aria-label="Play filter">
             <BarChart3 size={18} />
             <span>
-              View
-              <strong>All Plays</strong>
+              Side of Ball
+              <strong>All (Off & Def)</strong>
             </span>
             <ChevronDown size={16} />
           </button>
@@ -114,28 +110,28 @@ export function FootballShell({
         <section className="panel panel-pad">
           <h2 className="panel-title">Session Summary</h2>
           <div className="list-stack" style={{ marginTop: 12 }}>
-            <MetricLine label="Total Plays" value="112" />
-            <MetricLine label="Offensive Plays" value="64" />
-            <MetricLine label="Defensive Plays" value="48" />
-            <MetricLine label="Practice Time" value="1h 58m" />
-            <MetricLine label="Tracked Players" value="118" />
+            <MetricLine label="Opponent Film" value="Games & Scrim" />
+            <MetricLine label="Offense Plays" value="Comp. Tracked" />
+            <MetricLine label="Defense Plays" value="Comp. Tracked" />
+            <MetricLine label="Practice / Game" value="Full Custom" />
+            <MetricLine label="Total Clips" value="Active Roster" />
           </div>
         </section>
 
-        <section className="panel panel-pad">
-          <Image src="/brand/toledo-rocket.png" width={120} height={70} alt="" className="rocket-mark" />
-          <h2 className="panel-title" style={{ marginTop: 8 }}>Rise Together</h2>
+        <section className="panel panel-pad" style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+          <Image src="/brand/toledo-rocket.png" width={140} height={60} alt="" style={{ objectFit: "contain", marginBottom: 8 }} />
+          <h2 className="panel-title">Rise Together</h2>
           <p style={{ margin: "6px 0 0", color: "var(--gold)", fontWeight: 900 }}>#TEAMTOLEDO</p>
         </section>
       </aside>
 
       <main className="main">
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: activePage === "dashboard" ? 6 : 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{pageTitles[activePage].title}</h2>
-            <p className="kicker">{pageTitles[activePage].subtitle}</p>
+            <h2 style={{ margin: 0, fontSize: activePage === "dashboard" ? "1.0rem" : "1.1rem" }}>{pageTitles[activePage].title}</h2>
+            <p className="kicker" style={{ fontSize: activePage === "dashboard" ? "0.72rem" : undefined }}>{pageTitles[activePage].subtitle}</p>
           </div>
-          {activePage === "dashboard" && <span className="live-badge">Live</span>}
+          {activePage === "dashboard" && <span className="live-badge" style={{ background: "var(--blue)" }}>Processed</span>}
         </div>
         {children}
       </main>
@@ -144,9 +140,9 @@ export function FootballShell({
         <section className="panel panel-pad">
           <h2 className="panel-title" style={{ color: "var(--gold)" }}>System Status</h2>
           <div className="list-stack" style={{ marginTop: 12 }}>
-            <StatusLine icon={<Radio size={16} />} label="Drone Feed" value="Online" tone="good" />
-            <StatusLine icon={<Activity size={16} />} label="Processing" value="Realtime" tone="good" />
-            <StatusLine icon={<UsersRound size={16} />} label="Players Tracked" value="118" tone="good" />
+            <StatusLine icon={<Radio size={16} />} label="R2 Buckets" value="Connected" tone="good" />
+            <StatusLine icon={<Activity size={16} />} label="Processing" value="Pending upload" tone="good" />
+            <StatusLine icon={<UsersRound size={16} />} label="Auto ML IQ" value="Enabled" tone="good" />
             <StatusLine icon={<Zap size={16} />} label="Model Version" value="v2.4.1" tone="good" />
           </div>
         </section>
@@ -203,10 +199,12 @@ function StatusLine({
   tone: "good" | "warning";
 }) {
   return (
-    <div className="status-row">
-      {icon}
-      <span>{label}</span>
-      <strong style={{ color: tone === "good" ? "var(--green)" : "var(--gold)", fontSize: "0.76rem" }}>{value}</strong>
+    <div className="status-line">
+      <div className="status-line-left">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <strong style={{ color: tone === "good" ? "var(--green)" : "var(--gold)", fontSize: "0.80rem" }}>{value}</strong>
     </div>
   );
 }

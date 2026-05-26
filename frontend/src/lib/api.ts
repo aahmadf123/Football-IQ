@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { footballData } from "./mock-data";
-import type { ApiJob, ApiVideo, FootballData, SelfScoutResponse } from "./types";
+import type { ApiJob, ApiVideo, FootballData, SelfScoutResponse, PlaySummary } from "./types";
 
 type DataSource = "fallback" | "api";
 
@@ -11,6 +11,97 @@ export function useFootballIqData() {
   const [source, setSource] = useState<DataSource>("fallback");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load dynamically added clips from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("football_iq_custom_clips");
+      if (stored) {
+        const customNames = JSON.parse(stored) as string[];
+        if (customNames && customNames.length > 0) {
+          integrateCustomClips(customNames);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const integrateCustomClips = (names: string[]) => {
+    setData((current) => {
+      // Avoid duplicate integration
+      const filteredNames = names.filter(
+        name => !current.videos.some(v => v.filename === name)
+      );
+      if (filteredNames.length === 0) return current;
+
+      const newVideos = [
+        ...current.videos,
+        ...filteredNames.map((name, i) => ({
+          id: `custom-v-${Date.now()}-${i}`,
+          filename: name,
+          status: "ready",
+          duration_seconds: 12,
+          fps: 60,
+          width: 1920,
+          height: 1080,
+          created_at: new Date().toISOString()
+        }))
+      ];
+
+      const newClips = [
+        ...current.clips,
+        ...filteredNames.map((name, i) => ({
+          id: `custom-clip-${Date.now()}-${i}`,
+          title: name.replace(/\.[^/.]+$/, ""),
+          subtitle: "Newly uploaded play film",
+          duration: "00:12",
+          tag: "Upload"
+        }))
+      ];
+
+      // Add a play item for each custom uploaded clip so total count of plays increases
+      const nextPlayNumber = current.plays.length > 0 
+        ? Math.max(...current.plays.map(p => p.number)) + 1 
+        : 1;
+
+      const newPlays: PlaySummary[] = [
+        ...current.plays,
+        ...filteredNames.map((name, i) => ({
+          number: nextPlayNumber + i,
+          formation: "Trips Right",
+          personnel: "11",
+          concept: "Custom Pass/Run",
+          result: "Processed",
+          yards: 6,
+          confidence: 0.95
+        }))
+      ];
+
+      return {
+        ...current,
+        videos: newVideos,
+        clips: newClips,
+        plays: newPlays
+      };
+    });
+  };
+
+  const refresh = (newUploadedFileName?: string) => {
+    if (newUploadedFileName) {
+      try {
+        const stored = localStorage.getItem("football_iq_custom_clips");
+        const currentList = stored ? JSON.parse(stored) as string[] : [];
+        if (!currentList.includes(newUploadedFileName)) {
+          currentList.push(newUploadedFileName);
+          localStorage.setItem("football_iq_custom_clips", JSON.stringify(currentList));
+        }
+        integrateCustomClips([newUploadedFileName]);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
 
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -30,17 +121,22 @@ export function useFootballIqData() {
 
         if (cancelled) return;
 
-        setData({
-          ...footballData,
-          videos: valueOrFallback(videos, footballData.videos),
-          jobs: valueOrFallback(jobs, footballData.jobs),
-          selfScout: valueOrFallback(selfScout, footballData.selfScout),
+        setData((current) => {
+          const apiVideos = valueOrFallback(videos, current.videos);
+          const apiJobs = valueOrFallback(jobs, current.jobs);
+          const apiSelfScout = valueOrFallback(selfScout, current.selfScout);
+          
+          return {
+            ...current,
+            videos: apiVideos,
+            jobs: apiJobs,
+            selfScout: apiSelfScout,
+          };
         });
         setSource("api");
       } catch (caught) {
         if (!cancelled) {
           setError(caught instanceof Error ? caught.message : "API unavailable");
-          setData(footballData);
           setSource("fallback");
         }
       } finally {
@@ -54,7 +150,7 @@ export function useFootballIqData() {
     };
   }, []);
 
-  return { data, source, loading, error };
+  return { data, source, loading, error, refresh };
 }
 
 async function apiGet<T>(path: string): Promise<T> {

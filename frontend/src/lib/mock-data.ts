@@ -2,8 +2,8 @@ import type { FootballData, PageKey, SelfScoutResponse } from "./types";
 
 export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = {
   dashboard: {
-    title: "Practice - 5/14/2025",
-    subtitle: "Live football intelligence cockpit for staff review",
+    title: "Practice & Game Intelligence Cockpit",
+    subtitle: "Processed football intelligence coaching review",
   },
   "video-and-plays": {
     title: "Video & Plays",
