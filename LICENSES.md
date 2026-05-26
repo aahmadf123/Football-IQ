@@ -16,8 +16,10 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 | **Commercial use** | Non-commercial / research use only per model card; review before any commercial deployment |
 | **Integration path** | `pip install -U ultralytics` — SAM 3 is included in Ultralytics >= 8.3.237 |
 | **HF token required** | Yes — `HF_TOKEN` env var / GitHub Actions secret |
-| **Football-IQ usage** | Phase 2.5 — Issue 74: detection and tracking adapter (`stagedetect.py`, `stagetrack.py`), nightly-priority routing only until distilled variant validated |
-| **Notes** | Do not commit model weights (`.pt` files) to the repository. Weights are downloaded at runtime via `HF_TOKEN`. Add `.pt` to `.gitignore` if not already present. |
+| **Football-IQ usage** | Phase 2.5 — Issue #74: shipped as `SAM3Detector` in `pipeline/detector_models.py` and `SAM3MaskTracker` in `pipeline/tracker_models.py`. Routed via `model_router` on the nightly path only (`ENABLE_SAM3_NIGHTLY=1`); same-session continues to use YOLOv8n + IoU. Listed in `NIGHTLY_ONLY_VARIANTS` so config overrides cannot route it to a same-session bucket. |
+| **Eval** | See `reports/phase2-issue74-sam3-eval.md` and `gpu-worker/eval/eval_sam3_vs_yolo.py` for the comparison harness (synthetic CI path + real-clip path). |
+| **Promotion gate** | Frame coverage within 2pp of YOLOv8n, mean track length ≥ YOLO + IoU, fragmentation ≤ 1.1×, and same-session latency fit. Until met SAM 3.1 stays nightly-only; promotion likely awaits a distilled variant. |
+| **Notes** | Do not commit model weights (`.pt`, `.pth`, `.safetensors`) to the repository — `.gitignore` enforces this. Weights are downloaded at runtime via `HF_TOKEN`. The adapter logs a warning at construction time when `HF_TOKEN` is unset so the failure mode is obvious. |
 
 ---
 
@@ -92,4 +94,4 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
-*Last updated: May 25, 2026*
+*Last updated: May 26, 2026*
