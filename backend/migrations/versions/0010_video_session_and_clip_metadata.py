@@ -86,9 +86,7 @@ def upgrade() -> None:
         "videos",
         sa.Column(
             "our_possession",
-            sa.Enum(
-                "offense", "defense", "special_teams", name="side_of_ball", create_type=False
-            ),
+            sa.Enum("offense", "defense", "special_teams", name="side_of_ball", create_type=False),
             nullable=True,
         ),
     )
@@ -110,9 +108,7 @@ def upgrade() -> None:
         "clips",
         sa.Column(
             "our_possession",
-            sa.Enum(
-                "offense", "defense", "special_teams", name="side_of_ball", create_type=False
-            ),
+            sa.Enum("offense", "defense", "special_teams", name="side_of_ball", create_type=False),
             nullable=True,
         ),
     )
@@ -120,9 +116,7 @@ def upgrade() -> None:
         "clips",
         sa.Column(
             "side_of_ball",
-            sa.Enum(
-                "offense", "defense", "special_teams", name="side_of_ball", create_type=False
-            ),
+            sa.Enum("offense", "defense", "special_teams", name="side_of_ball", create_type=False),
             nullable=True,
         ),
     )
