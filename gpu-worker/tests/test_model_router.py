@@ -283,6 +283,48 @@ def test_is_nightly_only_variant_flags_sam3() -> None:
     assert model_router.is_nightly_only_variant("iou-tracker") is False
 
 
+# ── Embeddings nightly routing (Issue #8) ────────────────────────────────────
+
+
+def test_embeddings_nightly_routes_to_baseline_variant() -> None:
+    assert (
+        select_model("embeddings", NIGHTLY_PRIORITY)
+        == model_router.PLAY_EMBED_BASELINE
+    )
+
+
+def test_embeddings_same_session_returns_none_by_default() -> None:
+    """Embeddings are nightly-only; same-session must remain inert."""
+    assert select_model("embeddings", SAME_SESSION_PRIORITY) == "none"
+
+
+def test_play_embed_baseline_is_nightly_only() -> None:
+    assert model_router.is_nightly_only_variant(model_router.PLAY_EMBED_BASELINE)
+
+
+def test_routing_config_cannot_force_embeddings_to_same_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malicious / accidental override that pins the heavy embedding
+    encoder to the same-session bucket must be rejected at load time."""
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {
+                "embeddings": {
+                    "same_session": model_router.PLAY_EMBED_BASELINE,
+                    "nightly": model_router.PLAY_EMBED_BASELINE,
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    fast = select_model("embeddings", SAME_SESSION_PRIORITY)
+    assert fast not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert fast == DEFAULT_ROUTING["embeddings"]["same_session"]
+
+
 def test_build_routing_artifact_sam3_nightly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

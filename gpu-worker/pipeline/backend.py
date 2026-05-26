@@ -304,6 +304,53 @@ def create_pose_keypoints(
         return dict(resp.json())
 
 
+# ── Play embeddings (Phase 3 / Issue #8) ─────────────────────────────────────
+
+
+def create_play_embedding(
+    clip_id: str,
+    model_version_id: str,
+    vector: list[float],
+    *,
+    visual_vector: list[float] | None = None,
+    structured_vector: list[float] | None = None,
+    chunk_kind: str = "play",
+    snap_anchor: bool = True,
+    used_sam_masks: bool = False,
+    embedding_confidence: float | None = None,
+    source_label_ids: list[str] | None = None,
+    calibration_version_id: str | None = None,
+    is_experimental: bool = True,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """POST /api/v1/embeddings/play and return the created embedding dict."""
+    payload: dict[str, Any] = {
+        "clip_id": clip_id,
+        "model_version_id": model_version_id,
+        "vector": vector,
+        "chunk_kind": chunk_kind,
+        "snap_anchor": snap_anchor,
+        "used_sam_masks": used_sam_masks,
+        "is_experimental": is_experimental,
+    }
+    if visual_vector is not None:
+        payload["visual_vector"] = visual_vector
+    if structured_vector is not None:
+        payload["structured_vector"] = structured_vector
+    if embedding_confidence is not None:
+        payload["embedding_confidence"] = embedding_confidence
+    if source_label_ids:
+        payload["source_label_ids"] = source_label_ids
+    if calibration_version_id is not None:
+        payload["calibration_version_id"] = calibration_version_id
+    if job_id is not None:
+        payload["job_id"] = job_id
+    with _client() as c:
+        resp = c.post("/api/v1/embeddings/play", json=payload)
+        resp.raise_for_status()
+        return dict(resp.json())
+
+
 # ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
 
 

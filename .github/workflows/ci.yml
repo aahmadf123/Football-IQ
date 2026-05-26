@@ -22,8 +22,11 @@ jobs:
         working-directory: backend
 
     services:
+      # pgvector/pgvector:pg16 is upstream Postgres 16 with the pgvector
+      # extension preinstalled, required by the playembeddings table
+      # introduced in migration 0008 (Issue #8 / #77).
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: footiq
           POSTGRES_PASSWORD: footiq_test

@@ -5,5 +5,5 @@
   "reid":       {"same_session": "jersey-ocr",        "nightly": "jersey-ocr"},
   "pose":       {"same_session": "rtmpose-t",         "nightly": "rtmpose-m"},
   "render":     {"same_session": "ffmpeg-overlay",    "nightly": "ffmpeg-overlay"},
-  "embeddings": {"same_session": "none",              "nightly": "none"}
+  "embeddings": {"same_session": "none",              "nightly": "play-embed-clip-vitb32-baseline"}
 }

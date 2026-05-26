@@ -19,7 +19,7 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 | `reid`       | `jersey-ocr`                 | `jersey-ocr`            |
 | `pose`       | `rtmpose-t`                  | `rtmpose-m`             |
 | `render`     | `ffmpeg-overlay`             | `ffmpeg-overlay`        |
-| `embeddings` | `none`                       | `none`                  |
+| `embeddings` | `none`                       | `play-embed-clip-vitb32-baseline` |
 
 The pose row is the contract preserved from issue #16: same-session pose
 jobs route to RTMPose-tiny (~1000 FPS on a GTX 1660 Ti), nightly pose jobs
@@ -41,11 +41,27 @@ When in doubt, route experimental models to `nightly` and let them prove
 out before promoting them to `same_session`.
 
 The router maintains `NIGHTLY_ONLY_VARIANTS` (currently `{"sam3.1",
-"sam3-mask-tracker"}`). Any routing config — env override or otherwise —
-that tries to place one of these in the same-session bucket is rejected
-at load time and the bucket falls back to the bundled default. This is
-the hard guardrail behind the "experimental models default to nightly"
-rule above.
+"sam3-mask-tracker", "play-embed-clip-vitb32-baseline"}`). Any routing
+config — env override or otherwise — that tries to place one of these
+in the same-session bucket is rejected at load time and the bucket
+falls back to the bundled default. This is the hard guardrail behind
+the "experimental models default to nightly" rule above.
+
+## Nightly-only: play embeddings (Issue #8)
+
+`embeddings` is a nightly-only stage. Same-session jobs return the
+sentinel `"none"` so the embed stage is a no-op inside the period-break
+window — the "find me reps like this" coach flow operates on
+previously-ingested clips, so there is no value in spending
+period-break GPU budget on a new clip the coach hasn't watched yet.
+
+The nightly variant is `play-embed-clip-vitb32-baseline`. It fits in
+~1.5 GB VRAM (CLIP ViT-B/32 + a small structured projector) so it
+cohabitates the 16 GB nightly bucket comfortably with YOLOv8m +
+RTMPose-m. SAM 3.1 (when `ENABLE_SAM3_NIGHTLY=1`) and `stage_embed`
+must not share a job slot — schedule them in separate slots to stay
+under the ceiling. See `docs/embeddings-architecture.md` §11 for the
+full rationale.
 
 ## Experimental nightly: SAM 3.1 (Issue #74)
 
