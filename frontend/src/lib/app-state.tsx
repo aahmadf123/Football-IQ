@@ -2,6 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { footballData } from "./mock-data";
+import { emptyFootballData } from "./empty-data";
+import { useMocks } from "./mock-flag";
 import type {
   ApiJob,
   ApiVideo,
@@ -14,6 +16,7 @@ import type {
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
 export type SideOfBall = "all" | "offense" | "defense" | "special";
+export type ApiStatus = "idle" | "loading" | "live" | "offline" | "mock";
 
 const SESSION_LABELS: Record<SessionType, string> = {
   all: "Practice & Games",
@@ -68,6 +71,10 @@ interface AppStateValue {
   filteredPlayers: PlayerSummary[];
   filteredPlays: PlaySummary[];
 
+  // Connectivity
+  apiStatus: ApiStatus;
+  mockMode: boolean;
+
   // Selection
   currentPlayIndex: number;
   setCurrentPlayIndex: (n: number) => void;
@@ -77,7 +84,7 @@ interface AppStateValue {
 
   selectedPlayerId: string;
   setSelectedPlayerId: (id: string) => void;
-  selectedPlayer: PlayerSummary;
+  selectedPlayer: PlayerSummary | undefined;
   getPlayerById: (id: string) => PlayerSummary | undefined;
 
   // Upload
@@ -122,12 +129,13 @@ function buildDates(uploads: UploadedClip[], videos: ApiVideo[]): string[] {
   for (const u of uploads) {
     set.add(u.uploadedAt.slice(0, 10));
   }
-  // A few historical practice dates for context
-  ["2026-05-14", "2026-05-12", "2026-05-08"].forEach((d) => set.add(d));
   return Array.from(set).sort().reverse();
 }
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
+  const mockMode = useMocks();
+  const initialData = mockMode ? footballData : emptyFootballData;
+
   const persisted = typeof window !== "undefined" ? loadPersisted() : null;
 
   const [sessionType, setSessionType] = useState<SessionType>(persisted?.sessionType ?? "all");
@@ -135,10 +143,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? todayISO());
   const [uploads, setUploads] = useState<UploadedClip[]>([]);
 
-  const [data, setData] = useState<FootballData>(footballData);
+  const [data, setData] = useState<FootballData>(initialData);
+  const [apiStatus, setApiStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
   const [currentPlayIndex, setCurrentPlayIndex] = useState(0);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
-    footballData.players[0]?.id ?? "",
+    initialData.players[0]?.id ?? "",
   );
 
   // Hydrate uploaded clip names from storage on mount
@@ -167,33 +176,54 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     });
   }, [sessionType, sideOfBall, selectedDate, uploads]);
 
-  // Try once to enrich with API data if configured; silent on failure.
+  // Fetch live data when the API is configured and we are not in mock mode.
+  // Empty responses are accepted as valid live data; failures degrade to offline
+  // without silently substituting mock data.
   useEffect(() => {
+    if (mockMode) {
+      setApiStatus("mock");
+      return;
+    }
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) return;
+    if (!baseUrl) {
+      setApiStatus("offline");
+      return;
+    }
     let cancelled = false;
+    setApiStatus("loading");
     (async () => {
       try {
         const [videosRes, jobsRes, scoutRes] = await Promise.allSettled([
-          fetch(`${baseUrl}/api/v1/videos`).then((r) => (r.ok ? r.json() : null)),
-          fetch(`${baseUrl}/api/v1/jobs`).then((r) => (r.ok ? r.json() : null)),
-          fetch(`${baseUrl}/api/v1/self-scout/tendencies`).then((r) => (r.ok ? r.json() : null)),
+          fetch(`${baseUrl}/api/v1/videos`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`videos ${r.status}`)))),
+          fetch(`${baseUrl}/api/v1/jobs`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`jobs ${r.status}`)))),
+          fetch(`${baseUrl}/api/v1/self-scout/tendencies`).then((r) =>
+            r.ok ? r.json() : Promise.reject(new Error(`self-scout ${r.status}`)),
+          ),
         ]);
         if (cancelled) return;
+        const anyFulfilled =
+          videosRes.status === "fulfilled" ||
+          jobsRes.status === "fulfilled" ||
+          scoutRes.status === "fulfilled";
+        if (!anyFulfilled) {
+          setApiStatus("offline");
+          return;
+        }
         setData((cur) => ({
           ...cur,
-          videos: pickArr<ApiVideo>(videosRes, cur.videos),
-          jobs: pickArr<ApiJob>(jobsRes, cur.jobs),
-          selfScout: pickObj<SelfScoutResponse>(scoutRes, cur.selfScout),
+          videos: pickArrLive<ApiVideo>(videosRes, cur.videos),
+          jobs: pickArrLive<ApiJob>(jobsRes, cur.jobs),
+          selfScout: pickObjLive<SelfScoutResponse>(scoutRes, cur.selfScout),
         }));
+        setApiStatus("live");
       } catch {
-        /* silent */
+        if (!cancelled) setApiStatus("offline");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mockMode]);
 
   function mergeUploadsIntoData(newUploads: UploadedClip[]) {
     setData((cur) => {
@@ -206,14 +236,21 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         ...additions.map((u) => ({
           id: u.id,
           filename: u.filename,
-          status: "ready",
-          duration_seconds: 12,
-          fps: 60,
-          width: 1920,
-          height: 1080,
+          status: "uploaded",
+          duration_seconds: null,
+          fps: null,
+          width: null,
+          height: null,
           created_at: u.uploadedAt,
         })),
       ];
+
+      // Only synthesize fake clips/plays in mock mode. In default mode the
+      // upload is a real local file but has not been processed yet, so it
+      // contributes nothing to plays/clips until the backend produces them.
+      if (!mockMode) {
+        return { ...cur, videos: newVideos };
+      }
 
       const newClips: ClipSummary[] = [
         ...cur.clips,
@@ -284,7 +321,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       return data.plays.filter((p) => offenseConcepts.some((c) => p.concept.includes(c)));
     }
     if (sideOfBall === "defense") {
-      // No explicit defensive plays in mock; show empty rather than fake.
       return data.plays.filter((p) => /cover|blitz|stunt/i.test(p.concept));
     }
     return data.plays.filter((p) => /punt|kick|return|FG/i.test(p.concept));
@@ -342,6 +378,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     data,
     filteredPlayers,
     filteredPlays,
+    apiStatus,
+    mockMode,
     currentPlayIndex,
     setCurrentPlayIndex,
     nextPlay,
@@ -369,14 +407,17 @@ export function useAppState(): AppStateValue {
 
 export { SESSION_LABELS, SIDE_LABELS };
 
-function pickArr<T>(r: PromiseSettledResult<unknown>, fallback: T[]): T[] {
-  if (r.status === "fulfilled" && Array.isArray(r.value) && r.value.length) {
+// Returns the API value as-is on success (including empty arrays — empty is
+// valid live data, not a signal to substitute mock). Falls back only on a
+// rejection or a non-array payload.
+function pickArrLive<T>(r: PromiseSettledResult<unknown>, fallback: T[]): T[] {
+  if (r.status === "fulfilled" && Array.isArray(r.value)) {
     return r.value as T[];
   }
   return fallback;
 }
 
-function pickObj<T>(r: PromiseSettledResult<unknown>, fallback: T): T {
+function pickObjLive<T>(r: PromiseSettledResult<unknown>, fallback: T): T {
   if (r.status === "fulfilled" && r.value && typeof r.value === "object") {
     return r.value as T;
   }

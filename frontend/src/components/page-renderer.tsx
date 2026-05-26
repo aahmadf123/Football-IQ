@@ -17,6 +17,7 @@ import { useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
 import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
 import { useAppState, SIDE_LABELS } from "@/lib/app-state";
+import { MockBadge } from "@/components/mock-badge";
 import type { FootballData, PageKey, PlayerSummary, PlaySummary, TendencyEntry } from "@/lib/types";
 
 export function PageRenderer({ page }: { page: PageKey }) {
@@ -140,8 +141,8 @@ function Dashboard() {
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Key Play Metrics</h2>
           <div className="metric-grid" style={{ marginTop: 10 }}>
-            <Metric label="Max Speed" value={String(selectedPlayer.maxSpeed)} unit="MPH" />
-            <Metric label="Separation" value={String(selectedPlayer.separation)} unit="YDS" />
+            <Metric label="Max Speed" value={selectedPlayer ? String(selectedPlayer.maxSpeed) : "—"} unit="MPH" />
+            <Metric label="Separation" value={selectedPlayer ? String(selectedPlayer.separation) : "—"} unit="YDS" />
             <Metric label="Yards Gained" value={String(currentPlay?.yards ?? 0)} unit="YDS" />
             <Metric label="Confidence" value={`${Math.round((currentPlay?.confidence ?? 0) * 100)}%`} unit="" />
           </div>
@@ -161,22 +162,36 @@ function Dashboard() {
       </aside>
 
       <section className="panel panel-pad span-3 dash-card">
-        <PlayerFocus
-          player={selectedPlayer}
-          allPlayers={filteredPlayers.length ? filteredPlayers : data.players}
-          onSelect={setSelectedPlayerId}
-          compact
-        />
+        {selectedPlayer ? (
+          <PlayerFocus
+            player={selectedPlayer}
+            allPlayers={filteredPlayers.length ? filteredPlayers : data.players}
+            onSelect={setSelectedPlayerId}
+            compact
+          />
+        ) : (
+          <>
+            <h2 className="panel-title">Player Focus</h2>
+            <p className="kicker" style={{ marginTop: 8 }}>No players yet.</p>
+          </>
+        )}
       </section>
       <section className="panel panel-pad span-3 dash-card">
-        <h2 className="panel-title">Biomechanics</h2>
-        <PlayerPortrait player={selectedPlayer} compact />
-        <div className="list-stack" style={{ marginTop: 8 }}>
-          <MetricLine label="Pad Level" value="-4.2°" />
-          <MetricLine label="Torso Angle" value="18.6°" />
-          <MetricLine label="Stride Length" value="6.2 ft" />
-          <MetricLine label="Symmetry Score" value="92%" />
-        </div>
+        <h2 className="panel-title">Biomechanics <MockBadge status="mock" /></h2>
+        {selectedPlayer ? (
+          <>
+            <PlayerPortrait player={selectedPlayer} compact />
+            {/* Sample values — per-player biomechanics wire-up tracked in #100. */}
+            <div className="list-stack" style={{ marginTop: 8 }}>
+              <MetricLine label="Pad Level" value="-4.2°" />
+              <MetricLine label="Torso Angle" value="18.6°" />
+              <MetricLine label="Stride Length" value="6.2 ft" />
+              <MetricLine label="Symmetry Score" value="92%" />
+            </div>
+          </>
+        ) : (
+          <p className="kicker" style={{ marginTop: 8 }}>No players yet.</p>
+        )}
       </section>
       <section className="panel panel-pad span-3 dash-card">
         <h2 className="panel-title">Formation Recognition</h2>
@@ -318,9 +333,11 @@ function PracticeInbox({ jobs }: { jobs: readonly import("@/lib/types").ApiJob[]
   );
 }
 
+// Render-layer toggles only. Football-IQ is single-camera; no camera-angle
+// switching is permitted. See docs/adr/0001-session-kind-possession-side-of-ball-and-single-camera.md
 function FilmTabs() {
   const [active, setActive] = useState(0);
-  const tabs = ["All-22 View", "Endzone", "Sideline", "Wireframe"];
+  const tabs = ["Raw", "Tracks", "Labels", "Events", "Metrics", "Wireframe"];
   return (
     <div className="tabs">
       {tabs.map((tab, index) => (
@@ -458,14 +475,23 @@ function Players() {
         </div>
       </section>
       <section className="panel panel-pad span-4">
-        <PlayerFocus
-          player={selectedPlayer}
-          allPlayers={visible.length ? visible : data.players}
-          onSelect={setSelectedPlayerId}
-        />
-        <Link href={`/players/${encodeURIComponent(selectedPlayer.id)}`} className="control-button primary" style={{ marginTop: 12, textDecoration: "none", justifyContent: "center" }}>
-          <UserRound size={15} /> Open Full Profile
-        </Link>
+        {selectedPlayer ? (
+          <>
+            <PlayerFocus
+              player={selectedPlayer}
+              allPlayers={visible.length ? visible : data.players}
+              onSelect={setSelectedPlayerId}
+            />
+            <Link href={`/players/${encodeURIComponent(selectedPlayer.id)}`} className="control-button primary" style={{ marginTop: 12, textDecoration: "none", justifyContent: "center" }}>
+              <UserRound size={15} /> Open Full Profile
+            </Link>
+          </>
+        ) : (
+          <>
+            <h2 className="panel-title">Player Focus</h2>
+            <p className="kicker" style={{ marginTop: 8 }}>No players yet.</p>
+          </>
+        )}
       </section>
       {(visible.length ? visible : data.players).slice(0, 3).map((player) => (
         <section key={player.id} className="panel panel-pad span-4">
@@ -484,7 +510,8 @@ function Analytics({ data }: { data: FootballData }) {
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Key Metrics</h2>
+        <h2 className="panel-title">Key Metrics <MockBadge status="mock" /></h2>
+        {/* xSep/xYards/xPressure are not wired to a real model yet — see #102. */}
         <div className="metric-grid" style={{ marginTop: 12 }}>
           <Metric label="Total Plays" value={String(data.plays.length)} unit="" />
           <Metric label="xSep" value="2.64" unit="YDS" />
@@ -497,7 +524,8 @@ function Analytics({ data }: { data: FootballData }) {
         <MiniField dense />
       </section>
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Model Quality</h2>
+        <h2 className="panel-title">Model Quality <MockBadge status="mock" /></h2>
+        {/* Sample values — surfaced via real model registry in a future change. */}
         <BarList items={[["Boundary confidence", 91], ["Tracking continuity", 88], ["Label confidence", 83], ["Pose quality", 79]]} />
       </section>
       <section className="panel panel-pad span-6">
@@ -553,6 +581,16 @@ function ScoutView({ data, title, opponent }: { data: FootballData; title: strin
 function PlayerDevelopment() {
   const { data, selectedPlayer, setSelectedPlayerId, filteredPlayers } = useAppState();
   const pool = filteredPlayers.length ? filteredPlayers : data.players;
+  if (!selectedPlayer) {
+    return (
+      <div className="content-grid">
+        <section className="panel panel-pad span-12">
+          <h2 className="panel-title">Player Development</h2>
+          <p className="kicker" style={{ marginTop: 8 }}>No players yet.</p>
+        </section>
+      </div>
+    );
+  }
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
@@ -562,8 +600,9 @@ function PlayerDevelopment() {
         </Link>
       </section>
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Biomechanics · Pose</h2>
+        <h2 className="panel-title">Biomechanics · Pose <MockBadge status="mock" /></h2>
         <PlayerPortrait player={selectedPlayer} />
+        {/* Sample values — per-player biomechanics wire-up tracked in #100. */}
         <MetricLine label="Breakpoint angle" value="18.4°" />
         <MetricLine label="Stride symmetry" value="92%" />
       </section>
@@ -590,17 +629,23 @@ function HealthWorkload({ data }: { data: FootballData }) {
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-5">
-        <h2 className="panel-title">Team Load Trend</h2>
+        <h2 className="panel-title">Team Load Trend <MockBadge status="mock" /></h2>
+        {/* Sample trend — real load data lands with the health pipeline. */}
         <TrendLine data={[28, 42, 39, 58, 64, 57, 73, 80]} />
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Top Load</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.health.map((item) => <MetricLine key={item.player} label={item.player} value={item.load} />)}
-        </div>
+        {data.health.length === 0 ? (
+          <p className="kicker" style={{ marginTop: 12 }}>No health data yet.</p>
+        ) : (
+          <div className="list-stack" style={{ marginTop: 12 }}>
+            {data.health.map((item) => <MetricLine key={item.player} label={item.player} value={item.load} />)}
+          </div>
+        )}
       </section>
       <section className="panel panel-pad span-3">
-        <h2 className="panel-title">Readiness</h2>
+        <h2 className="panel-title">Readiness <MockBadge status="mock" /></h2>
+        {/* Sample readiness — real value sourced from health pipeline. */}
         <div className="donut" style={{ margin: "18px auto" }}><div>64%<br /><small>Ready</small></div></div>
       </section>
       <section className="panel panel-pad span-7">
@@ -741,7 +786,8 @@ function ClipsHighlights() {
         <p className="kicker" style={{ marginTop: 8 }}>{visibleClips.length} of {data.clips.length} clips shown</p>
       </section>
       <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Receiving / Player View</h2>
+        <h2 className="panel-title">Receiving / Player View <MockBadge status="mock" /></h2>
+        {/* Counts are illustrative until the player-facing pipeline lands. */}
         <BarList items={[["Approved teaching clips", 12], ["Player-facing summaries", 8], ["Recruiting-ready exports", 4]]} />
       </section>
     </div>
@@ -752,7 +798,8 @@ function SettingsView({ data }: { data: FootballData }) {
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">System Config</h2>
+        <h2 className="panel-title">System Config <MockBadge status="mock" /></h2>
+        {/* Inputs are not yet wired to a settings endpoint. */}
         {["Team name", "Primary camera", "S3/R2 bucket", "Auto-export access"].map((label) => (
           <div key={label} className="form-control" style={{ marginTop: 10 }}>
             <label>{label}</label>
@@ -765,18 +812,22 @@ function SettingsView({ data }: { data: FootballData }) {
         <TableSimple rows={[["Inside Zone", "Toledo"], ["Mesh", "Generic"], ["Duo", "Generic"], ["PA Boot", "Toledo"]]} />
       </section>
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Model Sensitivity</h2>
+        <h2 className="panel-title">Model Sensitivity <MockBadge status="mock" /></h2>
         <BarList items={[["Boundary sensitivity", 68], ["Identity confidence", 82], ["Motion minimum", 72], ["Pose review gate", 88]]} />
       </section>
       <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Pipeline Monitor</h2>
+        <h2 className="panel-title">Pipeline Monitor <MockBadge status="mock" /></h2>
         <TrendLine data={[33, 38, 45, 52, 49, 65, 73]} />
       </section>
       <section className="panel panel-pad span-6">
         <h2 className="panel-title">Integrations</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.jobs.map((job) => <MetricLine key={job.id} label={job.job_type} value={job.status} />)}
-        </div>
+        {data.jobs.length === 0 ? (
+          <p className="kicker" style={{ marginTop: 12 }}>No jobs yet.</p>
+        ) : (
+          <div className="list-stack" style={{ marginTop: 12 }}>
+            {data.jobs.map((job) => <MetricLine key={job.id} label={job.job_type} value={job.status} />)}
+          </div>
+        )}
       </section>
     </div>
   );
@@ -834,14 +885,15 @@ function BottomInsights({ data }: { data: FootballData }) {
           </div>
         </div>
         <div className="span-3">
-          <h2 className="panel-title">Development Alerts</h2>
+          <h2 className="panel-title">Development Alerts <MockBadge status="mock" /></h2>
+          {/* Sample alerts — wired to real model output in a later change. */}
           <div className="list-stack" style={{ marginTop: 12 }}>
             <Insight title="#75 RT" detail="Pad level inconsistent" severity="danger" />
             <Insight title="#3 CB" detail="Eyes in backfield on PA" severity="warning" />
           </div>
         </div>
         <div className="span-3">
-          <h2 className="panel-title">Workload & Health</h2>
+          <h2 className="panel-title">Workload & Health <MockBadge status="mock" /></h2>
           <TrendLine data={[24, 38, 34, 48, 56, 52, 64]} />
         </div>
         <div className="span-3">
