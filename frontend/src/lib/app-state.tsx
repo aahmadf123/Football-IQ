@@ -162,7 +162,7 @@ function buildDates(uploads: UploadedClip[], videos: ApiVideo[]): string[] {
   return Array.from(set).sort().reverse();
 }
 
-export function AppStateProvider({ children }: { children: React.ReactNode }) {
+export function AppStateProvider({ children, authToken }: { children: React.ReactNode; authToken?: string }) {
   const mockMode = useMocks();
   const initialData = mockMode ? footballData : emptyFootballData;
 
@@ -185,6 +185,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   // Keep a ref to the latest metadata for retries
   const retryMetaRef = useRef<Map<string, { file: File; metadata?: UploadMetadata }>>(new Map());
+
+  // Auth token ref — updated from props, read by async upload/inbox calls
+  const tokenRef = useRef(authToken);
+  useEffect(() => { tokenRef.current = authToken; }, [authToken]);
 
   // Hydrate uploaded clip names from storage on mount
   useEffect(() => {
@@ -279,7 +283,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     if (mockMode) return;
     const base = process.env.NEXT_PUBLIC_API_URL;
     if (!base) return;
-    fetchInboxStatus(undefined, true)
+    fetchInboxStatus(tokenRef.current, true)
       .then(setInboxItems)
       .catch(() => { /* silently degrade */ });
   }, [mockMode]);
@@ -363,11 +367,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     try {
       // Step 1: Request upload URL from Worker
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
-      const { uploadUrl } = await requestUploadUrl(file.name);
+      const token = tokenRef.current;
+      const { uploadUrl } = await requestUploadUrl(file.name, token);
 
       // Step 2: Upload file to R2 via Worker proxy
       updateUpload(clip.id, { phase: "uploading", progress: 0 });
-      const r2Result = await uploadToR2(uploadUrl, file, undefined, (loaded, total) => {
+      const r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
         const pct = Math.round((loaded / total) * 100);
         updateUpload(clip.id, { progress: pct });
       });
@@ -382,7 +387,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         source_type: metadata?.source_type,
         opponent_team: metadata?.opponent_team,
         our_possession: metadata?.our_possession,
-      });
+      }, token);
 
       updateUpload(clip.id, {
         phase: "done",

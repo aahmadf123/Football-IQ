@@ -34,7 +34,8 @@ export function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
  */
 export function buildUploadProxyUrl(requestUrl: string, key: string): string {
   const base = new URL(requestUrl);
-  return `${base.origin}/api/v1/videos/upload/${key}`;
+  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+  return `${base.origin}/api/v1/videos/upload/${encodedKey}`;
 }
 
 /**
