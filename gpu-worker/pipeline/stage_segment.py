@@ -1,48 +1,69 @@
 """Stage 2 — Play Segmentation.
 
-Heuristic approach:
-  - Compute per-frame mean optical-flow magnitude with OpenCV.
-  - Identify "quiet" periods (low motion) as candidate play breaks.
-  - Cluster consecutive quiet frames into gap regions.
-  - Treat the midpoint of each gap as a boundary.
-  - Post each proposed clip to the backend via the clips API.
+Thin orchestrator on top of the play-boundary segmenter adapters in
+``pipeline.segment_models`` (Issue #75). The adapter is selected via
+the ``SEGMENTER_VARIANT`` environment variable; default stays
+``optical_flow`` so the same-session latency budget from Issue #16 is
+unchanged.
 
-All boundaries are tagged boundary_source="model" with a boundary_confidence.
-Manual overrides are handled by coaches via the PATCH /api/v1/clips/{id} endpoint.
+Variants:
+  - ``optical_flow`` (default): the historical mean-flow-magnitude
+    heuristic. Same-session safe.
+  - ``learned_play``: rules + ML hybrid with a play-duration prior.
+    Opt-in candidate from the Phase 2.5 spike.
+  - ``sportsbd``: experimental adapter; benchmark only. See
+    ``docs/segment-benchmark.md``.
+  - ``stub``: deterministic, used by tests.
 
-Output: `clips` rows for each proposed play segment.
+All boundaries are tagged ``boundary_source="model"`` (preserved for
+backward compatibility with the clips API and downstream consumers).
+The model identifier itself is logged via ``boundary_model`` so
+operators can see which adapter ran. ``boundary_confidence`` is now
+model-derived rather than a flat placeholder. Manual overrides are
+still handled by coaches via PATCH /api/v1/clips/{id}.
+
+Output: ``clips`` rows for each proposed play segment.
 """
 
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
 import cv2
-import numpy as np
 import structlog
 
 from pipeline import backend, r2
+from pipeline.segment_models import (
+    OPTICAL_FLOW,
+    SegmenterBase,
+    get_segmenter,
+)
 
 log = structlog.get_logger(__name__)
 
-# Tuning knobs
-SAMPLE_FPS = 2          # frames per second to sample for motion
-QUIET_THRESHOLD = 1.5   # mean flow magnitude below which a frame is "quiet"
-MIN_QUIET_FRAMES = 4    # need at least this many consecutive quiet frames to form a gap
+# Tuning knob — kept here (not in the adapters) because it is a
+# *post-processing* filter applied to whatever boundaries the adapter
+# returns, not a property of any particular segmentation algorithm.
 MIN_PLAY_DURATION = 3.0  # seconds — ignore very short segments
 
 
 def run(video_id: str, input_uri: str, job_id: str) -> dict[str, Any]:
     """Run Stage 2: propose clip boundaries and write them to the backend."""
-    log.info("stage_segment_start", video_id=video_id)
+    variant = os.environ.get("SEGMENTER_VARIANT", OPTICAL_FLOW)
+    segmenter = get_segmenter(variant)
+    log.info(
+        "stage_segment_start",
+        video_id=video_id,
+        variant=variant,
+        adapter=type(segmenter).__name__,
+    )
 
     r2_key = _uri_to_r2_key(input_uri)
     video_path = r2.download_to_temp(r2_key)
     try:
-        return _segment(video_id, video_path, job_id)
+        return _segment(video_id, video_path, job_id, segmenter)
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -53,93 +74,81 @@ def _uri_to_r2_key(uri: str) -> str:
     return uri
 
 
-def _segment(video_id: str, video_path: Path, job_id: str) -> dict[str, Any]:
+def _video_duration(video_path: Path) -> float:
+    """Probe duration via OpenCV — cheap second open after the segmenter."""
     from pipeline.hwaccel import nvdec_video_capture
 
     cap = nvdec_video_capture(video_path)
-    native_fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total_frames / native_fps
-
-    step = max(1, int(native_fps / SAMPLE_FPS))
-    quiet_frames: list[int] = []
-    prev_gray: "np.ndarray | None" = None
-
-    frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if frame_idx % step == 0:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if prev_gray is not None:
-                flow = cv2.calcOpticalFlowFarneback(
-                    prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0
-                )
-                mag = float(np.mean(np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)))
-                if mag < QUIET_THRESHOLD:
-                    quiet_frames.append(frame_idx)
-            prev_gray = gray
-        frame_idx += 1
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
-
-    boundaries = _find_boundaries(quiet_frames, native_fps)
-    clips = _write_clips(video_id, boundaries, duration, native_fps, job_id)
-
-    log.info("stage_segment_done", video_id=video_id, clip_count=len(clips))
-    return {"clip_count": len(clips), "clip_ids": [c["id"] for c in clips]}
+    return float(total / fps) if fps else 0.0
 
 
-def _find_boundaries(quiet_frames: list[int], fps: float) -> list[float]:
-    """Convert list of quiet frame indices into boundary timestamps (seconds)."""
-    if not quiet_frames:
-        return []
+def _segment(
+    video_id: str,
+    video_path: Path,
+    job_id: str,
+    segmenter: SegmenterBase,
+) -> dict[str, Any]:
+    boundaries = segmenter.segment(video_path)
+    duration = _video_duration(video_path)
+    clips = _write_clips(video_id, boundaries, duration, job_id, segmenter.source)
 
-    boundaries: list[float] = []
-    group_start = quiet_frames[0]
-    group_end = quiet_frames[0]
-
-    for f in quiet_frames[1:]:
-        if f - group_end <= int(fps):  # consecutive within 1 s
-            group_end = f
-        else:
-            if (group_end - group_start) >= MIN_QUIET_FRAMES:
-                mid = (group_start + group_end) // 2
-                boundaries.append(mid / fps)
-            group_start = f
-            group_end = f
-
-    if (group_end - group_start) >= MIN_QUIET_FRAMES:
-        boundaries.append(((group_start + group_end) // 2) / fps)
-
-    return sorted(boundaries)
+    log.info(
+        "stage_segment_done",
+        video_id=video_id,
+        clip_count=len(clips),
+        boundary_count=len(boundaries),
+        boundary_model=segmenter.source,
+    )
+    return {
+        "clip_count": len(clips),
+        "clip_ids": [c["id"] for c in clips],
+        "boundary_model": segmenter.source,
+    }
 
 
 def _write_clips(
     video_id: str,
-    boundaries: list[float],
+    boundaries: list[dict[str, Any]],
     duration: float,
-    fps: float,
     job_id: str,
+    boundary_model: str,
 ) -> list[dict[str, Any]]:
-    """Post one clip per segment to the backend."""
-    # Build segment list from boundary timestamps
-    pivots = [0.0, *boundaries, duration]
-    clips: list[dict[str, Any]] = []
+    """Post one clip per segment to the backend.
 
-    for i, (start, end) in enumerate(zip(pivots, pivots[1:])):
-        if end - start < MIN_PLAY_DURATION:
+    Boundary confidence per segment is the *minimum* of its two
+    surrounding boundaries (start/end of the segment) — a segment is
+    only as trustworthy as its weakest edge. The leading edge (start
+    of the video) and trailing edge (end of the video) are treated as
+    fully trusted boundaries with confidence 1.0.
+    """
+    pivots: list[tuple[float, float]] = [(0.0, 1.0)]
+    for b in boundaries:
+        pivots.append((float(b["time_s"]), float(b["confidence"])))
+    pivots.append((duration, 1.0))
+    pivots.sort(key=lambda p: p[0])
+
+    clips: list[dict[str, Any]] = []
+    play_idx = 0
+    for (start_t, start_c), (end_t, end_c) in zip(pivots, pivots[1:]):
+        if end_t - start_t < MIN_PLAY_DURATION:
             continue
-        confidence = 0.7  # flat placeholder; will improve with a trained model
+        play_idx += 1
+        confidence = round(min(start_c, end_c), 3)
         clip = backend.create_clip(
             video_id,
-            start_time=start,
-            end_time=end,
+            start_time=start_t,
+            end_time=end_t,
             boundary_source="model",
             boundary_confidence=confidence,
-            play_number=i + 1,
+            play_number=play_idx,
             job_id=job_id,
         )
+        # Tag the in-memory clip dict so callers/tests can see which
+        # adapter produced it without re-querying the backend.
+        clip.setdefault("boundary_model", boundary_model)
         clips.append(clip)
 
     return clips
