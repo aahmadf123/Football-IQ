@@ -154,7 +154,7 @@ def _identify_tracklet(
                 best_sim = -1.0
                 for ref_emb, pid in gallery:
                     sim = adapter.match(emb, ref_emb)
-                    if sim >= adapter._threshold and sim > best_sim:
+                    if sim >= adapter.threshold and sim > best_sim:
                         best_sim = sim
                         best_pid = pid
                 if best_pid is not None:
@@ -261,6 +261,11 @@ class NvidiaReIDAdapter:
     def match(self, emb_a: np.ndarray, emb_b: np.ndarray) -> float:
         """Return cosine similarity between two embeddings."""
         return float(np.dot(emb_a, emb_b))
+
+    @property
+    def threshold(self) -> float:
+        """Cosine-similarity threshold for a positive match."""
+        return self._threshold
 
     def is_match(self, emb_a: np.ndarray, emb_b: np.ndarray) -> bool:
         return self.match(emb_a, emb_b) >= self._threshold

@@ -90,7 +90,7 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 | Field | Detail |
 |---|---|
 | **Component** | NVIDIA Video Codec SDK — hardware-accelerated video decode (NVDEC) and encode (NVENC) |
-| **License** | MIT-style permissive license (NVIDIA Video Codec SDK License Agreement) |
+| **License** | [NVIDIA Video Codec SDK License Agreement](https://developer.nvidia.com/nvidia-video-codec-sdk-license-terms) |
 | **Access** | Bundled with NVIDIA GPU drivers (≥ 470.x); no separate download required for runtime use. SDK headers available at https://developer.nvidia.com/video-codec-sdk |
 | **Commercial use** | Yes — freely usable in commercial products |
 | **Football-IQ usage** | Phase 2.5 — Issue #76: `pipeline/hwaccel.py` provides NVDEC-accelerated `cv2.VideoCapture` and NVENC-accelerated ffmpeg encode for `renderer/hls_encoder.py`. Transparent CPU fallback when GPU is unavailable. |
