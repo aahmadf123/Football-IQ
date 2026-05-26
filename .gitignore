@@ -52,3 +52,10 @@ backend/migrations/__pycache__/
 # Test artifacts
 .pytest_cache/
 coverage.xml
+
+# Model weights — never commit, downloaded at runtime via HF_TOKEN / NGC_API_KEY
+*.pt
+*.pth
+*.onnx
+*.engine
+*.safetensors

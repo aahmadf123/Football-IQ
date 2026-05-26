@@ -35,9 +35,11 @@ from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 def _reset_routing(monkeypatch: pytest.MonkeyPatch):
     """Each test starts with the default routing table and no env override."""
     monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
+    monkeypatch.delenv("ENABLE_SAM3_NIGHTLY", raising=False)
     model_router.reload_routing()
     yield
     monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
+    monkeypatch.delenv("ENABLE_SAM3_NIGHTLY", raising=False)
     model_router.reload_routing()
 
 
@@ -215,3 +217,79 @@ def test_reload_routing_returns_current_table() -> None:
     table = model_router.reload_routing()
     assert table is model_router.ROUTING
     assert "pose" in table
+
+
+# ── SAM 3.1 nightly routing (Issue #74) ───────────────────────────────────────
+
+
+def test_sam3_disabled_by_default_detect_nightly_is_yolov8m() -> None:
+    assert select_model("detect", NIGHTLY_PRIORITY) == "yolov8m"
+    assert select_model("track", NIGHTLY_PRIORITY) == "iou-tracker"
+
+
+@pytest.mark.parametrize("flag_value", ["1", "true", "yes", "on", "TRUE"])
+def test_sam3_nightly_env_flag_routes_detect_and_track(
+    flag_value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENABLE_SAM3_NIGHTLY", flag_value)
+    model_router.reload_routing()
+    assert select_model("detect", NIGHTLY_PRIORITY) == model_router.SAM3_1
+    assert select_model("track", NIGHTLY_PRIORITY) == model_router.SAM3_MASK_TRACKER
+
+
+def test_sam3_nightly_env_flag_does_not_change_same_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_SAM3_NIGHTLY", "1")
+    model_router.reload_routing()
+    assert select_model("detect", SAME_SESSION_PRIORITY) == "yolov8n"
+    assert select_model("track", SAME_SESSION_PRIORITY) == "iou-tracker"
+
+
+def test_sam3_disabled_value_keeps_default_nightly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_SAM3_NIGHTLY", "0")
+    model_router.reload_routing()
+    assert select_model("detect", NIGHTLY_PRIORITY) == "yolov8m"
+
+
+def test_routing_config_cannot_force_sam3_into_same_session(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Safety guard: malicious / accidental config that puts SAM 3.1 in
+    same_session must be rejected at load time."""
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(json.dumps({
+        "detect": {"same_session": "sam3.1", "nightly": "yolov8m"},
+        "track": {"same_session": "sam3-mask-tracker", "nightly": "iou-tracker"},
+    }))
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    # Forbidden variant must NOT be returned for same-session.
+    detect_same = select_model("detect", SAME_SESSION_PRIORITY)
+    track_same = select_model("track", SAME_SESSION_PRIORITY)
+    assert detect_same not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert track_same not in model_router.NIGHTLY_ONLY_VARIANTS
+    # And it reverts to the bundled defaults so the period-break window
+    # is preserved.
+    assert detect_same == DEFAULT_ROUTING["detect"]["same_session"]
+    assert track_same == DEFAULT_ROUTING["track"]["same_session"]
+
+
+def test_is_nightly_only_variant_flags_sam3() -> None:
+    assert model_router.is_nightly_only_variant("sam3.1") is True
+    assert model_router.is_nightly_only_variant("sam3-mask-tracker") is True
+    assert model_router.is_nightly_only_variant("yolov8n") is False
+    assert model_router.is_nightly_only_variant("iou-tracker") is False
+
+
+def test_build_routing_artifact_sam3_nightly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_SAM3_NIGHTLY", "1")
+    model_router.reload_routing()
+    assert build_routing_artifact("detect", NIGHTLY_PRIORITY) == {"detect": "sam3.1"}
+    assert build_routing_artifact("track", NIGHTLY_PRIORITY) == {
+        "track": "sam3-mask-tracker",
+    }

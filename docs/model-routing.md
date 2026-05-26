@@ -40,6 +40,30 @@ period-break window on the production GPU. Today that means:
 When in doubt, route experimental models to `nightly` and let them prove
 out before promoting them to `same_session`.
 
+The router maintains `NIGHTLY_ONLY_VARIANTS` (currently `{"sam3.1",
+"sam3-mask-tracker"}`). Any routing config — env override or otherwise —
+that tries to place one of these in the same-session bucket is rejected
+at load time and the bucket falls back to the bundled default. This is
+the hard guardrail behind the "experimental models default to nightly"
+rule above.
+
+## Experimental nightly: SAM 3.1 (Issue #74)
+
+Set `ENABLE_SAM3_NIGHTLY=1` in the worker env to upgrade the nightly
+buckets for `detect` and `track`:
+
+| Stage | Same-session | Nightly (flag off) | Nightly (flag on) |
+| ----- | ------------ | ------------------ | ----------------- |
+| `detect` | `yolov8n` | `yolov8m` | `sam3.1` |
+| `track`  | `iou-tracker` | `iou-tracker` | `sam3-mask-tracker` |
+
+The flag only affects the nightly bucket; same-session always uses
+YOLOv8n + IoU regardless of its value. SAM 3.1 weights are gated on
+Hugging Face — the worker reads `HF_TOKEN` at runtime to download them
+and logs a warning if the token is absent. See
+`reports/phase2-issue74-sam3-eval.md` for the eval harness and
+promotion criteria.
+
 ## Overriding routing
 
 Set `MODEL_ROUTING_CONFIG` to the path of a JSON file shaped like
