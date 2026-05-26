@@ -48,6 +48,7 @@ const navItems = [
 ] as const;
 
 function formatDateLabel(value: string): string {
+  if (!value) return "All dates";
   try {
     const d = new Date(value + "T12:00:00");
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });

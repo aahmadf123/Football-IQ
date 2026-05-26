@@ -128,4 +128,57 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
     expect(Array.isArray(state.data.selfScout.pre_snap_tells)).toBe(true);
     expect(state.mockMode).toBe(false);
   });
+
+  test("does not send recorded_at filters until a date is selected", async () => {
+    const { AppStateProvider, useAppState } = await freshImport();
+    const { captured, Probe } = makeProbe();
+
+    await act(async () => {
+      render(
+        <AppStateProvider>
+          <Probe useHook={useAppState} />
+        </AppStateProvider>,
+      );
+    });
+
+    await waitFor(() => {
+      expect(captured.current?.apiStatus).toBe("live");
+    });
+
+    const fetchMock = vi.mocked(fetch);
+    const videosCall = fetchMock.mock.calls
+      .map((call) => String(call[0]))
+      .find((url) => url.includes("/api/v1/videos"));
+    expect(videosCall).toBe("http://api.test/api/v1/videos");
+  });
+
+  test("sends full-day recorded_at range when a date is selected", async () => {
+    const { AppStateProvider, useAppState } = await freshImport();
+    const { captured, Probe } = makeProbe();
+
+    await act(async () => {
+      render(
+        <AppStateProvider>
+          <Probe useHook={useAppState} />
+        </AppStateProvider>,
+      );
+    });
+    await waitFor(() => {
+      expect(captured.current?.apiStatus).toBe("live");
+    });
+
+    await act(async () => {
+      captured.current?.setSelectedDate("2026-05-20");
+    });
+
+    await waitFor(() => {
+      const lastVideosCall = vi
+        .mocked(fetch)
+        .mock.calls.map((call) => String(call[0]))
+        .filter((url) => url.includes("/api/v1/videos"))
+        .at(-1);
+      expect(lastVideosCall).toContain("recorded_after=2026-05-20T00%3A00%3A00Z");
+      expect(lastVideosCall).toContain("recorded_before=2026-05-20T23%3A59%3A59.999999Z");
+    });
+  });
 });

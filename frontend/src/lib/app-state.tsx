@@ -140,7 +140,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const [sessionType, setSessionType] = useState<SessionType>(persisted?.sessionType ?? "all");
   const [sideOfBall, setSideOfBall] = useState<SideOfBall>(persisted?.sideOfBall ?? "all");
-  const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? todayISO());
+  const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? "");
   const [uploads, setUploads] = useState<UploadedClip[]>([]);
 
   const [data, setData] = useState<FootballData>(initialData);
@@ -198,7 +198,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const videosParams = new URLSearchParams();
     if (selectedDate) {
       videosParams.set("recorded_after", `${selectedDate}T00:00:00Z`);
-      videosParams.set("recorded_before", `${selectedDate}T23:59:59Z`);
+      videosParams.set("recorded_before", `${selectedDate}T23:59:59.999999Z`);
     }
     if (sessionType !== "all") {
       videosParams.set("session_kind", sessionType);
@@ -380,10 +380,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     );
   }, [getPlayerById, selectedPlayerId, filteredPlayers, data.players]);
 
-  const availableDates = useMemo(
-    () => buildDates(uploads, data.videos),
-    [uploads, data.videos],
-  );
+  const availableDates = useMemo(() => ["", ...buildDates(uploads, data.videos)], [uploads, data.videos]);
 
   const value: AppStateValue = {
     sessionType,

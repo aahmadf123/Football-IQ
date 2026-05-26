@@ -19,7 +19,7 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -56,24 +56,36 @@ async def list_practice_sessions(
     Returns most-recent-session-first based on the latest video's
     ``recorded_at`` within the group.
     """
-    session_date = func.date_trunc("day", Video.recorded_at).label("session_date")
+    fallback_session_date = case(
+        (Video.practice_session_id.is_(None), func.date_trunc("day", Video.recorded_at)),
+        else_=None,
+    )
+    fallback_session_kind = case(
+        (Video.practice_session_id.is_(None), Video.session_kind),
+        else_=None,
+    )
+    fallback_opponent_team = case(
+        (Video.practice_session_id.is_(None), Video.opponent_team),
+        else_=None,
+    )
+    session_date = func.date_trunc("day", func.min(Video.recorded_at)).label("session_date")
     last_seen = func.max(Video.recorded_at)
 
     q = (
         select(
             Video.practice_session_id.label("practice_session_id"),
             session_date,
-            Video.session_kind.label("session_kind"),
-            Video.opponent_team.label("opponent_team"),
+            func.max(Video.session_kind).label("session_kind"),
+            func.max(Video.opponent_team).label("opponent_team"),
             func.count(Video.id).label("video_count"),
             func.min(Video.recorded_at).label("first_recorded_at"),
             last_seen.label("last_recorded_at"),
         )
         .group_by(
             Video.practice_session_id,
-            session_date,
-            Video.session_kind,
-            Video.opponent_team,
+            fallback_session_date,
+            fallback_session_kind,
+            fallback_opponent_team,
         )
         .order_by(last_seen.desc().nullslast())
         .limit(limit)

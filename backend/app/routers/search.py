@@ -187,8 +187,8 @@ async def _candidate_clip_ids(db: AsyncSession, filters: SearchFilters) -> list[
         # a compatibility fallback (#98 backfill is best-effort).
         q = q.where(
             or_(
-                Video.opponent_team.ilike(filters.opponent),
-                Video.metadata_["opponent"].astext.ilike(filters.opponent),
+                Video.opponent_team == filters.opponent,
+                Video.metadata_["opponent"].astext == filters.opponent,
             )
         )
     if filters.formation:
