@@ -150,23 +150,23 @@ async def create_play_embedding(
         "job_id": payload.job_id,
     }
 
-    stmt = pg_insert(PlayEmbedding).values(**values)
-    stmt = stmt.on_conflict_do_update(
+    insert_stmt = pg_insert(PlayEmbedding).values(**values)
+    upsert_stmt = insert_stmt.on_conflict_do_update(
         constraint="uq_playembeddings_clip_chunk_modelversion",
         set_={
-            "vector": stmt.excluded.vector,
-            "visual_vector": stmt.excluded.visual_vector,
-            "structured_vector": stmt.excluded.structured_vector,
-            "snap_anchor": stmt.excluded.snap_anchor,
-            "calibration_version_id": stmt.excluded.calibration_version_id,
-            "source_label_ids": stmt.excluded.source_label_ids,
-            "used_sam_masks": stmt.excluded.used_sam_masks,
-            "embedding_confidence": stmt.excluded.embedding_confidence,
-            "is_experimental": stmt.excluded.is_experimental,
-            "job_id": stmt.excluded.job_id,
+            "vector": insert_stmt.excluded.vector,
+            "visual_vector": insert_stmt.excluded.visual_vector,
+            "structured_vector": insert_stmt.excluded.structured_vector,
+            "snap_anchor": insert_stmt.excluded.snap_anchor,
+            "calibration_version_id": insert_stmt.excluded.calibration_version_id,
+            "source_label_ids": insert_stmt.excluded.source_label_ids,
+            "used_sam_masks": insert_stmt.excluded.used_sam_masks,
+            "embedding_confidence": insert_stmt.excluded.embedding_confidence,
+            "is_experimental": insert_stmt.excluded.is_experimental,
+            "job_id": insert_stmt.excluded.job_id,
         },
     ).returning(PlayEmbedding)
-    result = await db.execute(stmt)
+    result = await db.execute(upsert_stmt)
     row = result.scalar_one()
     log.info(
         "play_embedding_upserted",
