@@ -157,11 +157,11 @@ NVIDIA DeepStream SDK is **explicitly deferred** from Phase 2.5 for the followin
 ### Adapter
 
 `pipeline/stage_reid.py` now includes `NvidiaReIDAdapter`, an optional Re-ID model adapter that:
-- Loads TAO ReIdentificationNet via TensorRT.
+- Loads TAO ReIdentificationNet via `onnxruntime`.
 - Extracts 256-d appearance embeddings from player bounding-box crops.
 - Compares embeddings across tracklets using cosine similarity.
 - Gracefully skips if weights or VRAM are unavailable (falls back to jersey OCR).
-- Is selectable via `REID_MODEL=nvidia-tao:/path/to/resnet50_reid.etlt`.
+- Is selectable via `REID_MODEL=nvidia-tao:/path/to/resnet50_reid.onnx`.
 
 See the dedicated research note in `docs/reid-research-note.md` for the full comparison.
 
