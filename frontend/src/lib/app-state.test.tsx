@@ -124,6 +124,8 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
     expect(state.data.players.length).toBe(0);
     expect(state.data.videos.length).toBe(0);
     expect(state.data.jobs.length).toBe(0);
+    expect(Array.isArray(state.data.selfScout)).toBe(false);
+    expect(Array.isArray(state.data.selfScout.pre_snap_tells)).toBe(true);
     expect(state.mockMode).toBe(false);
   });
 });

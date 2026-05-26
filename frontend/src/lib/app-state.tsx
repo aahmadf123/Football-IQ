@@ -213,7 +213,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           ...cur,
           videos: pickArrLive<ApiVideo>(videosRes, cur.videos),
           jobs: pickArrLive<ApiJob>(jobsRes, cur.jobs),
-          selfScout: pickObjLive<SelfScoutResponse>(scoutRes, cur.selfScout),
+          selfScout: pickObjLive<SelfScoutResponse>(
+            scoutRes,
+            cur.selfScout,
+            isSelfScoutResponse,
+          ),
         }));
         setApiStatus("live");
       } catch {
@@ -417,9 +421,23 @@ function pickArrLive<T>(r: PromiseSettledResult<unknown>, fallback: T[]): T[] {
   return fallback;
 }
 
-function pickObjLive<T>(r: PromiseSettledResult<unknown>, fallback: T): T {
-  if (r.status === "fulfilled" && r.value && typeof r.value === "object") {
+function pickObjLive<T>(
+  r: PromiseSettledResult<unknown>,
+  fallback: T,
+  isExpectedShape: (value: unknown) => value is T,
+): T {
+  if (r.status === "fulfilled" && isExpectedShape(r.value)) {
     return r.value as T;
   }
   return fallback;
+}
+
+function isSelfScoutResponse(value: unknown): value is SelfScoutResponse {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "pre_snap_tells" in value &&
+    Array.isArray((value as { pre_snap_tells: unknown }).pre_snap_tells)
+  );
 }
