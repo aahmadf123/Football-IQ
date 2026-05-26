@@ -20,7 +20,6 @@ import {
   ShieldCheck,
   UserRound,
   UsersRound,
-  Zap,
 } from "lucide-react";
 import { pageTitles } from "@/lib/mock-data";
 import type { PageKey } from "@/lib/types";
@@ -28,9 +27,11 @@ import {
   SESSION_LABELS,
   SIDE_LABELS,
   useAppState,
+  type ApiStatus,
   type SessionType,
   type SideOfBall,
 } from "@/lib/app-state";
+import { MockBadge } from "@/components/mock-badge";
 
 const navItems = [
   { key: "dashboard", label: "Dashboard", href: "/", icon: Home },
@@ -74,6 +75,7 @@ export function FootballShell({
     data,
     uploads,
     filteredPlays,
+    apiStatus,
   } = useAppState();
 
   const titleEntry = pageTitles[activePage];
@@ -199,10 +201,15 @@ export function FootballShell({
       <main className="main">
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: activePage === "dashboard" ? 6 : 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: activePage === "dashboard" ? "1.0rem" : "1.1rem" }}>{titleEntry.title}</h2>
+            <h2 style={{ margin: 0, fontSize: activePage === "dashboard" ? "1.0rem" : "1.1rem" }}>
+              {titleEntry.title}
+              <MockBadge status={apiStatus} />
+            </h2>
             <p className="kicker" style={{ fontSize: activePage === "dashboard" ? "0.72rem" : undefined }}>{titleEntry.subtitle}</p>
           </div>
-          {activePage === "dashboard" && <span className="live-badge" style={{ background: "var(--blue)" }}>Processed</span>}
+          {activePage === "dashboard" && apiStatus === "live" && (
+            <span className="live-badge" style={{ background: "var(--blue)" }}>Processed</span>
+          )}
         </div>
         {children}
       </main>
@@ -211,38 +218,54 @@ export function FootballShell({
         <section className="panel panel-pad">
           <h2 className="panel-title" style={{ color: "var(--gold)" }}>System Status</h2>
           <div className="list-stack" style={{ marginTop: 12 }}>
-            <StatusLine icon={<Radio size={16} />} label="R2 Buckets" value="Connected" tone="good" />
-            <StatusLine icon={<Activity size={16} />} label="Processing" value={uploads.length ? `${uploads.length} queued` : "Idle"} tone="good" />
-            <StatusLine icon={<UsersRound size={16} />} label="Auto ML IQ" value="Enabled" tone="good" />
-            <StatusLine icon={<Zap size={16} />} label="Model Version" value="v2.4.1" tone="good" />
+            <StatusLine
+              icon={<Radio size={16} />}
+              label="API"
+              value={apiStatusLabel(apiStatus)}
+              tone={apiStatusTone(apiStatus)}
+            />
+            <StatusLine
+              icon={<Activity size={16} />}
+              label="Processing"
+              value={uploads.length ? `${uploads.length} queued` : "Idle"}
+              tone="good"
+            />
+            <StatusLine
+              icon={<UsersRound size={16} />}
+              label="Mode"
+              value={apiStatusModeLabel(apiStatus)}
+              tone={apiStatus === "live" ? "good" : "warning"}
+            />
           </div>
         </section>
 
         <section className="panel panel-pad">
           <h2 className="panel-title" style={{ color: "var(--gold)" }}>Confidence Score</h2>
+          {/* Per-clip confidence is wired in #102. Until a clip is selected we
+              show an empty state rather than a hardcoded 92%. */}
           <div style={{ display: "grid", placeItems: "center", margin: "18px 0" }}>
-            <div className="donut">
-              <div>
-                <span style={{ display: "block", fontSize: "1.45rem" }}>92%</span>
-                <small style={{ color: "var(--muted)" }}>Overall</small>
-              </div>
-            </div>
+            <p style={{ color: "var(--muted)", fontSize: "0.85rem", textAlign: "center", margin: 0 }}>
+              No clip selected
+            </p>
           </div>
-          <MetricLine label="Video Quality" value="Good" />
-          <MetricLine label="Field Calibration" value="95%" />
-          <MetricLine label="Tracking Quality" value="High" />
         </section>
 
         <section className="panel panel-pad">
           <h2 className="panel-title" style={{ color: "var(--gold)" }}>Model Pipeline</h2>
-          <div className="list-stack" style={{ marginTop: 12 }}>
-            {data.jobs.map((job) => (
-              <div key={job.id} className={`pipeline-stage ${job.status === "running" ? "running" : ""}`}>
-                <i />
-                <span>{job.job_type}</span>
-              </div>
-            ))}
-          </div>
+          {data.jobs.length === 0 ? (
+            <p style={{ color: "var(--muted)", fontSize: "0.82rem", marginTop: 12 }}>
+              No jobs yet.
+            </p>
+          ) : (
+            <div className="list-stack" style={{ marginTop: 12 }}>
+              {data.jobs.map((job) => (
+                <div key={job.id} className={`pipeline-stage ${job.status === "running" ? "running" : ""}`}>
+                  <i />
+                  <span>{job.job_type}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </aside>
     </div>
@@ -256,6 +279,32 @@ function MetricLine({ label, value }: { label: string; value: string }) {
       <strong style={{ color: "var(--text)" }}>{value}</strong>
     </div>
   );
+}
+
+function apiStatusLabel(status: ApiStatus): string {
+  switch (status) {
+    case "live": return "Connected";
+    case "loading": return "Connecting…";
+    case "offline": return "Offline";
+    case "mock": return "Mock";
+    case "idle":
+    default: return "—";
+  }
+}
+
+function apiStatusModeLabel(status: ApiStatus): string {
+  switch (status) {
+    case "live": return "Live";
+    case "loading": return "Live (loading)";
+    case "offline": return "Offline";
+    case "mock": return "Mock";
+    case "idle":
+    default: return "—";
+  }
+}
+
+function apiStatusTone(status: ApiStatus): "good" | "warning" {
+  return status === "live" ? "good" : "warning";
 }
 
 function StatusLine({
