@@ -61,11 +61,14 @@ def run(
     log.info("stage_detect_start", video_id=video_id, variant=variant)
 
     if detector is None:
-        detector = get_detector(
-            variant or "yolov8n",
-            model_path=MODEL_PATH,
-            confidence_threshold=DETECTION_CONF,
-        )
+        selected_variant = variant or "yolov8n"
+        detector_kwargs: dict[str, Any] = {
+            "confidence_threshold": DETECTION_CONF,
+        }
+        if variant is None or selected_variant.startswith("yolo"):
+            detector_kwargs["model_path"] = MODEL_PATH
+
+        detector = get_detector(selected_variant, **detector_kwargs)
 
     r2_key = _uri_to_r2_key(input_uri)
     video_path = r2.download_to_temp(r2_key)
