@@ -100,12 +100,12 @@ Applied to: E3 (HLS encoder). E1/E2 remain on `cv2.VideoWriter` with `mp4v` beca
 
 ### 3.3 Benchmark Protocol
 
-For each modified path, `docs/benchmarks/` will contain timing logs comparing:
+For each modified path, benchmark runs should compare:
 - **Baseline:** CPU decode/encode (current code).
 - **NVDEC/NVENC:** Hardware-accelerated path.
 - **Clips:** Representative 30 s DJI drone 4K H.264 clip (same-session) and 5-min full-practice clip (nightly).
 
-Metrics: wall-clock time, GPU utilization (nvidia-smi), peak VRAM.
+Record the following metrics for each run: wall-clock time, GPU utilization (`nvidia-smi`), and peak VRAM.
 
 ---
 
