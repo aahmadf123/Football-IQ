@@ -34,7 +34,7 @@ from typing import Annotated, Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import bindparam, select, text
+from sqlalchemy import bindparam, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -45,6 +45,8 @@ from app.models import (
     ModelStage,
     ModelVersion,
     PlayEmbedding,
+    SessionKind,
+    SideOfBall,
     User,
     Video,
 )
@@ -64,7 +66,10 @@ class SearchFilters(BaseModel):
     opponent: str | None = None
     formation: str | None = None
     coverage: str | None = None
-    side_of_ball: str | None = None  # offense | defense | special_teams
+    side_of_ball: SideOfBall | None = None
+    session_kind: SessionKind | None = None
+    our_possession: SideOfBall | None = None
+    practice_session_id: uuid.UUID | None = None
     include_experimental: bool = False
 
 
@@ -165,6 +170,9 @@ async def _candidate_clip_ids(db: AsyncSession, filters: SearchFilters) -> list[
             filters.formation,
             filters.coverage,
             filters.side_of_ball,
+            filters.session_kind,
+            filters.our_possession,
+            filters.practice_session_id,
         ]
     ):
         return None
@@ -175,15 +183,26 @@ async def _candidate_clip_ids(db: AsyncSession, filters: SearchFilters) -> list[
     if filters.until is not None:
         q = q.where(Video.recorded_at <= filters.until)
     if filters.opponent:
-        # Opponent is stored in the video metadata blob; case-insensitive
-        # exact match keeps the predicate index-friendly enough.
-        q = q.where(Video.metadata_["opponent"].astext.ilike(filters.opponent))
+        # Opponent first-class column wins, but the JSON value remains
+        # a compatibility fallback (#98 backfill is best-effort).
+        q = q.where(
+            or_(
+                Video.opponent_team.ilike(filters.opponent),
+                Video.metadata_["opponent"].astext.ilike(filters.opponent),
+            )
+        )
     if filters.formation:
         q = q.where(Clip.label_data["formation"]["generic"].astext.ilike(filters.formation))
     if filters.coverage:
         q = q.where(Clip.label_data["coverage"]["generic"].astext.ilike(filters.coverage))
     if filters.side_of_ball:
-        q = q.where(Clip.label_data["side_of_ball"].astext.ilike(filters.side_of_ball))
+        q = q.where(Clip.side_of_ball == filters.side_of_ball)
+    if filters.session_kind:
+        q = q.where(Video.session_kind == filters.session_kind)
+    if filters.our_possession:
+        q = q.where(Clip.our_possession == filters.our_possession)
+    if filters.practice_session_id:
+        q = q.where(Video.practice_session_id == filters.practice_session_id)
 
     result = await db.execute(q)
     return [r[0] for r in result.all()]

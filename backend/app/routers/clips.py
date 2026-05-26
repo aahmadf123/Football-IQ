@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
-from app.models import Clip, Metric, User, Video
+from app.models import Clip, Metric, SessionKind, SideOfBall, User, Video
+
+# Recognized clip-level possession values (must match SideOfBall enum).
+_VALID_SIDES: frozenset[str] = frozenset(s.value for s in SideOfBall)
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["clips"])
@@ -34,6 +37,8 @@ class ClipCreate(BaseModel):
     model_version_id: uuid.UUID | None = None
     calibration_version_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
+    our_possession: SideOfBall | None = None
+    side_of_ball: SideOfBall | None = None
 
 
 class ClipUpdate(BaseModel):
@@ -45,6 +50,8 @@ class ClipUpdate(BaseModel):
     storage_uri: str | None = None
     boundary_source: str | None = None
     boundary_confidence: float | None = None
+    our_possession: SideOfBall | None = None
+    side_of_ball: SideOfBall | None = None
 
 
 class ClipResponse(BaseModel):
@@ -64,6 +71,9 @@ class ClipResponse(BaseModel):
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
+    session_kind: SessionKind | None
+    our_possession: SideOfBall | None
+    side_of_ball: SideOfBall | None
     created_at: str
 
     @classmethod
@@ -83,6 +93,9 @@ class ClipResponse(BaseModel):
             model_version_id=c.model_version_id,
             calibration_version_id=c.calibration_version_id,
             job_id=c.job_id,
+            session_kind=c.session_kind,
+            our_possession=c.our_possession,
+            side_of_ball=c.side_of_ball,
             created_at=c.created_at.isoformat(),
         )
 
@@ -175,12 +188,38 @@ async def create_clip(
 ) -> ClipResponse:
     """Propose a new play boundary for a video (manual or system-generated)."""
     vid_result = await db.execute(select(Video).where(Video.id == video_id))
-    if vid_result.scalar_one_or_none() is None:
+    video = vid_result.scalar_one_or_none()
+    if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     if body.start_time >= body.end_time:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="start_time must be less than end_time",
+        )
+
+    # Promote label_data["side_of_ball"] into the typed column when no
+    # explicit value was supplied (forward-looking version of the
+    # migration's 0010 backfill).
+    side_of_ball = body.side_of_ball
+    if side_of_ball is None and body.label_data:
+        raw = body.label_data.get("side_of_ball")
+        if isinstance(raw, str) and raw in _VALID_SIDES:
+            side_of_ball = SideOfBall(raw)
+
+    # our_possession defaults to side_of_ball — same vocabulary per ADR §3.
+    our_possession = body.our_possession or side_of_ball
+
+    # Game clips must carry their own possession because possession flips
+    # within the session. Practice/scrimmage clips may inherit from the
+    # parent video.
+    if (
+        video.session_kind == SessionKind.game
+        and our_possession is None
+        and video.our_possession is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="our_possession is required for clips of session_kind='game'",
         )
 
     clip = Clip(
@@ -197,10 +236,19 @@ async def create_clip(
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
         job_id=body.job_id,
+        session_kind=video.session_kind,
+        our_possession=our_possession,
+        side_of_ball=side_of_ball,
     )
     db.add(clip)
     await db.flush()
-    log.info("clip_created", clip_id=str(clip.id), video_id=str(video_id))
+    log.info(
+        "clip_created",
+        clip_id=str(clip.id),
+        video_id=str(video_id),
+        session_kind=str(clip.session_kind) if clip.session_kind else None,
+        our_possession=str(clip.our_possession) if clip.our_possession else None,
+    )
     return ClipResponse.from_orm_clip(clip)
 
 
@@ -254,6 +302,10 @@ async def update_clip(
         clip.boundary_source = body.boundary_source
     if body.boundary_confidence is not None:
         clip.boundary_confidence = body.boundary_confidence
+    if body.our_possession is not None:
+        clip.our_possession = body.our_possession
+    if body.side_of_ball is not None:
+        clip.side_of_ball = body.side_of_ball
 
     await db.flush()
     log.info("clip_updated", clip_id=str(clip_id))

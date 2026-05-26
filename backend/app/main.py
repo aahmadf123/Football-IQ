@@ -29,6 +29,7 @@ from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
 from app.routers.pose import router as pose_router
+from app.routers.practice_sessions import router as practice_sessions_router
 from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.tracklets import router as tracklets_router
@@ -70,6 +71,7 @@ app.include_router(health.router)
 app.include_router(auth_router)
 app.include_router(videos_router)
 app.include_router(clips_router)
+app.include_router(practice_sessions_router)
 app.include_router(jobs_router)
 app.include_router(calibrations_router)
 app.include_router(tracklets_router)

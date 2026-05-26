@@ -11,6 +11,14 @@ export type PageKey =
   | "clips-highlights"
   | "settings";
 
+// Backend-aligned enums (ADR 0001). These describe API payloads, not the
+// existing UI filter literals in app-state.tsx — the ADR explicitly defers
+// the UI-side `"special"` → `"special_teams"` rename.
+export type SessionKind = "practice" | "scrimmage" | "game";
+export type SourceType = "drone" | "uploaded_clip";
+export type OurPossession = "offense" | "defense" | "special_teams";
+export type ApiSideOfBall = "offense" | "defense" | "special_teams";
+
 export interface ApiVideo {
   id: string;
   filename: string;
@@ -20,6 +28,36 @@ export interface ApiVideo {
   width?: number | null;
   height?: number | null;
   created_at: string;
+  recorded_at?: string | null;
+  session_kind?: SessionKind | null;
+  source_type?: SourceType | null;
+  opponent_team?: string | null;
+  practice_session_id?: string | null;
+  our_possession?: OurPossession | null;
+}
+
+export interface ApiClip {
+  id: string;
+  video_id: string;
+  start_time: number;
+  end_time: number;
+  play_number?: number | null;
+  storage_uri?: string | null;
+  label_data?: Record<string, unknown> | null;
+  session_kind?: SessionKind | null;
+  our_possession?: OurPossession | null;
+  side_of_ball?: ApiSideOfBall | null;
+  created_at: string;
+}
+
+export interface ApiPracticeSessionGroup {
+  practice_session_id?: string | null;
+  session_date?: string | null;
+  session_kind?: SessionKind | null;
+  opponent_team?: string | null;
+  video_count: number;
+  first_recorded_at?: string | null;
+  last_recorded_at?: string | null;
 }
 
 export interface ApiJob {
