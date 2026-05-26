@@ -16,7 +16,8 @@ import {
 import { useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
 import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
-import { useAppState, SIDE_LABELS } from "@/lib/app-state";
+import { useAppState, SIDE_LABELS, type UploadPhase } from "@/lib/app-state";
+import type { VideoInboxItem } from "@/lib/api";
 import { MockBadge } from "@/components/mock-badge";
 import type { FootballData, PageKey, PlayerSummary, PlaySummary, TendencyEntry } from "@/lib/types";
 
@@ -212,60 +213,129 @@ function Dashboard() {
         </div>
       </section>
 
-      <PracticeInbox jobs={data.jobs} />
+      <PracticeInboxSection />
 
       <BottomInsights data={data} />
     </div>
   );
 }
 
-function PracticeInbox({ jobs }: { jobs: readonly import("@/lib/types").ApiJob[] }) {
-  const sameSession = jobs.filter((j) => j.is_same_session || j.pipeline_mode === "same_session");
-  const nightly = jobs.filter((j) => !j.is_same_session && j.pipeline_mode !== "same_session");
+function PracticeInboxSection() {
+  const { inboxItems, data, mockMode } = useAppState();
+  const jobs = data.jobs;
 
+  // Fall back to job-based view in mock mode or when inbox API has no data
+  if (mockMode || inboxItems.length === 0) {
+    const sameSession = jobs.filter((j) => j.is_same_session || j.pipeline_mode === "same_session");
+    const nightly = jobs.filter((j) => !j.is_same_session && j.pipeline_mode !== "same_session");
+
+    const statusColor = (s: string) => {
+      if (s === "succeeded") return "var(--accent-green, #4ade80)";
+      if (s === "running") return "var(--accent-amber, #fbbf24)";
+      if (s === "failed") return "var(--accent-red, #f87171)";
+      return "var(--text-muted, #94a3b8)";
+    };
+
+    const renderJobRow = (j: import("@/lib/types").ApiJob) => (
+      <div
+        key={j.id}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "4px 0",
+          borderBottom: "1px solid var(--line-soft, #333)",
+          fontSize: "0.78rem",
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            background: statusColor(j.status),
+            flexShrink: 0,
+          }}
+        />
+        <span style={{ flex: 1, fontWeight: 600 }}>
+          {j.job_type}
+          <span
+            style={{
+              display: "inline-block",
+              padding: "1px 6px",
+              borderRadius: 4,
+              fontSize: "0.65rem",
+              fontWeight: 700,
+              background: (j.pipeline_mode === "same_session" || j.is_same_session)
+                ? "oklch(0.65 0.18 145 / 0.25)"
+                : "oklch(0.55 0.12 250 / 0.25)",
+              color: "var(--text)",
+              marginLeft: 6,
+            }}
+          >
+            {(j.pipeline_mode === "same_session" || j.is_same_session) ? "Same-Session" : "Nightly"}
+          </span>
+        </span>
+        <span style={{ color: statusColor(j.status), fontWeight: 600, textTransform: "capitalize" }}>
+          {j.status}
+        </span>
+      </div>
+    );
+
+    return (
+      <section className="panel panel-pad span-12">
+        <h2 className="panel-title">Practice Inbox — Processing Status</h2>
+        <p className="kicker" style={{ marginBottom: 8 }}>
+          {sameSession.length} same-session · {nightly.length} nightly
+        </p>
+        {jobs.length === 0 && (
+          <p className="kicker">No processing jobs yet. Upload video to begin.</p>
+        )}
+        {sameSession.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <h3 style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--accent-green, #4ade80)", marginBottom: 4 }}>Same-Session (period-break)</h3>
+            {sameSession.map(renderJobRow)}
+          </div>
+        )}
+        {nightly.length > 0 && (
+          <div>
+            <h3 style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted, #94a3b8)", marginBottom: 4 }}>Nightly (full quality)</h3>
+            {nightly.map(renderJobRow)}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  // Real backend-backed inbox view
+  return (
+    <section className="panel panel-pad span-12">
+      <h2 className="panel-title">Practice Inbox — Processing Status</h2>
+      <p className="kicker" style={{ marginBottom: 8 }}>
+        {inboxItems.length} video{inboxItems.length !== 1 ? "s" : ""} in inbox
+      </p>
+      {inboxItems.map((item) => (
+        <InboxVideoRow key={item.video_id} item={item} />
+      ))}
+    </section>
+  );
+}
+
+function InboxVideoRow({ item }: { item: VideoInboxItem }) {
   const statusColor = (s: string) => {
-    if (s === "succeeded") return "var(--accent-green, #4ade80)";
-    if (s === "running") return "var(--accent-amber, #fbbf24)";
+    if (s === "ready") return "var(--accent-green, #4ade80)";
+    if (s === "processing") return "var(--accent-amber, #fbbf24)";
     if (s === "failed") return "var(--accent-red, #f87171)";
     return "var(--text-muted, #94a3b8)";
   };
 
-  const modeLabel = (j: import("@/lib/types").ApiJob) =>
-    j.pipeline_mode === "same_session" || j.is_same_session
-      ? "Same-Session"
-      : "Nightly";
-
-  const modeBadge = (j: import("@/lib/types").ApiJob) => {
-    const label = modeLabel(j);
-    const bg = label === "Same-Session"
-      ? "oklch(0.65 0.18 145 / 0.25)"
-      : "oklch(0.55 0.12 250 / 0.25)";
-    return (
-      <span
-        style={{
-          display: "inline-block",
-          padding: "1px 6px",
-          borderRadius: 4,
-          fontSize: "0.65rem",
-          fontWeight: 700,
-          background: bg,
-          color: "var(--text)",
-          marginLeft: 6,
-        }}
-      >
-        {label}
-      </span>
-    );
-  };
-
-  const renderJobRow = (j: import("@/lib/types").ApiJob) => (
+  return (
     <div
-      key={j.id}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
-        padding: "4px 0",
+        padding: "6px 0",
         borderBottom: "1px solid var(--line-soft, #333)",
         fontSize: "0.78rem",
       }}
@@ -275,61 +345,32 @@ function PracticeInbox({ jobs }: { jobs: readonly import("@/lib/types").ApiJob[]
           width: 8,
           height: 8,
           borderRadius: "50%",
-          background: statusColor(j.status),
+          background: statusColor(item.video_status),
           flexShrink: 0,
         }}
       />
       <span style={{ flex: 1, fontWeight: 600 }}>
-        {j.job_type}
-        {modeBadge(j)}
+        {item.filename}
+        {item.same_session_job_count > 0 && (
+          <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 4, fontSize: "0.65rem", fontWeight: 700, background: "oklch(0.65 0.18 145 / 0.25)", color: "var(--text)", marginLeft: 6 }}>
+            {item.same_session_job_count} same-session
+          </span>
+        )}
       </span>
-      <span style={{ color: statusColor(j.status), fontWeight: 600, textTransform: "capitalize" }}>
-        {j.status}
+      <span style={{ fontSize: "0.72rem", color: "var(--text-muted, #94a3b8)" }}>
+        {item.succeeded_jobs}/{item.total_jobs} jobs
+        {item.clip_count > 0 && ` · ${item.clip_count} clips`}
+        {item.calibration_safe_pct !== null && ` · ${item.calibration_safe_pct}% safe`}
       </span>
+      <span style={{ color: statusColor(item.video_status), fontWeight: 600, textTransform: "capitalize" }}>
+        {item.video_status}
+      </span>
+      {item.latest_error_message && (
+        <span title={item.latest_error_message} style={{ color: "var(--accent-red, #f87171)", fontSize: "0.7rem", cursor: "help" }}>
+          {item.latest_error_stage ?? "Error"}
+        </span>
+      )}
     </div>
-  );
-
-  return (
-    <section className="panel panel-pad span-12">
-      <h2 className="panel-title">Practice Inbox — Processing Status</h2>
-      <p className="kicker" style={{ marginBottom: 8 }}>
-        {sameSession.length} same-session · {nightly.length} nightly
-      </p>
-      {sameSession.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <h3
-            style={{
-              fontSize: "0.72rem",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              color: "var(--accent-green, #4ade80)",
-              marginBottom: 4,
-            }}
-          >
-            Same-Session (period-break)
-          </h3>
-          {sameSession.map(renderJobRow)}
-        </div>
-      )}
-      {nightly.length > 0 && (
-        <div>
-          <h3
-            style={{
-              fontSize: "0.72rem",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              color: "var(--text-muted, #94a3b8)",
-              marginBottom: 4,
-            }}
-          >
-            Nightly (full quality)
-          </h3>
-          {nightly.map(renderJobRow)}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -352,8 +393,31 @@ function OverlayLayerToggles() {
   );
 }
 
+function phaseLabel(phase: UploadPhase): string {
+  switch (phase) {
+    case "idle": return "Queued";
+    case "requesting-url": return "Preparing\u2026";
+    case "uploading": return "Uploading\u2026";
+    case "registering": return "Registering\u2026";
+    case "done": return "Complete";
+    case "error": return "Failed";
+  }
+}
+
+function phaseColor(phase: UploadPhase): string {
+  switch (phase) {
+    case "done": return "var(--accent-green, #4ade80)";
+    case "error": return "var(--accent-red, #f87171)";
+    case "uploading":
+    case "registering":
+    case "requesting-url":
+      return "var(--accent-amber, #fbbf24)";
+    default: return "var(--text-muted, #94a3b8)";
+  }
+}
+
 function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
-  const { data, filteredPlays, currentPlayIndex, setCurrentPlayIndex, uploads, removeUpload } = useAppState();
+  const { data, filteredPlays, currentPlayIndex, setCurrentPlayIndex, uploads, removeUpload, retryUpload } = useAppState();
   return (
     <div className="content-grid">
       <section className="panel span-7">
@@ -401,12 +465,35 @@ function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
         ) : (
           <div className="list-stack" style={{ marginTop: 10 }}>
             {uploads.map((u) => (
-              <div key={u.id} className="status-row" style={{ gridTemplateColumns: "1fr auto auto" }}>
+              <div key={u.id} className="status-row" style={{ gridTemplateColumns: "1fr auto auto auto" }}>
                 <div>
                   <strong>{u.filename}</strong>
-                  <div className="kicker">{(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB · {new Date(u.uploadedAt).toLocaleString()}</div>
+                  <div className="kicker">
+                    {(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB
+                    {" \u00b7 "}{new Date(u.uploadedAt).toLocaleString()}
+                    {" \u00b7 "}
+                    <span style={{ color: phaseColor(u.phase), fontWeight: 700 }}>
+                      {phaseLabel(u.phase)}
+                      {u.phase === "uploading" && ` ${u.progress}%`}
+                    </span>
+                  </div>
+                  {u.phase === "uploading" && (
+                    <div style={{ height: 3, background: "var(--line-soft, #333)", borderRadius: 2, marginTop: 4 }}>
+                      <div style={{ height: "100%", width: `${u.progress}%`, background: "var(--accent-amber, #fbbf24)", borderRadius: 2, transition: "width 0.3s" }} />
+                    </div>
+                  )}
+                  {u.phase === "error" && u.error && (
+                    <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
+                      {u.error}
+                    </div>
+                  )}
                 </div>
-                {u.objectUrl && (
+                {u.phase === "error" && (
+                  <button className="control-button" onClick={() => retryUpload(u.id)} aria-label="Retry upload">
+                    Retry
+                  </button>
+                )}
+                {u.objectUrl && u.phase === "done" && (
                   <a className="control-button" href={u.objectUrl} target="_blank" rel="noreferrer">Open</a>
                 )}
                 <button className="control-button" onClick={() => removeUpload(u.id)} aria-label="Remove upload">

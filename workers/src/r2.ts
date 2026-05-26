@@ -1,16 +1,21 @@
 /**
- * Cloudflare R2 presigned URL helpers.
+ * Cloudflare R2 helpers — upload proxy and download URL generation.
  *
- * Generates short-lived signed URLs for:
- *   - PUT  (video upload)
- *   - GET  (video / clip / artifact download)
+ * Upload flow:
+ *   1. Client calls POST /api/v1/videos/upload-url → { uploadUrl, key }
+ *   2. Client PUTs the file body to the returned uploadUrl (Worker proxy)
+ *   3. Worker writes the body to the R2 bucket via its binding
+ *
+ * Download flow:
+ *   - GET /api/v1/videos/:videoId/download still returns a synthetic URL
+ *     (future: real presigned S3-compat URL).
  */
 
 import type { Env } from "./types.js";
 
 export type R2BucketName = "raw-video" | "clips" | "overlays" | "artifacts";
 
-function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
+export function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
   switch (bucketName) {
     case "raw-video":
       return env.RAW_VIDEO;
@@ -24,24 +29,30 @@ function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
 }
 
 /**
- * Create a presigned PUT URL so a client can upload directly to R2.
+ * Build the Worker proxy upload URL for a given key.
+ * The frontend PUTs the file body directly to this URL.
  */
-export async function createUploadUrl(
+export function buildUploadProxyUrl(requestUrl: string, key: string): string {
+  const base = new URL(requestUrl);
+  return `${base.origin}/api/v1/videos/upload/${encodeURIComponent(key)}`;
+}
+
+/**
+ * Write a request body directly to R2 via the Worker binding.
+ */
+export async function putObject(
   env: Env,
   bucketName: R2BucketName,
   key: string,
-  ttlSeconds = 3600,
-): Promise<string> {
+  body: ReadableStream | ArrayBuffer | null,
+  contentType?: string,
+): Promise<R2Object> {
   const bucket = getBucket(env, bucketName);
-  const multipart = await bucket.createMultipartUpload(key);
-  // Return a synthetic presigned path the Worker can exchange for a PUT upload.
-  // For direct presigned URLs, use the R2 S3-compat API with AWS SDK from backend.
-  // This endpoint is a lightweight proxy URL that the Worker will handle.
-  void multipart; // reserved for future multipart support
-  const url = new URL(`https://r2-proxy.internal/${bucketName}/${key}`);
-  url.searchParams.set("action", "upload");
-  url.searchParams.set("expires", String(Math.floor(Date.now() / 1000) + ttlSeconds));
-  return url.toString();
+  const httpMetadata: R2HTTPMetadata = {};
+  if (contentType) {
+    httpMetadata.contentType = contentType;
+  }
+  return bucket.put(key, body, { httpMetadata });
 }
 
 /**
@@ -54,7 +65,6 @@ export async function createDownloadUrl(
   ttlSeconds = 3600,
 ): Promise<string> {
   const bucket = getBucket(env, bucketName);
-  // Check the object exists first
   const head = await bucket.head(key);
   if (!head) {
     throw new Response(`Object not found: ${key}`, { status: 404 });
