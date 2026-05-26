@@ -125,7 +125,7 @@ def process_job(job: dict[str, Any]) -> None:
 
     try:
         artifacts = _dispatch(job_type, video_id, clip_id, input_uri,
-                              input_artifacts, job_id)
+                              input_artifacts, job_id, priority)
         artifacts = dict(artifacts or {})
         routing = model_router.build_routing_artifact(job_type, priority)
         artifacts.setdefault("model_routing", {}).update(routing)
@@ -143,9 +143,11 @@ def _dispatch(
     input_uri: str,
     input_artifacts: dict[str, Any],
     job_id: str,
+    priority: int = 0,
 ) -> dict[str, Any]:
     """Route to the correct pipeline stage module."""
     from pipeline import (
+        model_router,
         stage_calibrate,
         stage_coverage,
         stage_detect,
@@ -173,13 +175,16 @@ def _dispatch(
         return stage_calibrate.run(video_id, input_uri, job_id)
 
     elif job_type == "detect":
-        # Returns detections dict in output_artifacts
-        return stage_detect.run(video_id, input_uri, job_id)
+        detect_variant = model_router.select_model("detect", priority)
+        return stage_detect.run(video_id, input_uri, job_id,
+                                variant=detect_variant)
 
     elif job_type == "track":
         detections: dict[str, Any] = input_artifacts.get("detections", {})
         fps: float = float(input_artifacts.get("fps", 30))
-        return stage_track.run(clip_id, detections, fps, job_id)
+        track_variant = model_router.select_model("track", priority)
+        return stage_track.run(clip_id, detections, fps, job_id,
+                               variant=track_variant)
 
     elif job_type == "reid":
         tracklet_ids: list[str] = input_artifacts.get("tracklet_ids", [])

@@ -51,12 +51,33 @@ log = structlog.get_logger(__name__)
 RTMPOSE_FAST: str = "rtmpose-t"
 RTMPOSE_MEDIUM: str = "rtmpose-m"
 
+# Detect / track variants — Issue #74 adds SAM 3.1 as an experimental
+# nightly-only option behind the ``ENABLE_SAM3_NIGHTLY`` env switch.
+YOLOV8N: str = "yolov8n"
+YOLOV8M: str = "yolov8m"
+SAM3_1: str = "sam3.1"
+IOU_TRACKER: str = "iou-tracker"
+SAM3_MASK_TRACKER: str = "sam3-mask-tracker"
+
+# Variants that are NEVER allowed on the same-session path because they
+# are heavy / experimental / require a HF token at runtime.  If a routing
+# config tries to put one of these in the same_session bucket, the
+# router falls back to the default same-session variant and logs a
+# warning — see ``select_model``.
+NIGHTLY_ONLY_VARIANTS: frozenset[str] = frozenset({SAM3_1, SAM3_MASK_TRACKER})
+
 # Returned for any stage that is not in the routing table.
 UNKNOWN_STAGE_FALLBACK: str = "default"
 
 # Priority bucket keys used inside the routing table.
 _SAME_SESSION_KEY = "same_session"
 _NIGHTLY_KEY = "nightly"
+
+# When set to a truthy value, the nightly bucket for ``detect`` and
+# ``track`` is upgraded to SAM 3.1 / SAM3-mask-tracker.  Default off:
+# nightly stays on yolov8m + iou-tracker until SAM 3.1 has cleared the
+# eval (see ``reports/phase2-issue74-sam3-eval.md``).
+_SAM3_NIGHTLY_ENV = "ENABLE_SAM3_NIGHTLY"
 
 # Default stage × priority routing.
 #
@@ -98,11 +119,71 @@ def _load_override() -> dict[str, dict[str, str]]:
     return raw
 
 
+def _sam3_nightly_enabled() -> bool:
+    """Whether SAM 3.1 + mask tracker should serve the nightly detect/track buckets."""
+    raw = os.environ.get(_SAM3_NIGHTLY_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _apply_sam3_nightly(
+    routing: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Swap detect/track nightly variants to SAM 3.1 when the env flag is on.
+
+    Same-session entries are never touched: even when the experimental
+    flag is enabled, period-break clips continue to use yolov8n +
+    iou-tracker so latency remains predictable.
+    """
+    if not _sam3_nightly_enabled():
+        return routing
+    detect = dict(routing.get("detect", {}))
+    detect[_NIGHTLY_KEY] = SAM3_1
+    routing["detect"] = detect
+    track = dict(routing.get("track", {}))
+    track[_NIGHTLY_KEY] = SAM3_MASK_TRACKER
+    routing["track"] = track
+    log.info(
+        "sam3_nightly_enabled",
+        detect_nightly=SAM3_1,
+        track_nightly=SAM3_MASK_TRACKER,
+    )
+    return routing
+
+
+def _enforce_same_session_safety(
+    routing: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Block nightly-only variants from leaking into the same-session bucket.
+
+    If an override file puts ``sam3.1`` or ``sam3-mask-tracker`` in
+    same_session, replace it with the matching default and log loudly.
+    Hard guarantee: nothing in ``NIGHTLY_ONLY_VARIANTS`` ever ships to
+    same-session, regardless of config.
+    """
+    for stage, variants in routing.items():
+        ss = variants.get(_SAME_SESSION_KEY)
+        if ss in NIGHTLY_ONLY_VARIANTS:
+            default_ss = DEFAULT_ROUTING.get(stage, {}).get(_SAME_SESSION_KEY)
+            log.warning(
+                "model_router_blocked_nightly_only_in_same_session",
+                stage=stage,
+                attempted=ss,
+                replaced_with=default_ss,
+            )
+            if default_ss is not None:
+                variants[_SAME_SESSION_KEY] = default_ss
+            else:
+                variants.pop(_SAME_SESSION_KEY, None)
+    return routing
+
+
 def _build_routing() -> dict[str, dict[str, str]]:
     """Merge ``DEFAULT_ROUTING`` with any JSON override.
 
     Per-stage merge: overridden stages fully replace their default entry,
-    but stages not mentioned in the override keep their defaults.
+    but stages not mentioned in the override keep their defaults.  Then
+    apply the SAM 3.1 nightly swap (if enabled) and enforce the
+    same-session safety guard.
     """
     routing: dict[str, dict[str, str]] = {
         stage: dict(variants) for stage, variants in DEFAULT_ROUTING.items()
@@ -116,6 +197,8 @@ def _build_routing() -> dict[str, dict[str, str]]:
             if isinstance(value, str):
                 merged[key] = value
         routing[stage] = merged
+    routing = _apply_sam3_nightly(routing)
+    routing = _enforce_same_session_safety(routing)
     return routing
 
 
@@ -190,3 +273,8 @@ def is_same_session(priority: int) -> bool:
 def is_nightly(priority: int) -> bool:
     """Return True if ``priority`` qualifies as a nightly full-quality run."""
     return priority <= NIGHTLY_PRIORITY
+
+
+def is_nightly_only_variant(variant: str) -> bool:
+    """Return True if ``variant`` must never serve a same-session job."""
+    return variant in NIGHTLY_ONLY_VARIANTS
