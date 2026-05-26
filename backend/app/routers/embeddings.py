@@ -125,20 +125,14 @@ async def create_play_embedding(
         )
 
     # Lineage sanity: the clip and the model version must exist.
-    clip = (
-        await db.execute(select(Clip).where(Clip.id == payload.clip_id))
-    ).scalar_one_or_none()
+    clip = (await db.execute(select(Clip).where(Clip.id == payload.clip_id))).scalar_one_or_none()
     if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
     mv = (
-        await db.execute(
-            select(ModelVersion).where(ModelVersion.id == payload.model_version_id)
-        )
+        await db.execute(select(ModelVersion).where(ModelVersion.id == payload.model_version_id))
     ).scalar_one_or_none()
     if mv is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found")
 
     values: dict[str, Any] = {
         "clip_id": payload.clip_id,
@@ -198,12 +192,7 @@ async def list_play_embeddings(
     offset: int = Query(default=0, ge=0),
 ) -> list[PlayEmbeddingResponse]:
     """List embeddings (filter by clip / model_version / chunk_kind)."""
-    q = (
-        select(PlayEmbedding)
-        .order_by(PlayEmbedding.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    q = select(PlayEmbedding).order_by(PlayEmbedding.created_at.desc()).limit(limit).offset(offset)
     if clip_id is not None:
         q = q.where(PlayEmbedding.clip_id == clip_id)
     if model_version_id is not None:

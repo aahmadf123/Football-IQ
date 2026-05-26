@@ -155,9 +155,7 @@ def _model_label(mv: ModelVersion) -> str:
     return f"{mv.model_name}@{mv.version}"
 
 
-async def _candidate_clip_ids(
-    db: AsyncSession, filters: SearchFilters
-) -> list[uuid.UUID] | None:
+async def _candidate_clip_ids(db: AsyncSession, filters: SearchFilters) -> list[uuid.UUID] | None:
     """Pre-filter clip IDs by metadata. Returns ``None`` if no filters set."""
     if not any(
         [
@@ -181,17 +179,11 @@ async def _candidate_clip_ids(
         # exact match keeps the predicate index-friendly enough.
         q = q.where(Video.metadata_["opponent"].astext.ilike(filters.opponent))
     if filters.formation:
-        q = q.where(
-            Clip.label_data["formation"]["generic"].astext.ilike(filters.formation)
-        )
+        q = q.where(Clip.label_data["formation"]["generic"].astext.ilike(filters.formation))
     if filters.coverage:
-        q = q.where(
-            Clip.label_data["coverage"]["generic"].astext.ilike(filters.coverage)
-        )
+        q = q.where(Clip.label_data["coverage"]["generic"].astext.ilike(filters.coverage))
     if filters.side_of_ball:
-        q = q.where(
-            Clip.label_data["side_of_ball"].astext.ilike(filters.side_of_ball)
-        )
+        q = q.where(Clip.label_data["side_of_ball"].astext.ilike(filters.side_of_ball))
 
     result = await db.execute(q)
     return [r[0] for r in result.all()]

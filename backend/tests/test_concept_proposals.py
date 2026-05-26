@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -58,7 +58,7 @@ def _proposal(
     p.reviewed_at = None
     p.review_notes = None
     p.accepted_label_name = accepted_label_name
-    p.created_at = datetime.now(timezone.utc)
+    p.created_at = datetime.now(UTC)
     return p
 
 

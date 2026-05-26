@@ -136,9 +136,7 @@ async def list_proposals(
     if status_filter:
         q = q.where(EmbeddingClusterProposal.status == status_filter)
     result = await db.execute(q)
-    return [
-        ProposalResponse.from_orm_proposal(p) for p in result.scalars().all()
-    ]
+    return [ProposalResponse.from_orm_proposal(p) for p in result.scalars().all()]
 
 
 @router.get("/{proposal_id}", response_model=ProposalResponse)
@@ -171,9 +169,7 @@ async def create_proposal(
         await db.execute(select(ModelVersion).where(ModelVersion.id == payload.model_version_id))
     ).scalar_one_or_none()
     if mv is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found")
 
     proposal = EmbeddingClusterProposal(
         model_version_id=payload.model_version_id,
@@ -294,18 +290,12 @@ async def reject_proposal(
     return ProposalResponse.from_orm_proposal(proposal)
 
 
-async def _load_proposal(
-    db: AsyncSession, proposal_id: uuid.UUID
-) -> EmbeddingClusterProposal:
+async def _load_proposal(db: AsyncSession, proposal_id: uuid.UUID) -> EmbeddingClusterProposal:
     proposal = (
         await db.execute(
-            select(EmbeddingClusterProposal).where(
-                EmbeddingClusterProposal.id == proposal_id
-            )
+            select(EmbeddingClusterProposal).where(EmbeddingClusterProposal.id == proposal_id)
         )
     ).scalar_one_or_none()
     if proposal is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
     return proposal

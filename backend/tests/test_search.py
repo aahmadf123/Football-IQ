@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -28,7 +28,7 @@ import pytest
 from app.database import get_db
 from app.deps import get_current_user
 from app.main import app
-from app.models import ModelStage, ModelVersion, PLAY_EMBEDDING_DIM, User, UserRole
+from app.models import PLAY_EMBEDDING_DIM, ModelStage, ModelVersion, User, UserRole
 from app.routers.search import (
     SearchFilters,
     SimilarSearchRequest,
@@ -55,7 +55,7 @@ def _model_version(stage: ModelStage, created_at: datetime | None = None) -> Mag
     mv.version = "1.0"
     mv.model_type = "play_embedding"
     mv.promoted_stage = stage
-    mv.created_at = created_at or datetime.now(timezone.utc)
+    mv.created_at = created_at or datetime.now(UTC)
     return mv
 
 

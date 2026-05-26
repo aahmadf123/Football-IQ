@@ -73,9 +73,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("'{}'::uuid[]"),
         ),
-        sa.Column(
-            "used_sam_masks", sa.Boolean(), nullable=False, server_default=sa.text("false")
-        ),
+        sa.Column("used_sam_masks", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("embedding_confidence", sa.Float(), nullable=True),
         sa.Column(
             "is_experimental",
@@ -105,21 +103,17 @@ def upgrade() -> None:
     # vector / pgvector columns must be added with raw SQL — Alembic's
     # core type system doesn't know about the ``vector`` user type.
     op.execute(
-        f"ALTER TABLE playembeddings "
-        f"ADD COLUMN vector vector({PLAY_EMBEDDING_DIM}) NOT NULL"
+        f"ALTER TABLE playembeddings ADD COLUMN vector vector({PLAY_EMBEDDING_DIM}) NOT NULL"
     )
     op.execute(
-        f"ALTER TABLE playembeddings "
-        f"ADD COLUMN visual_vector vector({PLAY_EMBEDDING_VISUAL_DIM})"
+        f"ALTER TABLE playembeddings ADD COLUMN visual_vector vector({PLAY_EMBEDDING_VISUAL_DIM})"
     )
     op.execute(
         f"ALTER TABLE playembeddings "
         f"ADD COLUMN structured_vector vector({PLAY_EMBEDDING_STRUCTURED_DIM})"
     )
 
-    op.create_index(
-        "playembeddings_clip_id_idx", "playembeddings", ["clip_id"], unique=False
-    )
+    op.create_index("playembeddings_clip_id_idx", "playembeddings", ["clip_id"], unique=False)
     op.create_index(
         "playembeddings_model_version_id_idx",
         "playembeddings",
@@ -155,9 +149,7 @@ def upgrade() -> None:
         ),
         sa.Column("member_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("cohesion_score", sa.Float(), nullable=True),
-        sa.Column(
-            "status", sa.String(20), nullable=False, server_default="pending", index=True
-        ),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending", index=True),
         sa.Column(
             "is_experimental",
             sa.Boolean(),
@@ -181,8 +173,7 @@ def upgrade() -> None:
         ),
     )
     op.execute(
-        f"ALTER TABLE embedding_cluster_proposals "
-        f"ADD COLUMN centroid vector({PLAY_EMBEDDING_DIM})"
+        f"ALTER TABLE embedding_cluster_proposals ADD COLUMN centroid vector({PLAY_EMBEDDING_DIM})"
     )
     op.create_index(
         "embedding_cluster_proposals_status_idx",

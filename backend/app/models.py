@@ -932,9 +932,7 @@ class EmbeddingClusterProposal(Base):
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list
     )
     # Cluster centroid in the same 256-d space as PlayEmbedding.vector.
-    centroid: Mapped[list[float] | None] = mapped_column(
-        Vector(PLAY_EMBEDDING_DIM), nullable=True
-    )
+    centroid: Mapped[list[float] | None] = mapped_column(Vector(PLAY_EMBEDDING_DIM), nullable=True)
     member_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cohesion_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
