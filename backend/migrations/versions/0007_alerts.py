@@ -23,25 +23,30 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # ── New enums ─────────────────────────────────────────────────────────────
-    alert_type = postgresql.ENUM(
-        "bio_deviation",
-        "effort_anomaly",
-        "formation_anomaly",
-        name="alert_type",
-        create_type=True,
+    # ── New enums (idempotent) ────────────────────────────────────────────────
+    op.execute(
+        "DO $$ BEGIN "
+        "CREATE TYPE alert_type AS ENUM ('bio_deviation','effort_anomaly','formation_anomaly'); "
+        "EXCEPTION WHEN duplicate_object THEN NULL; END $$"
     )
-    alert_severity = postgresql.ENUM(
-        "low",
-        "medium",
-        "high",
-        name="alert_severity",
-        create_type=True,
+    op.execute(
+        "DO $$ BEGIN "
+        "CREATE TYPE alert_severity AS ENUM ('low','medium','high'); "
+        "EXCEPTION WHEN duplicate_object THEN NULL; END $$"
     )
-    alert_type.create(op.get_bind(), checkfirst=True)
-    alert_severity.create(op.get_bind(), checkfirst=True)
 
     # ── alerts table ──────────────────────────────────────────────────────────
+    # Skip table creation if it already exists (re-entrant migration guard)
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='alerts'"
+        )
+    ).scalar()
+    if table_exists:
+        return
+
     op.create_table(
         "alerts",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -62,7 +67,7 @@ def upgrade() -> None:
         sa.Column("position_group", sa.String(20), nullable=False),
         sa.Column(
             "alert_type",
-            sa.Enum(
+            postgresql.ENUM(
                 "bio_deviation",
                 "effort_anomaly",
                 "formation_anomaly",
@@ -73,7 +78,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "severity",
-            sa.Enum("low", "medium", "high", name="alert_severity", create_type=False),
+            postgresql.ENUM("low", "medium", "high", name="alert_severity", create_type=False),
             nullable=False,
         ),
         sa.Column("confidence", sa.Float(), nullable=False),

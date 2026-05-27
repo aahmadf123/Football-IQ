@@ -38,6 +38,13 @@ PLAY_EMBEDDING_STRUCTURED_DIM = 64
 
 def upgrade() -> None:
     # ── pgvector ──────────────────────────────────────────────────────────────
+    # Skip silently if pgvector is not installed on this Postgres instance.
+    conn = op.get_bind()
+    has_vector = conn.execute(
+        sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+    ).scalar()
+    if not has_vector:
+        return  # pgvector unavailable — skip entire migration; re-run after enabling it
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # ── Expand job_type enum so the dispatcher can queue an embed job ────────
