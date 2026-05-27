@@ -11,6 +11,7 @@ import type {
   ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
+  ClipOverlayPayload,
   SessionKind,
   SourceType,
   OurPossession,
@@ -282,6 +283,20 @@ export async function fetchClip(clipId: string, token?: string): Promise<ApiClip
   const base = apiBase();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiClip>(`${base}/api/v1/clips/${clipId}`, token);
+}
+
+// ── Clip overlays (Issue #104) ───────────────────────────────────────────────
+
+export async function fetchClipOverlays(
+  clipId: string,
+  token?: string,
+): Promise<ClipOverlayPayload> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ClipOverlayPayload>(
+    `${base}/api/v1/clips/${clipId}/overlays`,
+    token,
+  );
 }
 
 // ── Players ──────────────────────────────────────────────────────────────────

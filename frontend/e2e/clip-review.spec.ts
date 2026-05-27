@@ -39,6 +39,14 @@ test("clip review opens and invokes the signed download URL path", async ({
     "GET /api/v1/self-scout/tendencies": { tendencies: [] },
     "GET /api/v1/inbox/status": [],
     "GET /api/v1/clips/c-1": sampleClip(),
+    "GET /api/v1/clips/c-1/overlays": {
+      clip_id: "c-1",
+      tracklets: [],
+      events: [],
+      labels: [],
+      metrics: [],
+      layers_available: { tracklets: false, events: false, labels: false, metrics: false },
+    },
     "GET /api/v1/videos/v-1": sampleVideo(),
   });
 
