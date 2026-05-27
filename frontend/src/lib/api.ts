@@ -8,6 +8,7 @@
 
 import type {
   ApiClip,
+  ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
   SessionKind,
@@ -281,6 +282,41 @@ export async function fetchClip(clipId: string, token?: string): Promise<ApiClip
   const base = apiBase();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiClip>(`${base}/api/v1/clips/${clipId}`, token);
+}
+
+// ── Players ──────────────────────────────────────────────────────────────────
+
+export interface PlayerFilters {
+  position?: string;
+  position_group?: string;
+  is_active?: boolean;
+  jersey_number?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchPlayers(
+  filters: PlayerFilters = {},
+  token?: string,
+): Promise<ApiPlayer[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<ApiPlayer[]>(
+    `${base}/api/v1/players${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+export async function fetchPlayer(playerId: string, token?: string): Promise<ApiPlayer> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ApiPlayer>(`${base}/api/v1/players/${playerId}`, token);
 }
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────

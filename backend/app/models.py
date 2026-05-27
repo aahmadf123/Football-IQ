@@ -197,6 +197,9 @@ class Player(Base):
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     jersey_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Coaching position group (QB, Skill, OL, DL, LB, DB, ST). Indexed because
+    # position-coach views filter on this rather than the raw position string.
+    position_group: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     # Link to platform account (optional — players may not have login)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True

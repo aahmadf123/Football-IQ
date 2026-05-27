@@ -16,7 +16,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
 import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
-import { useAppState, SIDE_LABELS, type UploadPhase } from "@/lib/app-state";
+import { useAppState, SIDE_LABELS, type ApiStatus, type UploadPhase } from "@/lib/app-state";
 import type { VideoInboxItem } from "@/lib/api";
 import { MockBadge } from "@/components/mock-badge";
 import type { FootballData, PageKey, PlayerSummary, PlaySummary, TendencyEntry } from "@/lib/types";
@@ -142,8 +142,8 @@ function Dashboard() {
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Key Play Metrics</h2>
           <div className="metric-grid" style={{ marginTop: 10 }}>
-            <Metric label="Max Speed" value={selectedPlayer ? String(selectedPlayer.maxSpeed) : "—"} unit="MPH" />
-            <Metric label="Separation" value={selectedPlayer ? String(selectedPlayer.separation) : "—"} unit="YDS" />
+            <Metric label="Max Speed" value={fmtMetric(selectedPlayer?.maxSpeed)} unit="MPH" />
+            <Metric label="Separation" value={fmtMetric(selectedPlayer?.separation)} unit="YDS" />
             <Metric label="Yards Gained" value={String(currentPlay?.yards ?? 0)} unit="YDS" />
             <Metric label="Confidence" value={`${Math.round((currentPlay?.confidence ?? 0) * 100)}%`} unit="" />
           </div>
@@ -537,7 +537,7 @@ function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
 }
 
 function Players() {
-  const { data, filteredPlayers, selectedPlayer, setSelectedPlayerId } = useAppState();
+  const { data, filteredPlayers, selectedPlayer, setSelectedPlayerId, playersStatus } = useAppState();
   const [query, setQuery] = useState("");
 
   const visible = useMemo(() => {
@@ -567,7 +567,11 @@ function Players() {
           </label>
         </div>
         <div className="list-stack" style={{ marginTop: 12 }}>
-          {visible.length === 0 && <div className="kicker">No players match the current filter.</div>}
+          {visible.length === 0 && (
+            <div className="kicker">
+              {query.trim() ? "No players match the current filter." : rosterEmptyMessage(playersStatus)}
+            </div>
+          )}
           {visible.map((player) => (
             <Link
               key={player.id}
@@ -577,9 +581,9 @@ function Players() {
             >
               <strong>#{player.jersey} {player.name}</strong>
               <span>{player.position}</span>
-              <span>{player.maxSpeed} MPH</span>
-              <span>{player.distance} YDS</span>
-              <span className="status-pill info">{Math.round(player.confidence * 100)}%</span>
+              <span>{fmtMetric(player.maxSpeed)} MPH</span>
+              <span>{fmtMetric(player.distance)} YDS</span>
+              <span className="status-pill info">{fmtConfidence(player.confidence)}</span>
             </Link>
           ))}
         </div>
@@ -599,7 +603,7 @@ function Players() {
         ) : (
           <>
             <h2 className="panel-title">Player Focus</h2>
-            <p className="kicker" style={{ marginTop: 8 }}>No players yet.</p>
+            <p className="kicker" style={{ marginTop: 8 }}>{rosterEmptyMessage(playersStatus)}</p>
           </>
         )}
       </section>
@@ -975,9 +979,9 @@ function PlayerFocus({
         <PlayerPortrait player={player} compact={compact} />
       </Link>
       <div className="metric-grid" style={{ marginTop: compact ? 8 : 12, gridTemplateColumns: "repeat(3, 1fr)" }}>
-        <Metric label="Distance" value={String(player.distance)} unit="YDS" />
-        <Metric label="Max Speed" value={String(player.maxSpeed)} unit="MPH" />
-        <Metric label="Avg Sep" value={String(player.separation)} unit="YDS" />
+        <Metric label="Distance" value={fmtMetric(player.distance)} unit="YDS" />
+        <Metric label="Max Speed" value={fmtMetric(player.maxSpeed)} unit="MPH" />
+        <Metric label="Avg Sep" value={fmtMetric(player.separation)} unit="YDS" />
       </div>
       <MetricLine label="Route" value="Corner" />
       <MetricLine label="Targets" value="4" />
@@ -1015,6 +1019,32 @@ function BottomInsights({ data }: { data: FootballData }) {
       </div>
     </section>
   );
+}
+
+// Render an optional numeric metric as a string. Metrics that aren't wired to
+// the live backend yet (max speed, separation, distance) are surfaced as a
+// dash rather than fabricated zeros — see Issue #103 acceptance criteria.
+function fmtMetric(value: number | undefined): string {
+  return value == null ? "—" : String(value);
+}
+
+function fmtConfidence(value: number | undefined): string {
+  return value == null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function rosterEmptyMessage(status: ApiStatus): string {
+  switch (status) {
+    case "loading":
+      return "Loading roster…";
+    case "offline":
+      return "Roster unavailable — could not reach /api/v1/players.";
+    case "live":
+      return "Roster is empty. Add players from Settings to populate this view.";
+    case "mock":
+      return "No players yet.";
+    default:
+      return "No players yet.";
+  }
 }
 
 function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
