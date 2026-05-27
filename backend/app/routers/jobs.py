@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import JobStatus, JobType, PipelineMode, ProcessingJob, User, Video
+from app.workload import WorkloadSnapshot, require_workload_capacity
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -113,8 +114,16 @@ async def create_job(
     body: JobCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_any_staff)],
+    _workload: Annotated[
+        WorkloadSnapshot, Depends(require_workload_capacity("jobs.create"))
+    ],
 ) -> JobResponse:
-    """Submit a new processing job for a video."""
+    """Submit a new processing job for a video.
+
+    Gated by :func:`app.workload.require_workload_capacity` — when the GPU
+    queue is saturated this returns 503 ``workload_gated`` instead of
+    accepting the job.
+    """
     vid_result = await db.execute(select(Video).where(Video.id == body.video_id))
     if vid_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
@@ -189,8 +198,15 @@ async def retry_job(
     job_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_any_staff)],
+    _workload: Annotated[
+        WorkloadSnapshot, Depends(require_workload_capacity("jobs.retry"))
+    ],
 ) -> JobResponse:
-    """Retry a failed job by creating a new queued copy."""
+    """Retry a failed job by creating a new queued copy.
+
+    Subject to the same workload gating as :func:`create_job` — retrying a
+    job under saturation just defers the problem.
+    """
     result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
     original = result.scalar_one_or_none()
     if original is None:

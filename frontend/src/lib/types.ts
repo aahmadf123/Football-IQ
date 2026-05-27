@@ -69,6 +69,41 @@ export interface ApiPlayer {
   user_id: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
+  // Outward-facing visibility lifecycle (Issue #114). Always present in the
+  // ``staff`` projection; absent in ``recruiting`` payloads.
+  visibility_state?: PlayerVisibilityState;
+  // Shaping mode the backend applied to this payload. Frontend uses this to
+  // decide which UI panels to render — never to *enforce* access; enforcement
+  // lives entirely on the backend.
+  view?: VisibilityMode;
+}
+
+// Backend-aligned governance enums (Issues #113 / #114). See
+// ``docs/governance.md`` for the contract.
+export type PlayerVisibilityState =
+  | "staff_only"
+  | "player_approved"
+  | "recruiting_approved"
+  | "archived";
+
+export type VisibilityMode = "staff" | "player" | "recruiting";
+
+// Shape of the ``detail`` payload returned with HTTP 503 ``workload_gated``
+// responses from heavy endpoints (POST /api/v1/jobs and similar). Surfaced so
+// callers can render an actionable "system is busy" message instead of a
+// generic error.
+export interface WorkloadGatedDetail {
+  error_code: "workload_gated";
+  endpoint: string;
+  message: string;
+  workload: {
+    queued: number;
+    running: number;
+    queue_threshold: number;
+    running_threshold: number;
+    status: "healthy" | "degraded" | "saturated";
+    gating_disabled: boolean;
+  };
 }
 
 export interface OpponentVideo {

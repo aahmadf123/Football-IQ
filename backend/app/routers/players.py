@@ -1,18 +1,25 @@
-"""Players router — roster listing and player identity (Issue #103).
+"""Players router — roster identity with visibility-mode shaping.
 
-This is the P1 read surface for the player domain. It deliberately does not
-expose biomechanics, health, or per-clip metrics — those live on the dedicated
-metrics, pose, and alerts routers and will be wired into the player profile
-later (C1).
+This is the P1 read surface for the player domain.  The endpoint is shared
+between staff (full identity payload), player self-views, and external
+recruiting consumers — visibility is selected per-request via ``?mode=`` and
+enforced server-side by :mod:`app.governance`.
 
 Endpoints:
-    GET /api/v1/players          — list (filter by position / group / active)
-    GET /api/v1/players/{id}     — single player identity
+    GET   /api/v1/players                       — list (filtered + mode shaped)
+    GET   /api/v1/players/{id}                  — single player (mode shaped)
+    PATCH /api/v1/players/{id}/visibility       — change visibility state
+    GET   /api/v1/players/{id}/visibility/audit — visibility change history
+
+Sensitive metrics (pose, biomechanics, health, alerts) are *never* returned
+here; they live on dedicated routers that perform their own RBAC.  The
+visibility shaping in this router only governs identity-level fields.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import structlog
@@ -23,7 +30,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Player, User
+from app.governance import (
+    Action,
+    Resource,
+    VisibilityMode,
+    VisibilityState,
+    _normalize_state,
+    audit_event,
+    policy_allows,
+    resolve_visibility_mode,
+    shape_player,
+)
+from app.models import Player, PlayerVisibilityAudit, PlayerVisibilityState, User
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["players"])
@@ -32,48 +50,30 @@ router = APIRouter(tags=["players"])
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
-class PlayerResponse(BaseModel):
-    """Player identity payload — used for both list and detail in P1.
+class VisibilityUpdate(BaseModel):
+    """Request body for :func:`update_visibility`."""
 
-    A richer ``PlayerProfile`` (with biomechanics, clip evidence, and trend
-    series) will be introduced when the Player Development Passport (C1)
-    lands; until then the profile UI gates those panels on the client.
-    """
+    state: VisibilityState
+    reason: str | None = None
 
+
+class VisibilityAuditEntry(BaseModel):
     id: uuid.UUID
-    first_name: str
-    last_name: str
-    jersey_number: int | None
-    position: str | None
-    position_group: str | None
-    is_active: bool
-    user_id: uuid.UUID | None
-    metadata: dict[str, Any] | None
+    player_id: uuid.UUID
+    previous_state: str | None
+    next_state: str
+    actor_id: uuid.UUID | None
+    reason: str | None
     created_at: str
-
-    @classmethod
-    def from_orm_player(cls, p: Player) -> PlayerResponse:
-        return cls(
-            id=p.id,
-            first_name=p.first_name,
-            last_name=p.last_name,
-            jersey_number=p.jersey_number,
-            position=p.position,
-            position_group=p.position_group,
-            is_active=p.is_active,
-            user_id=p.user_id,
-            metadata=p.metadata_,
-            created_at=p.created_at.isoformat(),
-        )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@router.get("/api/v1/players", response_model=list[PlayerResponse])
+@router.get("/api/v1/players")
 async def list_players(
     db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
     position: Annotated[
         str | None,
         Query(description="Exact match on the ``position`` column (e.g. ``WR``)."),
@@ -102,15 +102,42 @@ async def list_players(
             description="Case-insensitive substring match on first or last name.",
         ),
     ] = None,
+    mode: Annotated[
+        VisibilityMode | None,
+        Query(description="Visibility mode override (staff|player|recruiting)."),
+    ] = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-) -> list[PlayerResponse]:
-    """Return the team roster, optionally filtered.
+) -> list[dict[str, Any]]:
+    """Return the roster shaped for the caller's effective visibility mode.
 
     Ordering is deterministic — jersey number ascending (NULLs last), then
-    last name, first name, and finally id — so list views and tests don't
-    have to sort client-side.
+    last name, first name, and finally id.  Players whose visibility state
+    excludes them from the resolved mode are silently filtered out (rather
+    than returning a redacted stub) so list views don't leak that a record
+    exists at all.
     """
+    if not policy_allows(current_user.role, Resource.PLAYER_PROFILE, Action.READ):
+        audit_event(
+            "audit.access.denied",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            resource=Resource.PLAYER_PROFILE.value,
+            action=Action.READ.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted"
+        )
+
+    effective_mode = resolve_visibility_mode(current_user, mode)
+    audit_event(
+        "audit.visibility.applied",
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        effective_mode=effective_mode.value,
+        endpoint="players.list",
+    )
+
     stmt = select(Player)
     if position is not None:
         stmt = stmt.where(Player.position == position)
@@ -140,16 +167,39 @@ async def list_players(
     )
 
     result = await db.execute(stmt)
-    return [PlayerResponse.from_orm_player(p) for p in result.scalars().all()]
+    out: list[dict[str, Any]] = []
+    for p in result.scalars().all():
+        shaped = shape_player(p, effective_mode, actor=current_user)
+        if shaped is not None:
+            out.append(shaped)
+    return out
 
 
-@router.get("/api/v1/players/{player_id}", response_model=PlayerResponse)
+@router.get("/api/v1/players/{player_id}")
 async def get_player(
     player_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(get_current_user)],
-) -> PlayerResponse:
-    """Return a single player's identity record."""
+    current_user: Annotated[User, Depends(get_current_user)],
+    mode: Annotated[
+        VisibilityMode | None,
+        Query(description="Visibility mode override (staff|player|recruiting)."),
+    ] = None,
+) -> dict[str, Any]:
+    """Return a single player record shaped for the caller's mode."""
+    if not policy_allows(current_user.role, Resource.PLAYER_PROFILE, Action.READ):
+        audit_event(
+            "audit.access.denied",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            resource=Resource.PLAYER_PROFILE.value,
+            action=Action.READ.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted"
+        )
+
+    effective_mode = resolve_visibility_mode(current_user, mode)
+
     result = await db.execute(select(Player).where(Player.id == player_id))
     player = result.scalar_one_or_none()
     if player is None:
@@ -157,4 +207,153 @@ async def get_player(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Player not found",
         )
-    return PlayerResponse.from_orm_player(player)
+
+    shaped = shape_player(player, effective_mode, actor=current_user)
+    if shaped is None:
+        # Return 404 so non-staff callers can't tell whether the record exists
+        # or simply isn't approved for their view.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Player not found",
+        )
+    audit_event(
+        "audit.visibility.applied",
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        effective_mode=effective_mode.value,
+        player_id=player.id,
+        endpoint="players.detail",
+    )
+    return shaped
+
+
+@router.patch("/api/v1/players/{player_id}/visibility")
+async def update_visibility(
+    player_id: uuid.UUID,
+    body: VisibilityUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Change a player's visibility state.
+
+    * Coaches/analysts/admins may transition to/from ``staff_only`` and
+      ``player_approved`` and may archive.
+    * Approving for recruiting requires the additional ``APPROVE`` policy
+      (admin/analyst only) — recruiting exposes the player externally so it
+      gets a tighter approver list.
+    """
+    if not policy_allows(current_user.role, Resource.PLAYER_VISIBILITY, Action.WRITE):
+        audit_event(
+            "audit.access.denied",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            resource=Resource.PLAYER_VISIBILITY.value,
+            action=Action.WRITE.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted"
+        )
+
+    target_state = body.state
+    if target_state == VisibilityState.recruiting_approved and not policy_allows(
+        current_user.role, Resource.PLAYER_VISIBILITY, Action.APPROVE
+    ):
+        audit_event(
+            "audit.access.denied",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            resource=Resource.PLAYER_VISIBILITY.value,
+            action=Action.APPROVE.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "approval_required",
+                "message": (
+                    "Recruiting approval requires admin or analyst role."
+                ),
+            },
+        )
+
+    result = await db.execute(select(Player).where(Player.id == player_id))
+    player = result.scalar_one_or_none()
+    if player is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Player not found"
+        )
+
+    previous = _normalize_state(player.visibility_state)
+    next_state_model = PlayerVisibilityState(target_state.value)
+
+    player.visibility_state = next_state_model
+    player.visibility_updated_by = current_user.id
+    player.visibility_updated_at = datetime.now(UTC)
+
+    audit_row = PlayerVisibilityAudit(
+        id=uuid.uuid4(),
+        player_id=player.id,
+        previous_state=PlayerVisibilityState(previous.value),
+        next_state=next_state_model,
+        actor_id=current_user.id,
+        reason=body.reason,
+    )
+    db.add(audit_row)
+    await db.flush()
+
+    audit_event(
+        "audit.visibility.changed",
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        player_id=player.id,
+        previous_state=previous.value,
+        next_state=next_state_model.value,
+    )
+
+    return {
+        "player_id": str(player.id),
+        "previous_state": previous.value,
+        "next_state": next_state_model.value,
+        "updated_by": str(current_user.id),
+        "updated_at": player.visibility_updated_at.isoformat(),
+    }
+
+
+@router.get("/api/v1/players/{player_id}/visibility/audit")
+async def get_visibility_audit(
+    player_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[VisibilityAuditEntry]:
+    """Return the visibility transition history for a player (staff only)."""
+    if not policy_allows(current_user.role, Resource.PLAYER_VISIBILITY, Action.WRITE):
+        audit_event(
+            "audit.access.denied",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            resource=Resource.PLAYER_VISIBILITY.value,
+            action=Action.READ.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted"
+        )
+
+    stmt = (
+        select(PlayerVisibilityAudit)
+        .where(PlayerVisibilityAudit.player_id == player_id)
+        .order_by(PlayerVisibilityAudit.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return [
+        VisibilityAuditEntry(
+            id=row.id,
+            player_id=row.player_id,
+            previous_state=row.previous_state.value if row.previous_state else None,
+            next_state=row.next_state.value,
+            actor_id=row.actor_id,
+            reason=row.reason,
+            created_at=row.created_at.isoformat(),
+        )
+        for row in result.scalars().all()
+    ]

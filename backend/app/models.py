@@ -164,6 +164,22 @@ class AlertSeverity(enum.StrEnum):
     high = "high"
 
 
+class PlayerVisibilityState(enum.StrEnum):
+    """Outward-facing visibility lifecycle for a player profile (Issue #114).
+
+    Default is ``staff_only`` — content stays internal until a coach or analyst
+    explicitly approves it for player-facing or recruiting consumption.  See
+    ``app.governance.VisibilityState`` for the runtime enum used by the
+    governance helpers; this duplicates the values at the schema layer so the
+    database enum is independently versioned by migrations.
+    """
+
+    staff_only = "staff_only"
+    player_approved = "player_approved"
+    recruiting_approved = "recruiting_approved"
+    archived = "archived"
+
+
 # ── Models ────────────────────────────────────────────────────────────────────
 
 
@@ -206,6 +222,21 @@ class Player(Base):
     )
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Outward-facing visibility state (Issue #114).  Defaults to staff_only —
+    # nothing leaks to player or recruiting projections until explicitly
+    # approved by an authorized staff member.
+    visibility_state: Mapped[PlayerVisibilityState] = mapped_column(
+        Enum(PlayerVisibilityState, name="player_visibility_state"),
+        nullable=False,
+        default=PlayerVisibilityState.staff_only,
+        server_default=PlayerVisibilityState.staff_only.value,
+    )
+    visibility_updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    visibility_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1033,3 +1064,35 @@ class EmbeddingClusterProposal(Base):
 
     model_version: Mapped["ModelVersion"] = relationship("ModelVersion")
     reviewer: Mapped["User | None"] = relationship("User", foreign_keys=[reviewed_by])
+
+
+class PlayerVisibilityAudit(Base):
+    """Append-only audit log for player visibility state changes (Issue #114).
+
+    Recorded on every transition by the visibility router so we can later show
+    a coach who approved a player profile for recruiting and when.  Only state
+    transitions and the actor are stored — never sensitive content.
+    """
+
+    __tablename__ = "player_visibility_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    previous_state: Mapped[PlayerVisibilityState | None] = mapped_column(
+        Enum(PlayerVisibilityState, name="player_visibility_state"), nullable=True
+    )
+    next_state: Mapped[PlayerVisibilityState] = mapped_column(
+        Enum(PlayerVisibilityState, name="player_visibility_state"), nullable=False
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
