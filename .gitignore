@@ -59,3 +59,8 @@ coverage.xml
 *.onnx
 *.engine
 *.safetensors
+
+# Playwright (frontend E2E)
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/

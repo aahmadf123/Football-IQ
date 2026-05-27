@@ -129,7 +129,7 @@ async def create_label(
     """Store a formation/coverage/route label for a clip or tracklet."""
     if body.clip_id is None and body.tracklet_id is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="At least one of clip_id or tracklet_id must be provided",
         )
     if body.clip_id is not None:

@@ -66,9 +66,7 @@ def test_publish_alert_fans_to_matching_group() -> None:
     _connections[conn_id] = (q, "OL")
 
     try:
-        publish_alert(
-            {"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"}
-        )
+        publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
         assert not q.empty()
         event = q.get_nowait()
         assert event["position_group"] == "OL"
@@ -82,9 +80,7 @@ def test_publish_alert_skips_non_matching_group() -> None:
     _connections[conn_id] = (q, "WR")
 
     try:
-        publish_alert(
-            {"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"}
-        )
+        publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
         assert q.empty()
     finally:
         _connections.pop(conn_id, None)

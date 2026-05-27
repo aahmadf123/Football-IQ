@@ -120,7 +120,7 @@ async def create_play_embedding(
     """
     if len(payload.vector) != PLAY_EMBEDDING_DIM:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"vector must have exactly {PLAY_EMBEDDING_DIM} dimensions",
         )
 

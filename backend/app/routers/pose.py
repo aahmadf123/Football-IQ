@@ -33,7 +33,7 @@ from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,6 +116,8 @@ _POSITION_GROUP_METRICS: dict[str, frozenset[str]] = {
 
 
 class PoseKeypointsCreate(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     tracklet_id: uuid.UUID = Field(...)
     frame_number: int = Field(..., ge=0)
     keypoints: list[dict[str, Any]]
@@ -127,6 +129,8 @@ class PoseKeypointsCreate(BaseModel):
 
 
 class PoseKeypointsResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     id: uuid.UUID
     tracklet_id: uuid.UUID | None
     frame_number: int
