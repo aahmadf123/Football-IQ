@@ -445,11 +445,20 @@ export function subscribeAlerts(
 // ── Worker download URL ──────────────────────────────────────────────────────
 
 /**
+ * Parse a storage URI of the form `r2://<bucket>/<key>` into its parts.
+ * Returns null if the URI is missing or malformed.
+ */
+export function parseStorageUri(
+  uri: string | null | undefined,
+): { bucket: string; key: string } | null {
+  if (!uri) return null;
+  const m = /^r2:\/\/([^/]+)\/(.+)$/.exec(uri);
+  return m ? { bucket: m[1], key: m[2] } : null;
+}
+
+/**
  * Extract the R2 key suffix from a backend `storage_uri` of the form
- * `r2://raw-video/raw/<suffix>`. The Worker's GET
- * `/api/v1/videos/:videoId/download` route resolves the path param as the
- * suffix and maps it to `raw/<suffix>` in R2, so passing the DB UUID does
- * not work — callers must pass this suffix.
+ * `r2://raw-video/raw/<suffix>`. Kept for backward compatibility.
  */
 export function r2KeySuffixFromStorageUri(uri: string | null | undefined): string | null {
   if (!uri) return null;
@@ -457,15 +466,21 @@ export function r2KeySuffixFromStorageUri(uri: string | null | undefined): strin
   return m ? m[1] : null;
 }
 
+/**
+ * Fetch a signed download/streaming URL for an R2-backed video object.
+ * The returned URL can be used directly as a `<video src>`.
+ */
 export async function fetchVideoDownloadUrl(
-  videoIdOrKeySuffix: string,
+  bucket: string,
+  key: string,
   token?: string,
 ): Promise<string | null> {
   const base = workerBase();
   if (!base) return null;
   try {
+    const params = new URLSearchParams({ bucket, key });
     const res = await fetch(
-      `${base}/api/v1/videos/${encodeURIComponent(videoIdOrKeySuffix)}/download`,
+      `${base}/api/v1/videos/download-url?${params.toString()}`,
       { headers: getHeaders(token) },
     );
     if (!res.ok) return null;

@@ -136,24 +136,28 @@ describe("retryJob", () => {
 });
 
 describe("fetchVideoDownloadUrl", () => {
-  test("returns downloadUrl on success", async () => {
+  test("sends bucket + key query params and returns downloadUrl", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ downloadUrl: "https://r2.example/clip.mp4" }),
-      text: async () => '{"downloadUrl":"https://r2.example/clip.mp4"}',
+      json: async () => ({ downloadUrl: "https://worker.test/dl/raw-video/raw/123.mp4?exp=999&sig=abc" }),
+      text: async () => '{"downloadUrl":"https://worker.test/dl/raw-video/raw/123.mp4?exp=999&sig=abc"}',
     }));
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchVideoDownloadUrl } = await freshImport();
-    const url = await fetchVideoDownloadUrl("video-1");
-    expect(url).toBe("https://r2.example/clip.mp4");
+    const url = await fetchVideoDownloadUrl("raw-video", "raw/123.mp4");
+    expect(url).toBe("https://worker.test/dl/raw-video/raw/123.mp4?exp=999&sig=abc");
+    const [reqUrl] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(reqUrl).toContain("/api/v1/videos/download-url");
+    expect(reqUrl).toContain("bucket=raw-video");
+    expect(reqUrl).toContain("key=raw%2F123.mp4");
   });
 
   test("returns null when Worker URL not configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
     const { fetchVideoDownloadUrl } = await freshImport();
-    const url = await fetchVideoDownloadUrl("video-1");
+    const url = await fetchVideoDownloadUrl("raw-video", "raw/test.mp4");
     expect(url).toBeNull();
   });
 
@@ -167,8 +171,34 @@ describe("fetchVideoDownloadUrl", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchVideoDownloadUrl } = await freshImport();
-    const url = await fetchVideoDownloadUrl("video-1");
+    const url = await fetchVideoDownloadUrl("raw-video", "raw/missing.mp4");
     expect(url).toBeNull();
+  });
+});
+
+describe("parseStorageUri", () => {
+  test("parses r2://raw-video/raw/123-file.mp4", async () => {
+    const { parseStorageUri } = await freshImport();
+    expect(parseStorageUri("r2://raw-video/raw/123-file.mp4")).toEqual({
+      bucket: "raw-video",
+      key: "raw/123-file.mp4",
+    });
+  });
+
+  test("parses r2://clips/processed/abc.mp4", async () => {
+    const { parseStorageUri } = await freshImport();
+    expect(parseStorageUri("r2://clips/processed/abc.mp4")).toEqual({
+      bucket: "clips",
+      key: "processed/abc.mp4",
+    });
+  });
+
+  test("returns null for null / undefined / empty / invalid URIs", async () => {
+    const { parseStorageUri } = await freshImport();
+    expect(parseStorageUri(null)).toBeNull();
+    expect(parseStorageUri(undefined)).toBeNull();
+    expect(parseStorageUri("")).toBeNull();
+    expect(parseStorageUri("https://example.com/file.mp4")).toBeNull();
   });
 });
 

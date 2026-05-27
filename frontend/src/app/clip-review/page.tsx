@@ -9,7 +9,7 @@ import {
   fetchClip,
   fetchVideo,
   fetchVideoDownloadUrl,
-  r2KeySuffixFromStorageUri,
+  parseStorageUri,
 } from "@/lib/api";
 import type { ApiClip, ApiVideo, OurPossession, SessionKind } from "@/lib/types";
 
@@ -34,7 +34,7 @@ type ReviewState =
       clip: ApiClip;
       video: ApiVideo;
       playbackUrl: string | null;
-      playbackUnavailable: boolean;
+      playbackUnavailable: "none" | "no_storage_uri" | "url_generation_failed";
     };
 
 export default function ClipReviewPage() {
@@ -81,18 +81,21 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         const clip = await fetchClip(clipId, authToken);
         const video = await fetchVideo(clip.video_id, authToken);
         let playbackUrl: string | null = null;
-        let playbackUnavailable = false;
+        let playbackUnavailable: "none" | "no_storage_uri" | "url_generation_failed" = "none";
         try {
-          // The Worker download route expects the R2 key suffix (the part
-          // after `raw/`), not the backend video UUID. Derive it from the
-          // video's storage_uri (`r2://raw-video/raw/<suffix>`).
-          const suffix = r2KeySuffixFromStorageUri(video.storage_uri);
-          if (suffix) {
-            playbackUrl = await fetchVideoDownloadUrl(suffix, authToken);
+          // Try the clip's own storage_uri first (processed clip), then
+          // fall back to the parent video's storage_uri (raw upload).
+          const clipStorage = parseStorageUri(clip.storage_uri);
+          const videoStorage = parseStorageUri(video.storage_uri);
+          const target = clipStorage ?? videoStorage;
+          if (!target) {
+            playbackUnavailable = "no_storage_uri";
+          } else {
+            playbackUrl = await fetchVideoDownloadUrl(target.bucket, target.key, authToken);
+            if (!playbackUrl) playbackUnavailable = "url_generation_failed";
           }
-          if (!playbackUrl) playbackUnavailable = true;
         } catch {
-          playbackUnavailable = true;
+          playbackUnavailable = "url_generation_failed";
         }
         if (cancelled) return;
         setState({ kind: "ready", clip, video, playbackUrl, playbackUnavailable });
@@ -192,11 +195,11 @@ function ClipReviewView({ clipId }: { clipId: string }) {
             />
           ) : (
             <div style={{ color: "var(--muted, #94a3b8)", textAlign: "center", padding: 24 }}>
-              <p style={{ margin: 0, fontWeight: 700 }}>Video playback URL not yet available</p>
+              <p style={{ margin: 0, fontWeight: 700 }}>Video not available</p>
               <p className="kicker" style={{ marginTop: 8 }}>
-                Backend-backed clip metadata loaded; signed playback URLs from
-                the Cloudflare Worker are not wired for this clip yet.
-                {playbackUnavailable ? " The Worker download endpoint returned no URL." : ""}
+                {playbackUnavailable === "no_storage_uri"
+                  ? "No storage URI found. The video may not have been uploaded or rendered yet."
+                  : "Video playback failed or is unavailable. The Worker may not be deployed, the signed URL may have been rejected, or the file may be missing from storage."}
               </p>
             </div>
           )}
