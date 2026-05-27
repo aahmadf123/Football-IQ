@@ -11,6 +11,9 @@ Covers:
 
 import asyncio
 import json
+import socket
+import threading
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -18,11 +21,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-
+import uvicorn
 from app.main import app
 from app.models import User, UserRole
 from app.routers.alerts_sse import _connections, publish_alert
-from fastapi.testclient import TestClient
+
 
 @pytest.fixture(autouse=True)
 def speed_up_sse_keepalive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,14 +35,17 @@ def speed_up_sse_keepalive(monkeypatch: pytest.MonkeyPatch) -> None:
     and speeds up keepalive timeout during tests.
     """
     import app.routers.alerts_sse
+    import starlette.requests
+
     monkeypatch.setattr(app.routers.alerts_sse, "_KEEPALIVE_SECONDS", 0.1)
 
-    import starlette.requests
     async def mock_is_disconnected(self) -> bool:
         return False
+
     monkeypatch.setattr(starlette.requests.Request, "is_disconnected", mock_is_disconnected)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 
 def _make_user(role: UserRole, position_group: str | None = None) -> User:
@@ -51,7 +57,7 @@ def _make_user(role: UserRole, position_group: str | None = None) -> User:
     return u
 
 
-# ── publish_alert unit tests ───────────────────────────────────────────────────
+# ── publish_alert unit tests ─────────────────────────────────────────────────
 
 
 def test_publish_alert_fans_to_matching_group() -> None:
@@ -60,7 +66,9 @@ def test_publish_alert_fans_to_matching_group() -> None:
     _connections[conn_id] = (q, "OL")
 
     try:
-        publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
+        publish_alert(
+            {"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"}
+        )
         assert not q.empty()
         event = q.get_nowait()
         assert event["position_group"] == "OL"
@@ -74,7 +82,9 @@ def test_publish_alert_skips_non_matching_group() -> None:
     _connections[conn_id] = (q, "WR")
 
     try:
-        publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
+        publish_alert(
+            {"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"}
+        )
         assert q.empty()
     finally:
         _connections.pop(conn_id, None)
@@ -117,12 +127,7 @@ def test_publish_alert_case_insensitive_group_match() -> None:
         _connections.pop(conn_id, None)
 
 
-# ── Live Uvicorn Server Fixture for Streaming ─────────────────────────────────
-
-import socket
-import threading
-import time
-import uvicorn
+# ── Live Uvicorn Server Fixture for Streaming ────────────────────────────────
 
 
 def _get_free_port() -> int:
@@ -168,7 +173,7 @@ def _get_next_sse_line(lines_iterator) -> str:
     return ""
 
 
-# ── Endpoint access tests ─────────────────────────────────────────────────────
+# ── Endpoint access tests ────────────────────────────────────────────────────
 
 
 def _mock_db_override():
@@ -270,7 +275,7 @@ def test_stream_delivers_published_alert(live_server_url: str) -> None:
         assert received[0].get("alert_type") == "effort_anomaly"
 
 
-# ── SSE event format ──────────────────────────────────────────────────────────
+# ── SSE event format ─────────────────────────────────────────────────────────
 
 
 def test_sse_event_format_has_data_prefix(live_server_url: str) -> None:
