@@ -12,6 +12,8 @@ import type {
   ApiPracticeSessionGroup,
   ApiVideo,
   ClipOverlayPayload,
+  OpponentSummary,
+  SelfScoutResponse,
   SessionKind,
   SourceType,
   OurPossession,
@@ -297,6 +299,46 @@ export async function fetchClipOverlays(
     `${base}/api/v1/clips/${clipId}/overlays`,
     token,
   );
+}
+
+// ── Self-Scout + Opponent Scout (Issue #105) ─────────────────────────────────
+
+export async function fetchSelfScoutTendencies(
+  videoId?: string | null,
+  token?: string,
+  limit?: number,
+): Promise<SelfScoutResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  if (videoId) params.set("video_id", videoId);
+  if (limit != null) params.set("limit", String(limit));
+  const qs = params.toString();
+  return getJSON<SelfScoutResponse>(
+    `${base}/api/v1/self-scout/tendencies${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+export async function fetchOpponentTendencies(
+  opponentVideoId: string,
+  token?: string,
+  limit?: number,
+): Promise<SelfScoutResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams({ opponent_video_id: opponentVideoId });
+  if (limit != null) params.set("limit", String(limit));
+  return getJSON<SelfScoutResponse>(
+    `${base}/api/v1/self-scout/opponent-tendencies?${params.toString()}`,
+    token,
+  );
+}
+
+export async function fetchOpponents(token?: string): Promise<OpponentSummary[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<OpponentSummary[]>(`${base}/api/v1/opponents`, token);
 }
 
 // ── Players ──────────────────────────────────────────────────────────────────
