@@ -108,6 +108,7 @@ R2_OPERATION_DURATION_SECONDS = Histogram(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _route_template(request: Request) -> str:
     """Return the matched route template or fall back to the raw path.
 
@@ -128,6 +129,7 @@ def metrics_response() -> Response:
 
 
 # ── Starlette middleware ──────────────────────────────────────────────────────
+
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
     """Auto-instruments every HTTP request with Prometheus counters and histograms."""
@@ -171,6 +173,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
 # ── Convenience: record R2 operations ─────────────────────────────────────────
 
+
 def record_r2_operation(
     operation: str,
     bucket: str,
@@ -205,9 +208,13 @@ def record_r2_operation(
 
 # ── Convenience: record job lifecycle events ──────────────────────────────────
 
+
 def record_job_started(job_type: str, pipeline_mode: str, service: str = SERVICE_NAME) -> None:
     JOBS_STARTED_TOTAL.labels(
-        job_type=job_type, pipeline_mode=pipeline_mode, service=service, env=ENVIRONMENT,
+        job_type=job_type,
+        pipeline_mode=pipeline_mode,
+        service=service,
+        env=ENVIRONMENT,
     ).inc()
 
 
@@ -218,14 +225,23 @@ def record_job_succeeded(
     service: str = SERVICE_NAME,
 ) -> None:
     JOBS_SUCCEEDED_TOTAL.labels(
-        job_type=job_type, pipeline_mode=pipeline_mode, service=service, env=ENVIRONMENT,
+        job_type=job_type,
+        pipeline_mode=pipeline_mode,
+        service=service,
+        env=ENVIRONMENT,
     ).inc()
     JOB_DURATION_SECONDS.labels(
-        job_type=job_type, pipeline_mode=pipeline_mode, service=service, env=ENVIRONMENT,
+        job_type=job_type,
+        pipeline_mode=pipeline_mode,
+        service=service,
+        env=ENVIRONMENT,
     ).observe(duration_seconds)
 
 
 def record_job_failed(job_type: str, pipeline_mode: str, service: str = SERVICE_NAME) -> None:
     JOBS_FAILED_TOTAL.labels(
-        job_type=job_type, pipeline_mode=pipeline_mode, service=service, env=ENVIRONMENT,
+        job_type=job_type,
+        pipeline_mode=pipeline_mode,
+        service=service,
+        env=ENVIRONMENT,
     ).inc()

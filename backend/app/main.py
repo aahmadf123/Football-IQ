@@ -80,6 +80,7 @@ async def prometheus_metrics() -> Response:
     """Expose Prometheus metrics for scraping."""
     return metrics_response()
 
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(auth_router)
