@@ -228,10 +228,13 @@ function ClipReviewReady({
   const [activeLayers, setActiveLayers] = useState<Set<OverlayLayerKey>>(
     () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics"]),
   );
-  // Video time is offset from the parent video; the overlay frame index is
-  // local to the clip, so subtract clip.start_time before converting.
+  const playbackUsesClipAsset = Boolean(clip.storage_uri);
+  // Parent-video playback uses full-video time and must be shifted into the
+  // clip timeline. Rendered clip playback already starts at clip-local time 0.
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
-  const clipLocalTime = Math.max(0, videoCurrentTime - clip.start_time);
+  const clipLocalTime = playbackUsesClipAsset
+    ? Math.max(0, videoCurrentTime)
+    : Math.max(0, videoCurrentTime - clip.start_time);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const onTimeUpdate = useCallback(() => {
