@@ -217,3 +217,81 @@ export interface AlertSummary {
   detail: string;
   severity: "good" | "warning" | "danger" | "info";
 }
+
+// ── Clip-review overlay payload (Issue #104) ────────────────────────────────
+// These types mirror the FastAPI `/api/v1/clips/{clip_id}/overlays` schema.
+// They are the read-only surface the Clip Review canvas consumes; write paths
+// for the underlying tables (tracklets, labels, events, metrics) live in their
+// own per-resource endpoints.
+
+export interface OverlayTrackPoint {
+  frame_number: number;
+  field_x: number | null;
+  field_y: number | null;
+  bbox: [number, number, number, number] | null;
+  detection_confidence: number | null;
+}
+
+export interface OverlayTracklet {
+  id: string;
+  player_id: string | null;
+  start_frame: number;
+  end_frame: number;
+  track_confidence: number | null;
+  team_label: string | null;
+  position_group: string | null;
+  side_of_ball: string | null;
+  track_points: OverlayTrackPoint[];
+}
+
+export interface OverlayEvent {
+  id: string;
+  event_type: string;
+  frame_number: number | null;
+  timestamp_seconds: number | null;
+  attributes: Record<string, unknown> | null;
+}
+
+export interface OverlayLabel {
+  id: string;
+  tracklet_id: string | null;
+  label_type: string;
+  label_value: Record<string, unknown>;
+  source: string;
+}
+
+export interface OverlayMetric {
+  id: string;
+  tracklet_id: string | null;
+  metric_name: string;
+  metric_value: Record<string, unknown>;
+  unit: string | null;
+  confidence: number | null;
+}
+
+export interface OverlayLayersAvailable {
+  tracklets: boolean;
+  events: boolean;
+  labels: boolean;
+  metrics: boolean;
+}
+
+export interface ClipOverlayPayload {
+  clip_id: string;
+  tracklets: OverlayTracklet[];
+  events: OverlayEvent[];
+  labels: OverlayLabel[];
+  metrics: OverlayMetric[];
+  layers_available: OverlayLayersAvailable;
+}
+
+// Layer keys the Clip Review UI exposes as toggles. ``raw`` is the bare video
+// with all overlays hidden; ``wireframe`` is the field outline rendered on top
+// of the canvas.
+export type OverlayLayerKey =
+  | "raw"
+  | "tracks"
+  | "labels"
+  | "events"
+  | "metrics"
+  | "wireframe";

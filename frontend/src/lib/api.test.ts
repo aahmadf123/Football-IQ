@@ -133,6 +133,41 @@ describe("registerVideo", () => {
   });
 });
 
+describe("fetchClipOverlays", () => {
+  test("GETs /api/v1/clips/:id/overlays with auth header", async () => {
+    const payload = {
+      clip_id: "c-1",
+      tracklets: [],
+      events: [],
+      labels: [],
+      metrics: [],
+      layers_available: { tracklets: false, events: false, labels: false, metrics: false },
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => payload,
+      text: async () => JSON.stringify(payload),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchClipOverlays } = await freshImport();
+    const result = await fetchClipOverlays("c-1", "tok123");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.test/api/v1/clips/c-1/overlays");
+    expect((opts.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok123");
+    expect(result.clip_id).toBe("c-1");
+  });
+
+  test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const { fetchClipOverlays } = await freshImport();
+    await expect(fetchClipOverlays("c-1")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+  });
+});
+
 describe("fetchInboxStatus", () => {
   test("GETs /api/v1/inbox/status", async () => {
     const items = [{ video_id: "v1", filename: "a.mp4", video_status: "processing", total_jobs: 2, running_jobs: 1, succeeded_jobs: 1, failed_jobs: 0, clip_count: 3, calibration_safe_pct: 80, latest_error_stage: null, latest_error_message: null, same_session_job_count: 1, pose_pipeline_active: false, created_at: "2025-01-01" }];

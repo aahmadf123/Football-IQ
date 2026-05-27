@@ -28,6 +28,7 @@ from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
+from app.routers.overlays import router as overlays_router
 from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
 from app.routers.practice_sessions import router as practice_sessions_router
@@ -81,6 +82,7 @@ app.include_router(corrections_router)
 app.include_router(events_router)
 app.include_router(labels_router)
 app.include_router(metrics_router)
+app.include_router(overlays_router)
 app.include_router(mlops_router)
 app.include_router(self_scout_router)
 app.include_router(correction_analytics_router)
