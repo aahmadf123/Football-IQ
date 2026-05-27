@@ -19,7 +19,7 @@ import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControl
 import { useAppState, SIDE_LABELS, type ApiStatus, type UploadPhase } from "@/lib/app-state";
 import type { VideoInboxItem } from "@/lib/api";
 import { MockBadge } from "@/components/mock-badge";
-import type { FootballData, PageKey, PlayerSummary, PlaySummary, TendencyEntry } from "@/lib/types";
+import type { FootballData, PageKey, PlayerSummary, PlaySummary } from "@/lib/types";
 
 export function PageRenderer({ page }: { page: PageKey }) {
   const state = useAppState();
@@ -74,9 +74,6 @@ export function PageRenderer({ page }: { page: PageKey }) {
       {page === "dashboard" && <Dashboard />}
       {page === "video-and-plays" && <VideoAndPlays onUploadClick={handleUploadClick} />}
       {page === "players" && <Players />}
-      {page === "analytics" && <Analytics data={data} />}
-      {page === "self-scout" && <SelfScout data={data} />}
-      {page === "opponent-scout" && <OpponentScout data={data} />}
       {page === "player-development" && <PlayerDevelopment />}
       {page === "health-workload" && <HealthWorkload data={data} />}
       {page === "reports" && <Reports data={data} onUploadClick={handleUploadClick} />}
@@ -620,78 +617,6 @@ function Players() {
   );
 }
 
-function Analytics({ data }: { data: FootballData }) {
-  return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Key Metrics <MockBadge status="mock" /></h2>
-        {/* xSep/xYards/xPressure are not wired to a real model yet — see #102. */}
-        <div className="metric-grid" style={{ marginTop: 12 }}>
-          <Metric label="Total Plays" value={String(data.plays.length)} unit="" />
-          <Metric label="xSep" value="2.64" unit="YDS" />
-          <Metric label="xYards" value="11.8" unit="" />
-          <Metric label="xPressure" value="95%" unit="" />
-        </div>
-      </section>
-      <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Formation Recognition</h2>
-        <MiniField dense />
-      </section>
-      <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Model Quality <MockBadge status="mock" /></h2>
-        {/* Sample values — surfaced via real model registry in a future change. */}
-        <BarList items={[["Boundary confidence", 91], ["Tracking continuity", 88], ["Label confidence", 83], ["Pose quality", 79]]} />
-      </section>
-      <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Spatial Heatmap</h2>
-        <HeatMap />
-      </section>
-      <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Analytics Alerts</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.alerts.map((alert) => <Insight key={alert.title} title={alert.title} detail={alert.detail} severity={alert.severity} />)}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SelfScout({ data }: { data: FootballData }) {
-  return <ScoutView data={data} title="Self-Scout Exposure" opponent={false} />;
-}
-
-function OpponentScout({ data }: { data: FootballData }) {
-  return <ScoutView data={data} title="Opponent Scout Matchup" opponent />;
-}
-
-function ScoutView({ data, title, opponent }: { data: FootballData; title: string; opponent: boolean }) {
-  return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-7">
-        <h2 className="panel-title">{title}</h2>
-        <HeatMap />
-      </section>
-      <section className="panel panel-pad span-5">
-        <h2 className="panel-title">Actionable Flags</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.selfScout.pre_snap_tells.map((tell) => (
-            <Insight key={tell.grouping_key} title={tell.formation} detail={tell.message} severity="warning" />
-          ))}
-          {opponent && <Insight title="Boundary corner late" detail="Opponent rotates late against motion" severity="info" />}
-        </div>
-      </section>
-      <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Formation Run / Pass</h2>
-        <TendencyList data={data.selfScout.formation_tendencies} />
-      </section>
-      <section className="panel panel-pad span-6">
-        <h2 className="panel-title">Personnel Tendencies</h2>
-        <TendencyList data={data.selfScout.personnel_tendencies} />
-      </section>
-    </div>
-  );
-}
-
 function PlayerDevelopment() {
   const { data, selectedPlayer, setSelectedPlayerId, filteredPlayers } = useAppState();
   const pool = filteredPlayers.length ? filteredPlayers : data.players;
@@ -1095,20 +1020,6 @@ function TableRows({ data, onSelect }: { data: PlaySummary[]; onSelect?: (i: num
             <span>{play.yards} YDS</span>
           </div>
         </button>
-      ))}
-    </div>
-  );
-}
-
-function TendencyList({ data }: { data: TendencyEntry[] }) {
-  return (
-    <div className="list-stack" style={{ marginTop: 12 }}>
-      {data.map((item) => (
-        <div key={item.grouping_key} className="status-row" style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}>
-          <strong>{item.grouping_key}</strong>
-          <span>{item.total_plays}</span>
-          <div className="progress"><i style={{ "--value": `${item.run_rate * 100}%` } as React.CSSProperties} /></div>
-        </div>
       ))}
     </div>
   );

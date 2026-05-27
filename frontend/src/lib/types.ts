@@ -71,6 +71,21 @@ export interface ApiPlayer {
   created_at: string;
 }
 
+export interface OpponentVideo {
+  video_id: string;
+  filename: string;
+  status: string;
+  recorded_at?: string | null;
+  created_at: string;
+}
+
+export interface OpponentSummary {
+  opponent_team: string;
+  video_count: number;
+  latest_recorded_at?: string | null;
+  videos: OpponentVideo[];
+}
+
 export interface ApiPracticeSessionGroup {
   practice_session_id?: string | null;
   session_date?: string | null;
