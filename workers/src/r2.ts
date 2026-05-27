@@ -103,7 +103,7 @@ function hexDecode(hex: string): Uint8Array | null {
   if (hex.length === 0 || hex.length % 2 !== 0) return null;
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) {
-    const byte = parseInt(hex.substr(i * 2, 2), 16);
+    const byte = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
     if (isNaN(byte)) return null;
     out[i] = byte;
   }
