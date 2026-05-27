@@ -6,9 +6,11 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from app.config import get_settings
 from app.logging import configure_logging
+from app.observability import PrometheusMiddleware, metrics_response
 from app.routers import health
 from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
@@ -59,6 +61,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.environment != "production" else None,
 )
 
+# ── Observability middleware ──────────────────────────────────────────────────
+app.add_middleware(PrometheusMiddleware)
+
 # ── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -67,6 +72,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Prometheus metrics endpoint ──────────────────────────────────────────────
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics() -> Response:
+    """Expose Prometheus metrics for scraping."""
+    return metrics_response()
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)

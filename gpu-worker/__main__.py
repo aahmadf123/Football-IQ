@@ -27,17 +27,28 @@ import logging
 import os
 import signal
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
 import structlog
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
+
+def _add_service_context(
+    logger: logging.Logger,
+    method_name: str,
+    event_dict: dict[str, object],
+) -> dict[str, object]:
+    event_dict.setdefault("service", "football-iq-gpu-worker")
+    event_dict.setdefault("env", os.environ.get("ENVIRONMENT", "development"))
+    return event_dict
+
+
 structlog.configure(
     processors=[
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
+        _add_service_context,
         structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
@@ -125,6 +136,7 @@ def process_job(job: dict[str, Any]) -> None:
     input_artifacts: dict[str, Any] = job.get("inputArtifacts", {})
     is_same_session = model_router.is_same_session(priority)
 
+    pipeline_mode = "same_session" if is_same_session else "nightly"
     log.info(
         "processing_job",
         job_id=job_id,
@@ -132,8 +144,20 @@ def process_job(job: dict[str, Any]) -> None:
         video_id=video_id,
         clip_id=clip_id,
         priority=priority,
-        pipeline_mode="same_session" if is_same_session else "nightly",
+        pipeline_mode=pipeline_mode,
     )
+
+    from worker.observability import (
+        record_heartbeat as _hb,
+        record_job_failed as _jf,
+        record_job_started as _js,
+        record_job_succeeded as _jsuc,
+        record_job_timed_out as _jto,
+    )
+
+    _js(job_type, pipeline_mode)
+    _hb()
+    job_start_time = time.time()
 
     if should_skip_stage(job_type, priority):
         log.info("stage_skipped_lightweight_path", job_type=job_type, job_id=job_id)
@@ -165,15 +189,18 @@ def process_job(job: dict[str, Any]) -> None:
         if is_same_session:
             artifacts["pipeline_mode"] = "same_session"
         _update_job_status(job_id, "succeeded", output_artifacts=artifacts)
-        log.info("job_succeeded", job_id=job_id)
+        _jsuc(job_type, pipeline_mode, time.time() - job_start_time)
+        log.info("job_succeeded", job_id=job_id, duration_seconds=round(time.time() - job_start_time, 2))
 
         # After a same-session render completes, queue the nightly HLS follow-up.
         if is_same_session and job_type == "render":
             _queue_nightly_hls_followup(job, artifacts)
 
     except JobTimeoutError:
+        _jto(job_type, pipeline_mode)
         log.warning("job_timeout_handled", job_id=job_id, priority=priority)
     except Exception as exc:
+        _jf(job_type, pipeline_mode)
         log.error("job_failed", job_id=job_id, error=str(exc))
         _update_job_status(job_id, "failed", error_message=str(exc))
 
@@ -522,11 +549,30 @@ def _update_job_status(
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    from worker.observability import (
+        record_heartbeat,
+        record_queue_poll,
+        set_worker_up,
+        start_metrics_server,
+    )
+
+    metrics_port = int(os.environ.get("GPU_METRICS_PORT", "9090"))
+    try:
+        start_metrics_server(port=metrics_port)
+        log.info("metrics_server_started", port=metrics_port)
+    except Exception as exc:
+        log.warning("metrics_server_start_failed", port=metrics_port, error=str(exc))
+
     log.info("gpu_worker_starting", queue=QUEUE_NAME, poll_interval=POLL_INTERVAL)
+    set_worker_up(True)
+    record_heartbeat()
+
     with httpx.Client() as client:
         while not _shutdown:
             try:
                 messages = pull_messages(client)
+                record_queue_poll("success", len(messages))
+                record_heartbeat()
                 for msg in messages:
                     if _shutdown:
                         break
@@ -537,14 +583,18 @@ def main() -> None:
                         ack_message(client, lease_id)
 
             except httpx.HTTPStatusError as exc:
+                record_queue_poll("error")
                 log.error("queue_pull_error", status=exc.response.status_code,
                           error=str(exc))
             except Exception as exc:
+                record_queue_poll("error")
                 log.error("worker_loop_error", error=str(exc))
 
             if not _shutdown:
+                record_heartbeat()
                 time.sleep(POLL_INTERVAL)
 
+    set_worker_up(False)
     log.info("gpu_worker_stopped")
 
 
