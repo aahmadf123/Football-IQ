@@ -1,9 +1,23 @@
 """Structured JSON logging configuration using structlog."""
 
 import logging
+import os
 import sys
+from collections.abc import MutableMapping
+from typing import Any
 
 import structlog
+
+
+def _add_service_context(
+    logger: Any,
+    method_name: str,
+    event_dict: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
+    """Inject service name and environment into every log event."""
+    event_dict.setdefault("service", "football-iq-backend")
+    event_dict.setdefault("env", os.environ.get("ENVIRONMENT", "development"))
+    return event_dict
 
 
 def configure_logging(log_level: str = "INFO") -> None:
@@ -20,6 +34,7 @@ def configure_logging(log_level: str = "INFO") -> None:
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
+        _add_service_context,
     ]
 
     structlog.configure(
