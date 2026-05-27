@@ -86,6 +86,31 @@ async function hmacSign(secret: string, message: string): Promise<string> {
   return hexEncode(sig);
 }
 
+function hexDecode(hex: string): Uint8Array | null {
+  if (hex.length === 0 || hex.length % 2 !== 0) return null;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    const byte = parseInt(hex.substr(i * 2, 2), 16);
+    if (isNaN(byte)) return null;
+    out[i] = byte;
+  }
+  return out;
+}
+
+async function hmacVerify(secret: string, message: string, sigHex: string): Promise<boolean> {
+  const sigBytes = hexDecode(sigHex);
+  if (!sigBytes) return false;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  return crypto.subtle.verify("HMAC", key, sigBytes, enc.encode(message));
+}
+
 /**
  * Validate that a key does not attempt path traversal.
  * Rejects keys containing `..`, leading `/`, or null bytes.
@@ -138,8 +163,7 @@ export async function verifySignedUrl(
     return false;
   }
   const message = `${bucketName}:${key}:${exp}`;
-  const expected = await hmacSign(env.JWT_SECRET, message);
-  return sig === expected;
+  return hmacVerify(env.JWT_SECRET, message, sig);
 }
 
 /**
