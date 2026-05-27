@@ -221,10 +221,31 @@ function Dashboard() {
 }
 
 function PracticeInboxSection() {
-  const { inboxItems, data, mockMode } = useAppState();
+  const { inboxItems, data, mockMode, apiStatus } = useAppState();
   const jobs = data.jobs;
 
-  // Fall back to job-based view in mock mode or when inbox API has no data
+  // Outside mock mode, never substitute a fake job-based view. Distinguish
+  // a genuinely empty inbox from "still connecting" or "backend offline" so
+  // the UI does not appear successful when the backend has no inbox data or
+  // is not reachable.
+  if (!mockMode && inboxItems.length === 0) {
+    const isLoading = apiStatus === "loading" || apiStatus === "idle";
+    const isOffline = apiStatus === "offline";
+    return (
+      <section className="panel panel-pad span-12">
+        <h2 className="panel-title">Practice Inbox — Processing Status</h2>
+        <p className="kicker" style={{ marginTop: 6 }}>
+          {isLoading
+            ? "Connecting to the inbox…"
+            : isOffline
+              ? "Inbox unavailable — backend is offline."
+              : "No videos in the inbox yet. Upload practice or game film to begin processing."}
+        </p>
+      </section>
+    );
+  }
+
+  // Mock mode shows the legacy job-based view from sample data.
   if (mockMode || inboxItems.length === 0) {
     const sameSession = jobs.filter((j) => j.is_same_session || j.pipeline_mode === "same_session");
     const nightly = jobs.filter((j) => !j.is_same_session && j.pipeline_mode !== "same_session");
@@ -423,8 +444,12 @@ function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
       <section className="panel span-7">
         <div className="panel-header">
           <div>
-            <h2 className="panel-title">Clip Review</h2>
-            <p className="kicker">Editable boundaries, overlays, comments, and labels</p>
+            <h2 className="panel-title">Clip Review <MockBadge status="mock" /></h2>
+            <p className="kicker">
+              Editable boundaries, overlays, comments, and labels. For real
+              backend-backed clip review, open a clip from the{" "}
+              <Link href="/library" style={{ color: "var(--gold)" }}>Library</Link>.
+            </p>
           </div>
           <button className="control-button primary" onClick={onUploadClick}><Upload size={15} /> Upload Film</button>
         </div>
@@ -850,7 +875,9 @@ function ClipsHighlights() {
         <ClipGrid data={{ ...data, clips: visibleClips }} />
       </section>
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Highlight Builder</h2>
+        <h2 className="panel-title">Highlight Builder <MockBadge status="mock" /></h2>
+        {/* Reel/cutup workflow lands with a later iteration of #100 — UI
+            shown for layout only, not backed by a real builder yet. */}
         <div className="list-stack" style={{ marginTop: 12 }}>
           {["Drag clips into order", "Coach review track", "Team celebration", "Share cutup"].map((item, index) => (
             <MetricLine key={item} label={`${index + 1}. ${item}`} value="Ready" />
