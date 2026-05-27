@@ -3,15 +3,17 @@
 import logging
 import os
 import sys
+from collections.abc import MutableMapping
+from typing import Any
 
 import structlog
 
 
 def _add_service_context(
-    logger: logging.Logger,
+    logger: Any,
     method_name: str,
-    event_dict: dict[str, object],
-) -> dict[str, object]:
+    event_dict: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
     """Inject service name and environment into every log event."""
     event_dict.setdefault("service", "football-iq-backend")
     event_dict.setdefault("env", os.environ.get("ENVIRONMENT", "development"))

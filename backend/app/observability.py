@@ -146,10 +146,21 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         method = request.method
         start = time.perf_counter()
 
-        # We won't know the route template until after call_next (FastAPI resolves it).
-        response = await call_next(request)
-        duration = time.perf_counter() - start
+        # Use a placeholder for in-progress tracking since route template
+        # is not resolved until after call_next.
+        in_progress = HTTP_REQUESTS_IN_PROGRESS.labels(
+            method=method,
+            route="pending",
+            service=SERVICE_NAME,
+            env=ENVIRONMENT,
+        )
+        in_progress.inc()
+        try:
+            response = await call_next(request)
+        finally:
+            in_progress.dec()
 
+        duration = time.perf_counter() - start
         route = _route_template(request)
         status = str(response.status_code)
 

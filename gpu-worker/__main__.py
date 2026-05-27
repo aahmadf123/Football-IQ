@@ -34,6 +34,7 @@ import structlog
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 
+
 def _add_service_context(
     logger: logging.Logger,
     method_name: str,
@@ -86,6 +87,7 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 # ── Queue polling ─────────────────────────────────────────────────────────────
 
+
 def pull_messages(client: httpx.Client, batch_size: int = 5) -> list[dict[str, Any]]:
     """Pull up to `batch_size` messages from the Cloudflare Queue."""
     resp = client.post(
@@ -115,6 +117,7 @@ def ack_message(client: httpx.Client, lease_id: str) -> None:
 
 
 # ── Job processing ────────────────────────────────────────────────────────────
+
 
 def process_job(job: dict[str, Any]) -> None:
     """Dispatch a single job to the appropriate processing stage.
@@ -162,9 +165,14 @@ def process_job(job: dict[str, Any]) -> None:
     if should_skip_stage(job_type, priority):
         log.info("stage_skipped_lightweight_path", job_type=job_type, job_id=job_id)
         _update_job_status(
-            job_id, "succeeded",
-            output_artifacts={"skipped": True, "reason": "same_session_lightweight_path"},
+            job_id,
+            "succeeded",
+            output_artifacts={
+                "skipped": True,
+                "reason": "same_session_lightweight_path",
+            },
         )
+        _jsuc(job_type, pipeline_mode, time.time() - job_start_time)
         return
 
     _update_job_status(job_id, "running")
@@ -173,15 +181,27 @@ def process_job(job: dict[str, Any]) -> None:
         if is_same_session:
             artifacts = run_with_timeout(
                 _dispatch,
-                args=(job_type, video_id, clip_id, input_uri,
-                      input_artifacts, job_id, priority),
+                args=(
+                    job_type,
+                    video_id,
+                    clip_id,
+                    input_uri,
+                    input_artifacts,
+                    job_id,
+                    priority,
+                ),
                 job_id=job_id,
                 job_payload=job,
             )
         else:
             artifacts = _dispatch(
-                job_type, video_id, clip_id, input_uri,
-                input_artifacts, job_id, priority,
+                job_type,
+                video_id,
+                clip_id,
+                input_uri,
+                input_artifacts,
+                job_id,
+                priority,
             )
         artifacts = dict(artifacts or {})
         routing = model_router.build_routing_artifact(job_type, priority)
@@ -190,7 +210,11 @@ def process_job(job: dict[str, Any]) -> None:
             artifacts["pipeline_mode"] = "same_session"
         _update_job_status(job_id, "succeeded", output_artifacts=artifacts)
         _jsuc(job_type, pipeline_mode, time.time() - job_start_time)
-        log.info("job_succeeded", job_id=job_id, duration_seconds=round(time.time() - job_start_time, 2))
+        log.info(
+            "job_succeeded",
+            job_id=job_id,
+            duration_seconds=round(time.time() - job_start_time, 2),
+        )
 
         # After a same-session render completes, queue the nightly HLS follow-up.
         if is_same_session and job_type == "render":
@@ -245,15 +269,13 @@ def _dispatch(
 
     elif job_type == "detect":
         detect_variant = model_router.select_model("detect", priority)
-        return stage_detect.run(video_id, input_uri, job_id,
-                                variant=detect_variant)
+        return stage_detect.run(video_id, input_uri, job_id, variant=detect_variant)
 
     elif job_type == "track":
         detections: dict[str, Any] = input_artifacts.get("detections", {})
         fps: float = float(input_artifacts.get("fps", 30))
         track_variant = model_router.select_model("track", priority)
-        return stage_track.run(clip_id, detections, fps, job_id,
-                               variant=track_variant)
+        return stage_track.run(clip_id, detections, fps, job_id, variant=track_variant)
 
     elif job_type == "reid":
         tracklet_ids: list[str] = input_artifacts.get("tracklet_ids", [])
@@ -283,8 +305,9 @@ def _dispatch(
         events_list = input_artifacts.get("events", [])
         analytics_safe: bool = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
-        return stage_metrics.run(clip_id, tracklets, events_list,
-                                 analytics_safe, fps, job_id)
+        return stage_metrics.run(
+            clip_id, tracklets, events_list, analytics_safe, fps, job_id
+        )
 
     elif job_type == "routes":
         tracklets = input_artifacts.get("tracklets", [])
@@ -303,11 +326,13 @@ def _dispatch(
         events_list = input_artifacts.get("events", [])
         analytics_safe = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
-        return stage_oline.run(clip_id, tracklets, events_list,
-                               analytics_safe, fps, job_id)
+        return stage_oline.run(
+            clip_id, tracklets, events_list, analytics_safe, fps, job_id
+        )
 
     elif job_type == "self_scout":
         from pipeline import backend as backend_mod
+
         video_id_for_scout = input_artifacts.get("video_id")
         clips, labels_by_clip = backend_mod.fetch_clips_with_labels(
             video_id=video_id_for_scout,
@@ -419,12 +444,22 @@ def _dispatch(
         try:
             if use_period_renderer(priority):
                 return period_renderer.run(
-                    clip_id, video_path, tracklets, labels_list,
-                    analytics_safe, fps,
+                    clip_id,
+                    video_path,
+                    tracklets,
+                    labels_list,
+                    analytics_safe,
+                    fps,
                 )
             return stage_render.run(
-                clip_id, video_path, tracklets, labels_list, metrics_list,
-                analytics_safe, fps, BACKEND_API_URL,
+                clip_id,
+                video_path,
+                tracklets,
+                labels_list,
+                metrics_list,
+                analytics_safe,
+                fps,
+                BACKEND_API_URL,
             )
         finally:
             video_path.unlink(missing_ok=True)
@@ -467,9 +502,8 @@ def _queue_nightly_hls_followup(
 
     clip_id = original_job.get("clipId", "")
     video_id = original_job.get("videoId", "")
-    overlay_uri = (
-        render_artifacts.get("period_overlay_uri")
-        or render_artifacts.get("overlay_uri", "")
+    overlay_uri = render_artifacts.get("period_overlay_uri") or render_artifacts.get(
+        "overlay_uri", ""
     )
     followup_job_id = str(_uuid.uuid4())
 
@@ -548,6 +582,7 @@ def _update_job_status(
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     from worker.observability import (
         record_heartbeat,
@@ -584,8 +619,9 @@ def main() -> None:
 
             except httpx.HTTPStatusError as exc:
                 record_queue_poll("error")
-                log.error("queue_pull_error", status=exc.response.status_code,
-                          error=str(exc))
+                log.error(
+                    "queue_pull_error", status=exc.response.status_code, error=str(exc)
+                )
             except Exception as exc:
                 record_queue_poll("error")
                 log.error("worker_loop_error", error=str(exc))
@@ -600,4 +636,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
