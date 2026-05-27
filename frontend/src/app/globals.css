@@ -365,21 +365,12 @@ a {
   align-content: start;
 }
 
-/* Keep rails inside their column on tall content without forcing the whole
-   page to scroll twice. `position: sticky` would be ideal but the shell uses
-   grid rows, so a max-height + overflow gives the same effect. */
 .sidebar {
   border-right: 1px solid var(--line-soft);
-  max-height: calc(100vh - 56px);
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .right-rail {
   border-left: 1px solid var(--line-soft);
-  max-height: calc(100vh - 56px);
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 /* Subtle rhythm so the rail isn't three identical bricks. Middle panel
@@ -1058,8 +1049,6 @@ a {
     grid-column: 1 / -1;
     border-left: 0;
     border-top: 1px solid var(--line-soft);
-    max-height: none;
-    overflow: visible;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     padding: var(--space-5) var(--space-6);
     gap: var(--space-5);
@@ -1093,8 +1082,6 @@ a {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--line-soft);
-    max-height: none;
-    overflow: visible;
   }
 
   .nav-list {
