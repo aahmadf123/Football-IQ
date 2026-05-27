@@ -69,7 +69,7 @@ export function OverlayCanvas({
       data-testid="clip-overlay-svg"
       aria-hidden="true"
       viewBox="0 0 1000 600"
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       style={{
         position: "absolute",
         inset: 0,
