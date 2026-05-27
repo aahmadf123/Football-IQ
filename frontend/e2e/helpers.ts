@@ -6,10 +6,10 @@
  * make it obvious which backend endpoints each test exercises.
  */
 import type { Page, Route } from "@playwright/test";
+import { FAKE_API_URL, FAKE_WORKER_URL } from "../playwright.config";
 
 export type { Route };
-export const FAKE_API_URL = "http://api.e2e.local";
-export const FAKE_WORKER_URL = "http://worker.e2e.local";
+export { FAKE_API_URL, FAKE_WORKER_URL };
 
 export type JsonHandler = (route: Route) => unknown | Promise<unknown>;
 
@@ -40,6 +40,20 @@ async function mockHost(page: Page, hostname: string, routes: RouteMap): Promise
     (url) => url.hostname === hostname,
     async (route) => {
       const req = route.request();
+      const corsHeaders = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      };
+
+      if (req.method() === "OPTIONS") {
+        await route.fulfill({
+          status: 204,
+          headers: corsHeaders,
+        });
+        return;
+      }
+
       const url = new URL(req.url());
       const key = `${req.method()} ${url.pathname}`;
       const matched = matchRoute(routes, key);
@@ -47,6 +61,7 @@ async function mockHost(page: Page, hostname: string, routes: RouteMap): Promise
         await route.fulfill({
           status: 404,
           contentType: "application/json",
+          headers: corsHeaders,
           body: JSON.stringify({ detail: `unmocked ${key}` }),
         });
         return;
@@ -57,6 +72,7 @@ async function mockHost(page: Page, hostname: string, routes: RouteMap): Promise
         await route.fulfill({
           status: 200,
           contentType: "application/json",
+          headers: corsHeaders,
           body: JSON.stringify(result),
         });
         return;
@@ -64,6 +80,7 @@ async function mockHost(page: Page, hostname: string, routes: RouteMap): Promise
       await route.fulfill({
         status: 200,
         contentType: "application/json",
+        headers: corsHeaders,
         body: JSON.stringify(matched),
       });
     },

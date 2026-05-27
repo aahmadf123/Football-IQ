@@ -18,8 +18,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 // `page.route(...)`. They are intentionally non-resolvable so accidental
 // un-mocked requests fail loudly instead of hitting the real production
 // backend.
-const FAKE_API_URL = "http://api.e2e.local";
-const FAKE_WORKER_URL = "http://worker.e2e.local";
+export const FAKE_API_URL = "http://api.e2e.local";
+export const FAKE_WORKER_URL = "http://worker.e2e.local";
 
 export default defineConfig({
   testDir: "./e2e",
