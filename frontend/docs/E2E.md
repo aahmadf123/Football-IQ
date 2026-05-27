@@ -61,7 +61,7 @@ reporter writes a `playwright-report/` artifact on failure; the suite's
 all HTTP calls to the Worker host are intercepted by `page.route()`.
 
 To create a richer test fixture (for example to test playback duration),
-replace `sample.mp4` with another `<10kB MP4 — anything Chromium accepts
+replace `sample.mp4` with another `<10kB MP4` — anything Chromium accepts
 as `video/mp4` works.
 
 ## Mocked vs. real integration

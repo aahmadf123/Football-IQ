@@ -24,38 +24,7 @@ interface RouteMap {
  * the fake API host returns 404 so unintended calls fail visibly.
  */
 export async function mockBackend(page: Page, routes: RouteMap): Promise<void> {
-  await page.route(
-    (url) => url.hostname === "api.e2e.local",
-    async (route) => {
-    const req = route.request();
-    const url = new URL(req.url());
-    const key = `${req.method()} ${url.pathname}`;
-    const matched = matchRoute(routes, key);
-    if (matched === undefined) {
-      await route.fulfill({
-        status: 404,
-        contentType: "application/json",
-        body: JSON.stringify({ detail: `unmocked ${key}` }),
-      });
-      return;
-    }
-    if (typeof matched === "function") {
-      const result = await (matched as JsonHandler)(route);
-      if (result === undefined) return; // handler called route.fulfill itself
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(result),
-      });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(matched),
-    });
-    },
-  );
+  await mockHost(page, "api.e2e.local", routes);
 }
 
 /**
@@ -63,36 +32,40 @@ export async function mockBackend(page: Page, routes: RouteMap): Promise<void> {
  * download URLs + the simulated PUT to R2).
  */
 export async function mockWorker(page: Page, routes: RouteMap): Promise<void> {
+  await mockHost(page, "worker.e2e.local", routes);
+}
+
+async function mockHost(page: Page, hostname: string, routes: RouteMap): Promise<void> {
   await page.route(
-    (url) => url.hostname === "worker.e2e.local",
+    (url) => url.hostname === hostname,
     async (route) => {
-    const req = route.request();
-    const url = new URL(req.url());
-    const key = `${req.method()} ${url.pathname}`;
-    const matched = matchRoute(routes, key);
-    if (matched === undefined) {
-      await route.fulfill({
-        status: 404,
-        contentType: "application/json",
-        body: JSON.stringify({ detail: `unmocked ${key}` }),
-      });
-      return;
-    }
-    if (typeof matched === "function") {
-      const result = await (matched as JsonHandler)(route);
-      if (result === undefined) return;
+      const req = route.request();
+      const url = new URL(req.url());
+      const key = `${req.method()} ${url.pathname}`;
+      const matched = matchRoute(routes, key);
+      if (matched === undefined) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: `unmocked ${key}` }),
+        });
+        return;
+      }
+      if (typeof matched === "function") {
+        const result = await (matched as JsonHandler)(route);
+        if (result === undefined) return; // handler called route.fulfill itself
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(result),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(result),
+        body: JSON.stringify(matched),
       });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(matched),
-    });
     },
   );
 }

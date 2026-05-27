@@ -6,7 +6,7 @@ import { FAKE_API_URL, mockBackend, type Route, sampleClip, sampleVideo } from "
  * form (tracked separately as a P2 follow-up). To still cover the
  * end-to-end shape of the correction call, this test loads the Clip
  * Review page, then *simulates* the coach correction by issuing the
- * POST /api/v1/coach-corrections request the form will eventually call.
+ * POST /api/v1/corrections request the form will eventually call.
  *
  * The mocked backend records the payload so we can assert the contract.
  */
@@ -21,7 +21,7 @@ test("coach correction POST is accepted by the mocked backend", async ({
     "GET /api/v1/inbox/status": [],
     "GET /api/v1/clips/c-1": sampleClip(),
     "GET /api/v1/videos/v-1": sampleVideo(),
-    "POST /api/v1/coach-corrections": (route: Route) => {
+    "POST /api/v1/corrections": (route: Route) => {
       received = JSON.parse(route.request().postData() ?? "{}");
       return { id: "cc-1", status: "saved" };
     },
@@ -31,7 +31,7 @@ test("coach correction POST is accepted by the mocked backend", async ({
 
   const result = await page.evaluate(
     async ({ apiUrl }) => {
-      const res = await fetch(`${apiUrl}/api/v1/coach-corrections`, {
+      const res = await fetch(`${apiUrl}/api/v1/corrections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

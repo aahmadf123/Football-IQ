@@ -54,5 +54,3 @@ export default defineConfig({
     },
   },
 });
-
-export { FAKE_API_URL, FAKE_WORKER_URL };
