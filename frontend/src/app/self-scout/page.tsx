@@ -64,9 +64,6 @@ function SelfScoutView() {
         const ourFilm = all.filter((v) => !v.opponent_team);
         setVideos(ourFilm);
         setVideosError(null);
-        if (selectedVideoId !== ALL_VIDEOS && !ourFilm.some((v) => v.id === selectedVideoId)) {
-          setSelectedVideoId(ALL_VIDEOS);
-        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -76,7 +73,13 @@ function SelfScoutView() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDate, sessionType, authToken, selectedVideoId]);
+  }, [selectedDate, sessionType, authToken]);
+
+  useEffect(() => {
+    if (selectedVideoId !== ALL_VIDEOS && !videos.some((v) => v.id === selectedVideoId)) {
+      setSelectedVideoId(ALL_VIDEOS);
+    }
+  }, [selectedVideoId, videos]);
 
   const loadTendencies = useCallback(async () => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;

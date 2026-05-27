@@ -226,6 +226,7 @@ describe("SelfScoutPage", () => {
       // Wait until the picker has populated with the backend video.
       expect(picker.options.length).toBeGreaterThan(1);
     });
+    const videoFetchesBeforeSelection = calls.filter((c) => c.includes("/api/v1/videos")).length;
 
     await act(async () => {
       fireEvent.change(picker, { target: { value: "vid-1" } });
@@ -237,6 +238,9 @@ describe("SelfScoutPage", () => {
       );
       expect(matched).toBeTruthy();
     });
+    expect(calls.filter((c) => c.includes("/api/v1/videos")).length).toBe(
+      videoFetchesBeforeSelection,
+    );
     expect(fetchMock).toHaveBeenCalled();
   });
 });

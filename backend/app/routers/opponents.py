@@ -103,16 +103,11 @@ async def list_opponents(
             )
         )
 
-    # Sort by latest film first; opponents with no recorded_at sink to the end.
     summaries.sort(
-        key=lambda s: (s.latest_recorded_at is None, s.latest_recorded_at or datetime.min),
-        reverse=False,
-    )
-    # The tuple above sorts ascending with `None` last; flip non-None to be
-    # newest-first by sorting by the negative timestamp via a second pass.
-    summaries.sort(
-        key=lambda s: s.latest_recorded_at or datetime.min,
-        reverse=True,
+        key=lambda s: (
+            s.latest_recorded_at is None,
+            0.0 if s.latest_recorded_at is None else -s.latest_recorded_at.timestamp(),
+        ),
     )
     return summaries
 

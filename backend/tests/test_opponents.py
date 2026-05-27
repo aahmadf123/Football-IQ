@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -55,11 +56,19 @@ def _override(videos: list[Any]) -> None:
     app.dependency_overrides[get_db] = _mock_db_with_videos(videos)
 
 
+@contextmanager
+def _client_with_overrides(videos: list[Any]) -> Iterator[TestClient]:
+    _override(videos)
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_list_opponents_empty() -> None:
-    _override(videos=[])
-    with TestClient(app) as c:
+    with _client_with_overrides(videos=[]) as c:
         resp = c.get("/api/v1/opponents")
-    app.dependency_overrides.clear()
 
     assert resp.status_code == 200
     assert resp.json() == []
@@ -74,11 +83,8 @@ def test_list_opponents_groups_and_sorts_by_latest_film() -> None:
         _make_game_video("Northern Illinois", last_month, "niu-2.mp4"),
         _make_game_video("Ohio", last_week, "ohio-1.mp4"),
     ]
-    _override(videos=videos)
-
-    with TestClient(app) as c:
+    with _client_with_overrides(videos=videos) as c:
         resp = c.get("/api/v1/opponents")
-    app.dependency_overrides.clear()
 
     assert resp.status_code == 200
     data = resp.json()
@@ -94,17 +100,28 @@ def test_list_opponents_groups_and_sorts_by_latest_film() -> None:
     assert ohio["videos"][0]["filename"] == "ohio-1.mp4"
 
 
+def test_list_opponents_sorts_null_recorded_at_last() -> None:
+    today = datetime(2026, 5, 27, tzinfo=UTC)
+    videos = [
+        _make_game_video("Northern Illinois", None, "niu-undated.mp4"),
+        _make_game_video("Ohio", today, "ohio-1.mp4"),
+    ]
+
+    with _client_with_overrides(videos=videos) as c:
+        resp = c.get("/api/v1/opponents")
+
+    assert resp.status_code == 200
+    assert [entry["opponent_team"] for entry in resp.json()] == ["Ohio", "Northern Illinois"]
+
+
 def test_list_opponents_skips_blank_opponent_field() -> None:
     today = datetime(2026, 5, 27, tzinfo=UTC)
     videos = [
         _make_game_video("Ohio", today, "ohio-1.mp4"),
         _make_game_video("   ", today, "blank.mp4"),
     ]
-    _override(videos=videos)
-
-    with TestClient(app) as c:
+    with _client_with_overrides(videos=videos) as c:
         resp = c.get("/api/v1/opponents")
-    app.dependency_overrides.clear()
 
     assert resp.status_code == 200
     data = resp.json()
@@ -117,11 +134,8 @@ def test_get_opponent_returns_videos_for_team() -> None:
         _make_game_video("Ohio", today, "ohio-1.mp4"),
         _make_game_video("Ohio", today - timedelta(days=14), "ohio-2.mp4"),
     ]
-    _override(videos=videos)
-
-    with TestClient(app) as c:
+    with _client_with_overrides(videos=videos) as c:
         resp = c.get("/api/v1/opponents/Ohio")
-    app.dependency_overrides.clear()
 
     assert resp.status_code == 200
     body = resp.json()
@@ -131,18 +145,14 @@ def test_get_opponent_returns_videos_for_team() -> None:
 
 
 def test_get_opponent_404_when_no_film() -> None:
-    _override(videos=[])
-    with TestClient(app) as c:
+    with _client_with_overrides(videos=[]) as c:
         resp = c.get("/api/v1/opponents/Ohio")
-    app.dependency_overrides.clear()
 
     assert resp.status_code == 404
 
 
 def test_get_opponent_400_when_blank_team() -> None:
-    _override(videos=[])
-    with TestClient(app) as c:
+    with _client_with_overrides(videos=[]) as c:
         resp = c.get("/api/v1/opponents/%20")
-    app.dependency_overrides.clear()
 
     assert resp.status_code == 400
