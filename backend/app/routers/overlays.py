@@ -135,7 +135,16 @@ async def get_clip_overlays(
     events = events_result.scalars().all()
 
     labels_result = await db.execute(
-        select(Label).where(Label.clip_id == clip_id).order_by(Label.created_at)
+        select(Label)
+        .where(
+            (Label.clip_id == clip_id)
+            | (
+                Label.tracklet_id.in_(
+                    select(Tracklet.id).where(Tracklet.clip_id == clip_id)
+                )
+            )
+        )
+        .order_by(Label.created_at)
     )
     labels = labels_result.scalars().all()
 
