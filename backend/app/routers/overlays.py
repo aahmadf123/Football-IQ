@@ -35,7 +35,7 @@ log = structlog.get_logger(__name__)
 router = APIRouter(tags=["overlays"])
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas ─────────────────────────────────────────────────────────────
 
 
 class OverlayTrackPoint(BaseModel):
@@ -103,7 +103,7 @@ class ClipOverlayResponse(BaseModel):
     layers_available: OverlayLayersAvailable
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
+# ── Endpoint ────────────────────────────────────────────────────────────
 
 
 @router.get("/api/v1/clips/{clip_id}/overlays", response_model=ClipOverlayResponse)
@@ -138,11 +138,7 @@ async def get_clip_overlays(
         select(Label)
         .where(
             (Label.clip_id == clip_id)
-            | (
-                Label.tracklet_id.in_(
-                    select(Tracklet.id).where(Tracklet.clip_id == clip_id)
-                )
-            )
+            | (Label.tracklet_id.in_(select(Tracklet.id).where(Tracklet.clip_id == clip_id)))
         )
         .order_by(Label.created_at)
     )
