@@ -97,7 +97,7 @@ export function apiPlayerToSummary(p: ApiPlayer): PlayerSummary {
   const firstName = p.first_name.trim();
   const name = firstName
     ? `${firstName.charAt(0)}. ${p.last_name}`.trim()
-    : `${p.first_name} ${p.last_name}`.trim();
+    : `${firstName} ${p.last_name}`.trim();
   return {
     id: p.id,
     jersey: p.jersey_number != null ? String(p.jersey_number) : "—",
