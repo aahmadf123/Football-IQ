@@ -6,6 +6,7 @@ import { emptyFootballData } from "./empty-data";
 import { useMocks } from "./mock-flag";
 import {
   fetchInboxStatus,
+  fetchPlayers,
   registerVideo,
   requestUploadUrl,
   uploadToR2,
@@ -13,6 +14,7 @@ import {
 import type { VideoInboxItem } from "./api";
 import type {
   ApiJob,
+  ApiPlayer,
   ApiVideo,
   ClipSummary,
   FootballData,
@@ -48,6 +50,62 @@ const POSITION_BY_SIDE: Record<SideOfBall, string[] | null> = {
   defense: ["DL", "DE", "DT", "LB", "MLB", "OLB", "CB", "S", "FS", "SS", "DB"],
   special: ["K", "P", "LS", "RET"],
 };
+
+// Fallback group derivation when a player row hasn't been tagged yet.
+// Mirrors POSITION_BY_SIDE but maps to the coaching-group labels used by the
+// roster filters (Skill, OL, DL, LB, DB, ST, QB).
+const GROUP_BY_POSITION: Record<string, string> = {
+  QB: "QB",
+  RB: "Skill",
+  WR: "Skill",
+  TE: "Skill",
+  OL: "OL",
+  C: "OL",
+  G: "OL",
+  T: "OL",
+  DL: "DL",
+  DE: "DL",
+  DT: "DL",
+  LB: "LB",
+  MLB: "LB",
+  OLB: "LB",
+  CB: "DB",
+  S: "DB",
+  FS: "DB",
+  SS: "DB",
+  DB: "DB",
+  K: "ST",
+  P: "ST",
+  LS: "ST",
+  RET: "ST",
+};
+
+function deriveGroup(position: string | null, positionGroup: string | null): string {
+  if (positionGroup) return positionGroup;
+  if (position && GROUP_BY_POSITION[position]) return GROUP_BY_POSITION[position];
+  return "Unassigned";
+}
+
+/**
+ * Convert a backend ``ApiPlayer`` into the UI-side ``PlayerSummary``.
+ *
+ * Performance metrics (`maxSpeed`, `distance`, `separation`, `confidence`,
+ * `trend`) are intentionally left ``undefined`` — the P1 players surface only
+ * carries identity, and the UI shows "—" instead of fabricating numbers.
+ */
+export function apiPlayerToSummary(p: ApiPlayer): PlayerSummary {
+  const firstName = p.first_name.trim();
+  const name = firstName
+    ? `${firstName.charAt(0)}. ${p.last_name}`.trim()
+    : `${firstName} ${p.last_name}`.trim();
+  return {
+    id: p.id,
+    jersey: p.jersey_number != null ? String(p.jersey_number) : "—",
+    name,
+    position: p.position ?? "Unassigned",
+    group: deriveGroup(p.position, p.position_group),
+  };
+}
 
 const STORAGE_KEY = "football_iq_app_state_v1";
 
@@ -98,6 +156,7 @@ interface AppStateValue {
 
   // Connectivity
   apiStatus: ApiStatus;
+  playersStatus: ApiStatus;
   mockMode: boolean;
 
   // Selection
@@ -178,6 +237,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
 
   const [data, setData] = useState<FootballData>(initialData);
   const [apiStatus, setApiStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
+  const [playersStatus, setPlayersStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
   const [currentPlayIndex, setCurrentPlayIndex] = useState(0);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
     initialData.players[0]?.id ?? "",
@@ -280,6 +340,37 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
       cancelled = true;
     };
   }, [mockMode, selectedDate, sessionType]);
+
+  // Fetch the active roster from /api/v1/players on mount and whenever
+  // mockMode changes. Roster data is independent of the date/session filters
+  // because the player table is roster-scoped, not film-scoped.
+  useEffect(() => {
+    if (mockMode) {
+      setPlayersStatus("mock");
+      return;
+    }
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      setPlayersStatus("offline");
+      return;
+    }
+    let cancelled = false;
+    setPlayersStatus("loading");
+    (async () => {
+      try {
+        const apiPlayers = await fetchPlayers({ is_active: true }, tokenRef.current);
+        if (cancelled) return;
+        const summaries = apiPlayers.map(apiPlayerToSummary);
+        setData((cur) => ({ ...cur, players: summaries }));
+        setPlayersStatus("live");
+      } catch {
+        if (!cancelled) setPlayersStatus("offline");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mockMode]);
 
   // Fetch inbox status periodically in non-mock mode
   const refreshInbox = useCallback(() => {
@@ -522,6 +613,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     filteredPlayers,
     filteredPlays,
     apiStatus,
+    playersStatus,
     mockMode,
     currentPlayIndex,
     setCurrentPlayIndex,

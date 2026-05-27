@@ -58,6 +58,19 @@ export interface ApiClip {
   created_at: string;
 }
 
+export interface ApiPlayer {
+  id: string;
+  first_name: string;
+  last_name: string;
+  jersey_number: number | null;
+  position: string | null;
+  position_group: string | null;
+  is_active: boolean;
+  user_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface ApiPracticeSessionGroup {
   practice_session_id?: string | null;
   session_date?: string | null;
@@ -164,11 +177,15 @@ export interface PlayerSummary {
   name: string;
   position: string;
   group: string;
-  maxSpeed: number;
-  distance: number;
-  separation: number;
-  confidence: number;
-  trend: number[];
+  // Performance + identity-confidence metrics. Optional because the live
+  // `/api/v1/players` surface only returns identity in P1 — analytics overlays
+  // (#100) land in later batches. UI sites render "—" when undefined rather
+  // than fabricating values.
+  maxSpeed?: number;
+  distance?: number;
+  separation?: number;
+  confidence?: number;
+  trend?: number[];
 }
 
 export interface PlaySummary {

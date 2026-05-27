@@ -2,18 +2,105 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
 import { FootballShell } from "@/components/football-shell";
 import { HeatMap, PlayerPortrait, TrendLine } from "@/components/visuals";
 import { MockBadge } from "@/components/mock-badge";
-import { useAppState } from "@/lib/app-state";
+import { apiPlayerToSummary, useAppState } from "@/lib/app-state";
+import { fetchPlayer } from "@/lib/api";
+import type { PlayerSummary } from "@/lib/types";
+
+type LoadState = "idle" | "loading" | "ready" | "missing" | "error";
 
 export function PlayerProfileClient({ id }: { id: string }) {
   const router = useRouter();
-  const { data, getPlayerById, setSelectedPlayerId } = useAppState();
-  const player = getPlayerById(id);
+  const { data, getPlayerById, setSelectedPlayerId, mockMode, authToken } = useAppState();
+  const cached = getPlayerById(id);
 
-  if (!player) {
+  const [player, setPlayer] = useState<PlayerSummary | undefined>(cached);
+  const [loadState, setLoadState] = useState<LoadState>(cached ? "ready" : "idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Pull live identity from /api/v1/players/{id} when not in mock mode. The
+  // cached entry from the roster fetch is shown immediately as a fast path;
+  // the backend response overrides it on success.
+  useEffect(() => {
+    if (mockMode) {
+      setPlayer(cached);
+      setLoadState(cached ? "ready" : "missing");
+      return;
+    }
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      if (cached) {
+        setPlayer(cached);
+        setLoadState("ready");
+      } else {
+        setErrorMessage("API is not configured (NEXT_PUBLIC_API_URL is unset).");
+        setLoadState("error");
+      }
+      return;
+    }
+    let cancelled = false;
+    if (cached) setPlayer(cached);
+    setLoadState(cached ? "ready" : "loading");
+    (async () => {
+      try {
+        const apiPlayer = await fetchPlayer(id, authToken);
+        if (cancelled) return;
+        setPlayer(apiPlayerToSummary(apiPlayer));
+        setLoadState("ready");
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        if (/404/.test(message)) {
+          setLoadState("missing");
+        } else {
+          setErrorMessage(message);
+          setLoadState(cached ? "ready" : "error");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, mockMode, authToken, cached]);
+
+  if (loadState === "loading") {
+    return (
+      <FootballShell activePage="players">
+        <div className="content-grid">
+          <section className="panel panel-pad span-12">
+            <h2 className="panel-title">Loading player…</h2>
+            <p className="kicker" style={{ marginTop: 8 }}>
+              Fetching player <strong>{id}</strong> from the backend.
+            </p>
+          </section>
+        </div>
+      </FootballShell>
+    );
+  }
+
+  if (loadState === "error") {
+    return (
+      <FootballShell activePage="players">
+        <div className="content-grid">
+          <section className="panel panel-pad span-12">
+            <h2 className="panel-title">Could not load player</h2>
+            <p className="kicker" style={{ marginTop: 8 }}>
+              {errorMessage ?? "An unexpected error occurred."}
+            </p>
+            <Link href="/players" className="control-button primary" style={{ marginTop: 12, textDecoration: "none", display: "inline-flex" }}>
+              <ArrowLeft size={15} /> Back to Roster
+            </Link>
+          </section>
+        </div>
+      </FootballShell>
+    );
+  }
+
+  if (!player || loadState === "missing") {
     return (
       <FootballShell activePage="players">
         <div className="content-grid">
@@ -32,16 +119,19 @@ export function PlayerProfileClient({ id }: { id: string }) {
   }
 
   const others = data.players.filter((p) => p.id !== player.id);
+  const metricsAvailable = player.maxSpeed != null || player.distance != null || player.separation != null;
+  const trendAvailable = player.trend && player.trend.length > 0;
+  const confidenceLabel = player.confidence != null ? `${Math.round(player.confidence * 100)}%` : "—";
 
   const exportProfile = () => {
     const lines = [
       `Player Profile — #${player.jersey} ${player.name}`,
       `Position: ${player.position} · Group: ${player.group}`,
-      `Max Speed: ${player.maxSpeed} MPH`,
-      `Distance: ${player.distance} YDS`,
-      `Avg Separation: ${player.separation} YDS`,
-      `Identity Confidence: ${Math.round(player.confidence * 100)}%`,
-      `Trend: ${player.trend.join(", ")}`,
+      `Max Speed: ${player.maxSpeed != null ? `${player.maxSpeed} MPH` : "not available"}`,
+      `Distance: ${player.distance != null ? `${player.distance} YDS` : "not available"}`,
+      `Avg Separation: ${player.separation != null ? `${player.separation} YDS` : "not available"}`,
+      `Identity Confidence: ${confidenceLabel}`,
+      `Trend: ${trendAvailable ? player.trend!.join(", ") : "not available"}`,
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -91,18 +181,26 @@ export function PlayerProfileClient({ id }: { id: string }) {
             <MetricLine label="Name" value={player.name} />
             <MetricLine label="Position" value={player.position} />
             <MetricLine label="Group" value={player.group} />
-            <MetricLine label="Identity Confidence" value={`${Math.round(player.confidence * 100)}%`} />
+            <MetricLine label="Identity Confidence" value={confidenceLabel} />
           </div>
         </section>
 
         <section className="panel panel-pad span-8">
-          <h2 className="panel-title">Performance Metrics</h2>
-          <div className="metric-grid" style={{ marginTop: 12 }}>
-            <Metric label="Max Speed" value={String(player.maxSpeed)} unit="MPH" />
-            <Metric label="Distance" value={String(player.distance)} unit="YDS" />
-            <Metric label="Avg Separation" value={String(player.separation)} unit="YDS" />
-            <Metric label="Identity" value={`${Math.round(player.confidence * 100)}%`} unit="" />
-          </div>
+          <h2 className="panel-title">
+            Performance Metrics {!metricsAvailable && <MockBadge status="offline" />}
+          </h2>
+          {metricsAvailable ? (
+            <div className="metric-grid" style={{ marginTop: 12 }}>
+              <Metric label="Max Speed" value={fmtMetric(player.maxSpeed)} unit="MPH" />
+              <Metric label="Distance" value={fmtMetric(player.distance)} unit="YDS" />
+              <Metric label="Avg Separation" value={fmtMetric(player.separation)} unit="YDS" />
+              <Metric label="Identity" value={confidenceLabel} unit="" />
+            </div>
+          ) : (
+            <p className="kicker" style={{ marginTop: 10 }}>
+              Performance metrics are not wired to the live pipeline yet. They will surface once per-player tracking metrics land (#100).
+            </p>
+          )}
           <div style={{ marginTop: 14 }}>
             <h3 className="panel-title" style={{ fontSize: "0.78rem" }}>Trend</h3>
             <TrendLine data={player.trend} />
@@ -122,27 +220,35 @@ export function PlayerProfileClient({ id }: { id: string }) {
         </section>
 
         <section className="panel panel-pad span-6">
-          <h2 className="panel-title">Field Coverage</h2>
+          <h2 className="panel-title">Field Coverage <MockBadge status="mock" /></h2>
           <HeatMap />
         </section>
 
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Position Group · Quick Switch</h2>
-          <div className="list-stack" style={{ marginTop: 12 }}>
-            {others.map((p) => (
-              <Link key={p.id} href={`/players/${encodeURIComponent(p.id)}`} className="table-row table-row-link">
-                <strong>#{p.jersey} {p.name}</strong>
-                <span>{p.position}</span>
-                <span>{p.maxSpeed} MPH</span>
-                <span>{p.distance} YDS</span>
-                <span className="status-pill info">{Math.round(p.confidence * 100)}%</span>
-              </Link>
-            ))}
-          </div>
+          {others.length === 0 ? (
+            <p className="kicker" style={{ marginTop: 8 }}>No other players on the roster yet.</p>
+          ) : (
+            <div className="list-stack" style={{ marginTop: 12 }}>
+              {others.map((p) => (
+                <Link key={p.id} href={`/players/${encodeURIComponent(p.id)}`} className="table-row table-row-link">
+                  <strong>#{p.jersey} {p.name}</strong>
+                  <span>{p.position}</span>
+                  <span>{fmtMetric(p.maxSpeed)} MPH</span>
+                  <span>{fmtMetric(p.distance)} YDS</span>
+                  <span className="status-pill info">{p.confidence != null ? `${Math.round(p.confidence * 100)}%` : "—"}</span>
+                </Link>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </FootballShell>
   );
+}
+
+function fmtMetric(value: number | undefined): string {
+  return value == null ? "—" : String(value);
 }
 
 function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {

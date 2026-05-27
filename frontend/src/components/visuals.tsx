@@ -87,7 +87,14 @@ export function HeatMap() {
   );
 }
 
-export function TrendLine({ data }: { data: number[] }) {
+export function TrendLine({ data }: { data: number[] | undefined }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="chart-box" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span className="kicker">Trend not available</span>
+      </div>
+    );
+  }
   const points = data.map((value, index) => `${(index / Math.max(data.length - 1, 1)) * 100},${100 - value}`).join(" ");
   return (
     <div className="chart-box">
