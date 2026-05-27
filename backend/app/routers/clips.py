@@ -193,7 +193,7 @@ async def create_clip(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     if body.start_time >= body.end_time:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="start_time must be less than end_time",
         )
 
@@ -218,7 +218,7 @@ async def create_clip(
         and video.our_possession is None
     ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="our_possession is required for clips of session_kind='game'",
         )
 
@@ -285,7 +285,7 @@ async def update_clip(
         clip.end_time = body.end_time
     if clip.start_time >= clip.end_time:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="start_time must be less than end_time",
         )
     if body.play_number is not None:
