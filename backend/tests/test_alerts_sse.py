@@ -11,6 +11,9 @@ Covers:
 
 import asyncio
 import json
+import socket
+import threading
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -18,11 +21,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-
+import uvicorn
 from app.main import app
 from app.models import User, UserRole
 from app.routers.alerts_sse import _connections, publish_alert
-from fastapi.testclient import TestClient
+
 
 @pytest.fixture(autouse=True)
 def speed_up_sse_keepalive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,11 +121,6 @@ def test_publish_alert_case_insensitive_group_match() -> None:
 
 
 # ── Live Uvicorn Server Fixture for Streaming ─────────────────────────────────
-
-import socket
-import threading
-import time
-import uvicorn
 
 
 def _get_free_port() -> int:
