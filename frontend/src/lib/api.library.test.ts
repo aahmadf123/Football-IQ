@@ -205,7 +205,7 @@ describe("subscribeAlerts", () => {
     expect(url).toBe("https://api.test/api/v1/alerts/stream");
     expect(url).not.toContain("access_token");
     const headers = init?.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("B" + "earer tok123");
+    expect(headers["Authorization"]).toBe("Bearer tok123");
 
     expect(received[0]).toEqual({ type: "connected", connection_id: "abc" });
     expect(received[1]).toMatchObject({ type: "alert", alert: { id: "a1" } });
