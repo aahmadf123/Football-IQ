@@ -41,6 +41,14 @@ def upgrade() -> None:
             "players",
             sa.Column("position_group", sa.String(20), nullable=True),
         )
+    idx_exists = conn.execute(
+        sa.text(
+            "SELECT 1 FROM pg_indexes "
+            "WHERE tablename='players' "
+            "AND indexname='ix_players_position_group'"
+        )
+    ).scalar()
+    if not idx_exists:
         op.create_index(
             "ix_players_position_group",
             "players",

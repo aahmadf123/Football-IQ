@@ -33,11 +33,17 @@ export function PlayerProfileClient({ id }: { id: string }) {
     }
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
     if (!baseUrl) {
-      setPlayer(cached);
-      setLoadState(cached ? "ready" : "missing");
+      if (cached) {
+        setPlayer(cached);
+        setLoadState("ready");
+      } else {
+        setErrorMessage("API is not configured (NEXT_PUBLIC_API_URL is unset).");
+        setLoadState("error");
+      }
       return;
     }
     let cancelled = false;
+    if (cached) setPlayer(cached);
     setLoadState(cached ? "ready" : "loading");
     (async () => {
       try {

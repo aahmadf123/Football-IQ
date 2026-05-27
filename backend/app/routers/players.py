@@ -108,7 +108,8 @@ async def list_players(
     """Return the team roster, optionally filtered.
 
     Ordering is deterministic — jersey number ascending (NULLs last), then
-    last name — so list views and tests don't have to sort client-side.
+    last name, first name, and finally id — so list views and tests don't
+    have to sort client-side.
     """
     stmt = select(Player)
     if position is not None:
@@ -131,6 +132,8 @@ async def list_players(
         stmt.order_by(
             Player.jersey_number.asc().nulls_last(),
             Player.last_name.asc(),
+            Player.first_name.asc(),
+            Player.id.asc(),
         )
         .limit(limit)
         .offset(offset)

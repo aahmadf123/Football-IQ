@@ -94,11 +94,14 @@ function deriveGroup(position: string | null, positionGroup: string | null): str
  * carries identity, and the UI shows "—" instead of fabricating numbers.
  */
 export function apiPlayerToSummary(p: ApiPlayer): PlayerSummary {
-  const name = `${p.first_name.charAt(0)}. ${p.last_name}`.trim();
+  const firstName = p.first_name.trim();
+  const name = firstName
+    ? `${firstName.charAt(0)}. ${p.last_name}`.trim()
+    : `${p.first_name} ${p.last_name}`.trim();
   return {
     id: p.id,
     jersey: p.jersey_number != null ? String(p.jersey_number) : "—",
-    name: name || `${p.first_name} ${p.last_name}`.trim(),
+    name,
     position: p.position ?? "Unassigned",
     group: deriveGroup(p.position, p.position_group),
   };
@@ -338,8 +341,8 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     };
   }, [mockMode, selectedDate, sessionType]);
 
-  // Fetch the roster from /api/v1/players whenever the side-of-ball or active
-  // mode changes. Roster data is independent of the date/session filters
+  // Fetch the active roster from /api/v1/players on mount and whenever
+  // mockMode changes. Roster data is independent of the date/session filters
   // because the player table is roster-scoped, not film-scoped.
   useEffect(() => {
     if (mockMode) {
