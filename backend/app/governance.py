@@ -366,11 +366,10 @@ def shape_player(
                     state=state.value,
                 )
             return None
-        payload = {
-            k: v
-            for k, v in base.items()
-            if k not in _SENSITIVE_PLAYER_FIELDS and k not in _NON_RECRUITING_FIELDS
-        }
+        # Pre-merged exclusion set so list views don't pay for two membership
+        # checks per record.
+        excluded = _SENSITIVE_PLAYER_FIELDS | _NON_RECRUITING_FIELDS
+        payload = {k: v for k, v in base.items() if k not in excluded}
         payload["view"] = VisibilityMode.RECRUITING.value
         return payload
 
