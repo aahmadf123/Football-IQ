@@ -73,15 +73,28 @@ function hexEncode(buf: ArrayBuffer): string {
     .join("");
 }
 
-async function hmacSign(secret: string, message: string): Promise<string> {
+async function deriveStreamKey(secret: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
+  const baseKey = await crypto.subtle.importKey(
     "raw",
     enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
+  const derived = await crypto.subtle.sign("HMAC", baseKey, enc.encode("football-iq:stream-signing"));
+  return crypto.subtle.importKey(
+    "raw",
+    derived,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+}
+
+async function hmacSign(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await deriveStreamKey(secret);
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
   return hexEncode(sig);
 }
@@ -101,13 +114,7 @@ async function hmacVerify(secret: string, message: string, sigHex: string): Prom
   const sigBytes = hexDecode(sigHex);
   if (!sigBytes) return false;
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
+  const key = await deriveStreamKey(secret);
   return crypto.subtle.verify("HMAC", key, sigBytes, enc.encode(message));
 }
 
@@ -178,7 +185,10 @@ export async function getObject(
   const bucket = getBucket(env, bucketName);
   const options: R2GetOptions = {};
   if (rangeHeader) {
-    options.range = parseRangeHeader(rangeHeader);
+    const parsed = parseRangeHeader(rangeHeader);
+    if (parsed) {
+      options.range = parsed;
+    }
   }
   const obj = await bucket.get(key, options);
   return obj;
@@ -194,9 +204,13 @@ function parseRangeHeader(
   const match = /^bytes=(\d+)-(\d*)$/.exec(header.trim());
   if (!match) return undefined;
   const start = parseInt(match[1], 10);
+  if (start < 0) return undefined;
   if (match[2]) {
     const end = parseInt(match[2], 10);
-    return { offset: start, length: end - start + 1 };
+    if (end < start) return undefined;
+    const length = end - start + 1;
+    if (length <= 0) return undefined;
+    return { offset: start, length };
   }
   return { offset: start };
 }

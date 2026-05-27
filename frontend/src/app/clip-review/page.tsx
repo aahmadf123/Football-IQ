@@ -34,7 +34,7 @@ type ReviewState =
       clip: ApiClip;
       video: ApiVideo;
       playbackUrl: string | null;
-      playbackUnavailable: boolean;
+      playbackUnavailable: "none" | "no_storage_uri" | "url_generation_failed";
     };
 
 export default function ClipReviewPage() {
@@ -81,19 +81,21 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         const clip = await fetchClip(clipId, authToken);
         const video = await fetchVideo(clip.video_id, authToken);
         let playbackUrl: string | null = null;
-        let playbackUnavailable = false;
+        let playbackUnavailable: "none" | "no_storage_uri" | "url_generation_failed" = "none";
         try {
           // Try the clip's own storage_uri first (processed clip), then
           // fall back to the parent video's storage_uri (raw upload).
           const clipStorage = parseStorageUri(clip.storage_uri);
           const videoStorage = parseStorageUri(video.storage_uri);
           const target = clipStorage ?? videoStorage;
-          if (target) {
+          if (!target) {
+            playbackUnavailable = "no_storage_uri";
+          } else {
             playbackUrl = await fetchVideoDownloadUrl(target.bucket, target.key, authToken);
+            if (!playbackUrl) playbackUnavailable = "url_generation_failed";
           }
-          if (!playbackUrl) playbackUnavailable = true;
         } catch {
-          playbackUnavailable = true;
+          playbackUnavailable = "url_generation_failed";
         }
         if (cancelled) return;
         setState({ kind: "ready", clip, video, playbackUrl, playbackUnavailable });
@@ -195,9 +197,9 @@ function ClipReviewView({ clipId }: { clipId: string }) {
             <div style={{ color: "var(--muted, #94a3b8)", textAlign: "center", padding: 24 }}>
               <p style={{ margin: 0, fontWeight: 700 }}>Video not available</p>
               <p className="kicker" style={{ marginTop: 8 }}>
-                {playbackUnavailable
-                  ? "The video file could not be found in storage. It may not have been uploaded yet or may have been removed."
-                  : "Video playback URL could not be generated. Check that the Worker is deployed and the video exists in R2."}
+                {playbackUnavailable === "no_storage_uri"
+                  ? "No storage URI found. The video may not have been uploaded or rendered yet."
+                  : "Video playback failed or is unavailable. The Worker may not be deployed, the signed URL may have been rejected, or the file may be missing from storage."}
               </p>
             </div>
           )}

@@ -235,10 +235,14 @@ async function handleStream(request: Request, env: Env, url: URL): Promise<Respo
 
   if (obj.size !== undefined) {
     if (rangeHeader && obj.range) {
-      const range = obj.range as { offset: number; length: number };
+      const range = obj.range as { offset: number; length?: number };
       const start = range.offset;
-      const end = start + range.length - 1;
-      headers.set("Content-Length", String(range.length));
+      const length = range.length ?? (obj.size - start);
+      if (length <= 0) {
+        return json({ error: "Invalid range" }, 416);
+      }
+      const end = start + length - 1;
+      headers.set("Content-Length", String(length));
       headers.set("Content-Range", `bytes ${start}-${end}/${obj.size}`);
       return new Response(obj.body, { status: 206, headers });
     }
