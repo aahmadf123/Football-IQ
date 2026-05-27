@@ -196,7 +196,7 @@ _SENSITIVE_PLAYER_FIELDS: frozenset[str] = frozenset(
 # Additional fields stripped from the recruiting projection — keep recruiting
 # views to identity + public roster facts only.
 _NON_RECRUITING_FIELDS: frozenset[str] = frozenset(
-    {"is_active", "user_id", "metadata", "created_at"}
+    {"is_active", "user_id", "metadata", "created_at", "visibility_state"}
 )
 
 
@@ -339,6 +339,19 @@ def shape_player(
         return {**base, "view": VisibilityMode.STAFF.value}
 
     if mode == VisibilityMode.PLAYER:
+        if (
+            actor is not None
+            and actor.role == UserRole.player
+            and player.user_id != actor.id
+        ):
+            audit_event(
+                "audit.visibility.player_view_blocked",
+                actor_id=actor.id,
+                actor_role=actor.role.value,
+                player_id=player.id,
+                reason="owner_mismatch",
+            )
+            return None
         # Players see themselves only after a coach/analyst approves the
         # outward-facing profile (player_approved or recruiting_approved).
         if state == VisibilityState.staff_only:

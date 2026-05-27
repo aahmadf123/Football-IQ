@@ -1,6 +1,6 @@
 # Governance: roles, visibility modes, and workload gating
 
-Status: implemented (closes #113 and #114).
+Status: implemented in this PR (closes #113 and #114).
 
 This document describes the runtime governance layer that all sensitive
 Football-IQ APIs build on.  It is intentionally short: implementation details
@@ -40,7 +40,8 @@ any (resource, action) pair not listed in the table is forbidden.
 | `health_workload`     | `read`     | admin, analyst, sportsperformance             |
 | `heavy_workload`      | `trigger`  | admin, analyst                                |
 
-Routers enforce policies via `require_policy(resource, action)`.  Every denial
+Routers enforce policies via `require_policy(resource, action)` where the
+resource/action matrix is applied. Every denial
 emits a structured `audit.access.denied` log line containing only the actor
 UUID, role, and the (resource, action) pair — never request payloads.
 
@@ -119,6 +120,10 @@ retry strategies.  Every decision (allowed or rejected) is emitted as
 
 * `POST /api/v1/jobs`
 * `POST /api/v1/jobs/{id}/retry`
+
+These two endpoints currently authorize via `require_any_staff` and apply
+workload gating independently. The `heavy_workload:trigger` policy row is
+reserved for endpoints that explicitly opt into `require_policy(...)`.
 
 The gating dependency is intentionally cheap and reusable — apply it to
 additional heavy endpoints (embedding rebuilds, video re-renders, bulk

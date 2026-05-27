@@ -167,6 +167,14 @@ def test_shape_player_view_strips_sensitive_fields_after_approval() -> None:
     assert out["position"] == "WR"
 
 
+def test_shape_player_view_requires_ownership_for_player_role() -> None:
+    p = _make_player(state=PlayerVisibilityState.player_approved)
+    p.user_id = uuid.uuid4()
+    actor = _make_user(role=UserRole.player)
+    out = shape_player(p, VisibilityMode.PLAYER, actor=actor)
+    assert out is None
+
+
 def test_shape_recruiting_requires_recruiting_approval() -> None:
     not_yet = _make_player(state=PlayerVisibilityState.player_approved)
     assert shape_player(not_yet, VisibilityMode.RECRUITING) is None
@@ -180,6 +188,7 @@ def test_shape_recruiting_requires_recruiting_approval() -> None:
     assert "user_id" not in out
     assert "is_active" not in out
     assert "created_at" not in out
+    assert "visibility_state" not in out
 
 
 def test_shape_archived_is_hidden_from_non_staff() -> None:
@@ -212,6 +221,25 @@ def test_list_filters_out_players_not_approved_for_recruiting_mode() -> None:
     assert "metadata" not in body[0]
 
 
+def test_player_list_only_includes_own_record() -> None:
+    actor = _make_user(UserRole.player)
+    own = _make_player(state=PlayerVisibilityState.player_approved)
+    own.user_id = actor.id
+    teammate = _make_player(state=PlayerVisibilityState.player_approved)
+    teammate.user_id = uuid.uuid4()
+    _override_db(list_rows=[own, teammate])
+    app.dependency_overrides[get_current_user] = lambda: actor
+    try:
+        with TestClient(app) as c:
+            resp = c.get("/api/v1/players")
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["id"] == str(own.id)
+
+
 def test_get_player_returns_404_when_not_approved_for_recruiting() -> None:
     p = _make_player(state=PlayerVisibilityState.staff_only)
     _override_db(detail_row=p)
@@ -225,6 +253,19 @@ def test_get_player_returns_404_when_not_approved_for_recruiting() -> None:
     finally:
         app.dependency_overrides.clear()
     # 404 (not 403) so we don't leak whether the record exists.
+    assert resp.status_code == 404
+
+
+def test_player_cannot_view_other_player_identity() -> None:
+    p = _make_player(state=PlayerVisibilityState.player_approved)
+    p.user_id = uuid.uuid4()
+    _override_db(detail_row=p)
+    app.dependency_overrides[get_current_user] = lambda: _make_user(UserRole.player)
+    try:
+        with TestClient(app) as c:
+            resp = c.get(f"/api/v1/players/{p.id}")
+    finally:
+        app.dependency_overrides.clear()
     assert resp.status_code == 404
 
 
