@@ -19,6 +19,36 @@
   --cyan: oklch(0.74 0.12 209);
   --violet: oklch(0.67 0.17 286);
   --shadow: 0 20px 60px oklch(0.08 0.03 252 / 0.35);
+
+  /* Spacing scale (4px base, semantic names). Use these instead of literals
+     so density can be tuned in one place and rhythm stays consistent. */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-9: 32px;
+  --space-10: 48px;
+
+  /* Radius scale — three steps + pill. Replaces the 3/5/6/7/8/9 grab-bag. */
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+  --radius-pill: 999px;
+
+  /* Shell rails — single source of truth so topbar columns and shell stay
+     in sync at every breakpoint. */
+  --rail-left: 248px;
+  --rail-right: 224px;
+
+  /* z-index scale — semantic, not magic numbers. */
+  --z-sticky: 20;
+  --z-dropdown: 40;
+  --z-overlay: 60;
+  --z-toast: 80;
 }
 
 * {
@@ -56,7 +86,7 @@ a {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr) 224px;
+  grid-template-columns: var(--rail-left) minmax(0, 1fr) var(--rail-right);
   grid-template-rows: auto 1fr;
 }
 
@@ -64,16 +94,16 @@ a {
   grid-column: 1 / -1;
   min-height: 56px;
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr) auto;
-  gap: 16px;
+  grid-template-columns: var(--rail-left) minmax(0, 1fr) auto;
+  gap: var(--space-6);
   align-items: center;
-  padding: 6px 16px;
+  padding: var(--space-2) var(--space-6);
   border-bottom: 1px solid var(--line-soft);
   background: oklch(0.13 0.038 252 / 0.86);
   backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: var(--z-sticky);
 }
 
 .brand-lockup {
@@ -142,9 +172,10 @@ a {
 
 .top-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-3) var(--space-5);
 }
 
 .select-pill,
@@ -328,9 +359,9 @@ a {
 
 .sidebar,
 .right-rail {
-  padding: 10px 8px;
+  padding: var(--space-4) var(--space-3);
   display: grid;
-  gap: 8px;
+  gap: var(--space-3);
   align-content: start;
 }
 
@@ -342,20 +373,26 @@ a {
   border-left: 1px solid var(--line-soft);
 }
 
+/* Subtle rhythm so the rail isn't three identical bricks. Middle panel
+   gets more vertical breathing room than its neighbors. */
+.right-rail > .panel:nth-child(even) {
+  --panel-pad-y: var(--space-5);
+}
+
 .nav-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .nav-link {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
-  gap: 10px;
+  gap: var(--space-4);
   align-items: center;
   min-height: 42px;
-  padding: 10px 12px;
+  padding: var(--space-4) var(--space-5);
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text);
   text-decoration: none;
   font-size: 0.88rem;
@@ -377,19 +414,19 @@ a {
 
 .main {
   min-width: 0;
-  padding: 10px;
+  padding: var(--space-4);
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(520px, 1.5fr) minmax(330px, 0.8fr);
-  gap: 12px;
+  gap: var(--space-5);
 }
 
 .content-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-5);
 }
 
 .span-12 { grid-column: span 12; }
@@ -403,14 +440,14 @@ a {
 .panel {
   min-width: 0;
   border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(180deg, oklch(0.19 0.044 252 / 0.94), oklch(0.16 0.04 252 / 0.96));
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.03);
   overflow: hidden;
 }
 
 .panel-pad {
-  padding: 14px;
+  padding: var(--panel-pad-y, var(--space-6)) var(--space-6);
 }
 
 .section-title,
@@ -423,7 +460,7 @@ a {
 }
 
 .kicker {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--muted);
   font-size: 0.76rem;
 }
@@ -432,21 +469,21 @@ a {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px;
+  gap: var(--space-5);
+  padding: var(--space-6);
   border-bottom: 1px solid var(--line-soft);
 }
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
 }
 
 .metric-card {
   min-width: 0;
-  padding: 12px;
-  border-radius: 7px;
+  padding: var(--space-5);
+  border-radius: var(--radius-md);
   border: 1px solid var(--line-soft);
   background: oklch(0.21 0.048 252 / 0.72);
 }
@@ -690,7 +727,7 @@ a {
 
 .list-stack {
   display: grid;
-  gap: 9px;
+  gap: var(--space-3);
 }
 
 .status-row,
@@ -698,10 +735,10 @@ a {
 .clip-card,
 .insight-row {
   display: grid;
-  gap: 8px;
+  gap: var(--space-3);
   align-items: center;
-  padding: 10px;
-  border-radius: 7px;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
   border: 1px solid var(--line-soft);
   background: oklch(0.19 0.044 252 / 0.62);
 }
@@ -737,8 +774,8 @@ a {
 
 .clip-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
 }
 
 .clip-thumb {
@@ -788,7 +825,7 @@ a {
 .loading-state,
 .error-state {
   display: grid;
-  gap: 8px;
+  gap: var(--space-3);
   place-items: center;
   min-height: 160px;
   text-align: center;
@@ -880,7 +917,10 @@ a {
 }
 
 .dashboard-page .metric-grid {
-  gap: 6px;
+  /* Dashboard density: force 4 columns even in the narrow right aside so all
+     four key metrics stay glanceable at a single horizontal sweep. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
 .dashboard-page .metric-card {
@@ -989,16 +1029,29 @@ a {
   }
 }
 
+/* Laptop width: drop the right rail (least-used at this density), keep the
+   navigation sidebar visible, narrow it slightly. The rail's contents become
+   in-flow panels under the main column so they still appear without crowding. */
 @media (max-width: 1240px) {
+  :root {
+    --rail-left: 220px;
+  }
+
   .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: var(--rail-left) minmax(0, 1fr);
+  }
+
+  .topbar {
+    grid-template-columns: var(--rail-left) minmax(0, 1fr) auto;
   }
 
   .right-rail {
     grid-column: 1 / -1;
     border-left: 0;
     border-top: 1px solid var(--line-soft);
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    padding: var(--space-5) var(--space-6);
+    gap: var(--space-5);
   }
 
   .dashboard-grid {
@@ -1017,7 +1070,7 @@ a {
   }
 
   .mission {
-    margin: 14px 0;
+    margin: var(--space-6) 0;
   }
 
   .top-actions,
@@ -1033,7 +1086,7 @@ a {
 
   .nav-list {
     display: flex;
-    padding-bottom: 4px;
+    padding-bottom: var(--space-1);
   }
 
   .nav-link {
@@ -1046,7 +1099,6 @@ a {
   }
 
   .content-grid,
-  .metric-grid,
   .clip-grid {
     grid-template-columns: 1fr;
   }
@@ -1072,7 +1124,7 @@ a {
   .sidebar,
   .right-rail,
   .topbar {
-    padding: 10px;
+    padding: var(--space-4);
   }
 
   .brand-lockup {
