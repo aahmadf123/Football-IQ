@@ -37,6 +37,7 @@ export interface ApiVideo {
   opponent_team?: string | null;
   practice_session_id?: string | null;
   our_possession?: OurPossession | null;
+  storage_uri?: string | null;
 }
 
 export interface ApiClip {
@@ -46,7 +47,7 @@ export interface ApiClip {
   end_time: number;
   play_number?: number | null;
   confidence?: number | null;
-  is_reviewed?: boolean;
+  is_reviewed: boolean;
   storage_uri?: string | null;
   label_data?: Record<string, unknown> | null;
   boundary_source?: string | null;

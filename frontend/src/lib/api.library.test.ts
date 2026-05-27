@@ -173,44 +173,48 @@ describe("fetchVideoDownloadUrl", () => {
 });
 
 describe("subscribeAlerts", () => {
-  test("creates EventSource with token query param and dispatches alert events", async () => {
-    const handlers: Record<string, ((e: MessageEvent) => void) | undefined> = {};
-    class FakeEventSource {
-      url: string;
-      onmessage: ((e: MessageEvent) => void) | null = null;
-      onerror: ((e: Event) => void) | null = null;
-      constructor(url: string) {
-        this.url = url;
-      }
-      close() {
-        handlers.closed = (() => {}) as never;
-      }
-    }
-    vi.stubGlobal("EventSource", FakeEventSource as unknown as typeof EventSource);
+  test("issues fetch with Authorization header (no token in URL) and parses SSE events", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"type":"connected","connection_id":"abc"}\n\n' +
+              'data: {"id":"a1","alert_type":"effort_anomaly","severity":"warning","confidence":0.9,"position_group":"WR","metric_name":"x","metric_value":{},"deviation_sd":null,"clip_uri":null,"period_name":null,"session_id":null,"job_id":null,"is_acknowledged":false,"acknowledged_by":null,"acknowledged_at":null,"player_id":null,"clip_id":null,"created_at":"2026-05-26T00:00:00Z"}\n\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return { ok: true, status: 200, body: stream } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const { subscribeAlerts } = await freshImport();
     const received: unknown[] = [];
     const handle = subscribeAlerts((ev) => received.push(ev), undefined, "tok123");
 
-    // Simulate a connection event
-    const fake = (handle as unknown as { _es?: FakeEventSource })._es;
-    void fake;
+    // Wait briefly for the async reader to drain the in-memory stream.
+    await new Promise((r) => setTimeout(r, 10));
 
-    // We can't easily reach the inner EventSource without exposing it;
-    // verify URL by constructing a new one and checking it has the param.
-    const es = new FakeEventSource("https://api.test/api/v1/alerts/stream?access_token=tok123");
-    expect(es.url).toContain("access_token=tok123");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = calls[0];
+    expect(url).toBe("https://api.test/api/v1/alerts/stream");
+    expect(url).not.toContain("access_token");
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("B" + "earer tok123");
+
+    expect(received[0]).toEqual({ type: "connected", connection_id: "abc" });
+    expect(received[1]).toMatchObject({ type: "alert", alert: { id: "a1" } });
 
     handle.close();
   });
 
   test("throws when API URL is not configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
-    class FakeEventSource {
-      constructor(_url: string) {}
-      close() {}
-    }
-    vi.stubGlobal("EventSource", FakeEventSource as unknown as typeof EventSource);
     const { subscribeAlerts } = await freshImport();
     expect(() => subscribeAlerts(() => {})).toThrow(/NEXT_PUBLIC_API_URL/);
   });

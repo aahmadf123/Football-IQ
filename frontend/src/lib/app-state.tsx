@@ -121,6 +121,9 @@ interface AppStateValue {
   // Inbox
   inboxItems: VideoInboxItem[];
   refreshInbox: () => void;
+
+  // Auth
+  authToken?: string;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -535,6 +538,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     removeUpload,
     inboxItems,
     refreshInbox,
+    authToken,
   };
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

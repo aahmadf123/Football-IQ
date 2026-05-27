@@ -360,12 +360,10 @@ export interface AlertStreamHandle {
 /**
  * Subscribe to the alert stream via SSE.
  *
- * Note: native EventSource cannot set Authorization headers. Auth flows that
- * require a Bearer token must rely on cookies or a token query param the
- * backend accepts. We pass token as a query param when supplied so the
- * backend may use it; if the backend only accepts Authorization headers,
- * the call will be rejected and onError fires — the UI then shows a
- * degraded state and falls back to polling.
+ * Uses fetch + ReadableStream (not native EventSource) so we can set the
+ * `Authorization: Bearer <token>` header that the backend `HTTPBearer`
+ * dependency requires. Access tokens are deliberately NOT placed in the URL
+ * (avoids leakage via logs, browser history, and referrers).
  */
 export function subscribeAlerts(
   onEvent: (event: AlertStreamEvent) => void,
@@ -374,35 +372,90 @@ export function subscribeAlerts(
 ): AlertStreamHandle {
   const base = apiBase();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
-  if (typeof EventSource === "undefined") {
-    throw new Error("EventSource is not available in this environment");
+  if (typeof fetch === "undefined" || typeof AbortController === "undefined") {
+    throw new Error("fetch/AbortController are not available in this environment");
   }
-  const params = new URLSearchParams();
-  if (token) params.set("access_token", token);
-  const qs = params.toString();
-  const url = `${base}/api/v1/alerts/stream${qs ? `?${qs}` : ""}`;
-  const es = new EventSource(url, { withCredentials: true });
 
-  es.onmessage = (e) => {
+  const controller = new AbortController();
+  let closed = false;
+  const url = `${base}/api/v1/alerts/stream`;
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const dispatch = (raw: string) => {
     try {
-      const data = JSON.parse(e.data) as Record<string, unknown>;
+      const data = JSON.parse(raw) as Record<string, unknown>;
       if (data.type === "connected") {
         onEvent({ type: "connected", connection_id: data.connection_id as string });
       } else if (data.type === "keepalive") {
         onEvent({ type: "keepalive" });
       } else {
-        // Treat unknown payload as an alert dict
         onEvent({ type: "alert", alert: data as unknown as ApiAlert });
       }
     } catch (err) {
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
   };
-  es.onerror = (e) => onError?.(e);
-  return { close: () => es.close() };
+
+  (async () => {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers,
+        credentials: "include",
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`SSE connect failed (${res.status})`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      while (!closed) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE events are separated by a blank line ("\n\n").
+        let idx: number;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const rawEvent = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          // Concatenate all `data:` lines per the SSE spec.
+          const dataLines = rawEvent
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).replace(/^ /, ""));
+          if (dataLines.length > 0) dispatch(dataLines.join("\n"));
+        }
+      }
+    } catch (err) {
+      if (closed) return;
+      onError?.(err instanceof Error ? err : new Error(String(err)));
+    }
+  })();
+
+  return {
+    close: () => {
+      closed = true;
+      try { controller.abort(); } catch { /* ignore */ }
+    },
+  };
 }
 
 // ── Worker download URL ──────────────────────────────────────────────────────
+
+/**
+ * Extract the R2 key suffix from a backend `storage_uri` of the form
+ * `r2://raw-video/raw/<suffix>`. The Worker's GET
+ * `/api/v1/videos/:videoId/download` route resolves the path param as the
+ * suffix and maps it to `raw/<suffix>` in R2, so passing the DB UUID does
+ * not work — callers must pass this suffix.
+ */
+export function r2KeySuffixFromStorageUri(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  const m = /^r2:\/\/raw-video\/raw\/(.+)$/.exec(uri);
+  return m ? m[1] : null;
+}
 
 export async function fetchVideoDownloadUrl(
   videoIdOrKeySuffix: string,

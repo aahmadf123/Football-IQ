@@ -70,7 +70,7 @@ export default function LibraryPage() {
 }
 
 function LibraryView() {
-  const { selectedDate, sessionType, mockMode } = useAppState();
+  const { selectedDate, sessionType, mockMode, authToken } = useAppState();
   const [opponent, setOpponent] = useState<string>("");
   const [possession, setPossession] = useState<"" | OurPossession>("");
   const [state, setState] = useState<LibraryState>({ kind: "loading" });
@@ -102,8 +102,8 @@ function LibraryView() {
     setState({ kind: "loading" });
     try {
       const [sessions, videos] = await Promise.all([
-        fetchPracticeSessions(sessionFilters),
-        fetchVideos(videoFilters),
+        fetchPracticeSessions(sessionFilters, authToken),
+        fetchVideos(videoFilters, authToken),
       ]);
       if (sessions.length === 0 && videos.length === 0) {
         setState({ kind: "empty" });
@@ -116,7 +116,7 @@ function LibraryView() {
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [selectedDate, sessionType, opponent]);
+  }, [selectedDate, sessionType, opponent, authToken]);
 
   useEffect(() => {
     load();
@@ -138,9 +138,9 @@ function LibraryView() {
           if (group.opponent_team && v.opponent_team !== group.opponent_team) return false;
         }
         if (possession) {
-          // For game sessions we keep videos that match the possession; for
-          // practice we still respect the filter when set.
-          if (v.our_possession && v.our_possession !== possession) return false;
+          // Strict filter: when a possession is selected, exclude videos
+          // whose possession is unknown or does not match the selection.
+          if (v.our_possession !== possession) return false;
         }
         return true;
       });
@@ -355,6 +355,7 @@ function SessionCard({
 }
 
 function VideoRow({ video }: { video: ApiVideo }) {
+  const { authToken } = useAppState();
   const [expanded, setExpanded] = useState(false);
   const [clips, setClips] = useState<ApiClip[] | null>(null);
   const [clipsError, setClipsError] = useState<string | null>(null);
@@ -365,7 +366,7 @@ function VideoRow({ video }: { video: ApiVideo }) {
     let cancelled = false;
     setLoadingClips(true);
     setClipsError(null);
-    fetchClipsForVideo(video.id)
+    fetchClipsForVideo(video.id, authToken)
       .then((data) => {
         if (!cancelled) setClips(data);
       })
@@ -380,7 +381,7 @@ function VideoRow({ video }: { video: ApiVideo }) {
     return () => {
       cancelled = true;
     };
-  }, [expanded, clips, video.id]);
+  }, [expanded, clips, video.id, authToken]);
 
   const statusColor = video.status === "ready"
     ? "var(--accent-green, #4ade80)"

@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { FootballShell } from "@/components/football-shell";
+import { useAppState } from "@/lib/app-state";
 import {
   fetchClip,
   fetchVideo,
   fetchVideoDownloadUrl,
+  r2KeySuffixFromStorageUri,
 } from "@/lib/api";
 import type { ApiClip, ApiVideo, OurPossession, SessionKind } from "@/lib/types";
 
@@ -64,6 +66,7 @@ function ClipReviewLoader() {
 }
 
 function ClipReviewView({ clipId }: { clipId: string }) {
+  const { authToken } = useAppState();
   const [state, setState] = useState<ReviewState>({ kind: "loading" });
 
   useEffect(() => {
@@ -75,12 +78,18 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     let cancelled = false;
     (async () => {
       try {
-        const clip = await fetchClip(clipId);
-        const video = await fetchVideo(clip.video_id);
+        const clip = await fetchClip(clipId, authToken);
+        const video = await fetchVideo(clip.video_id, authToken);
         let playbackUrl: string | null = null;
         let playbackUnavailable = false;
         try {
-          playbackUrl = await fetchVideoDownloadUrl(video.id);
+          // The Worker download route expects the R2 key suffix (the part
+          // after `raw/`), not the backend video UUID. Derive it from the
+          // video's storage_uri (`r2://raw-video/raw/<suffix>`).
+          const suffix = r2KeySuffixFromStorageUri(video.storage_uri);
+          if (suffix) {
+            playbackUrl = await fetchVideoDownloadUrl(suffix, authToken);
+          }
           if (!playbackUrl) playbackUnavailable = true;
         } catch {
           playbackUnavailable = true;
@@ -98,7 +107,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [clipId]);
+  }, [clipId, authToken]);
 
   if (state.kind === "loading") {
     return (
@@ -224,7 +233,16 @@ function ClipReviewView({ clipId }: { clipId: string }) {
               value={`${Math.round(clip.confidence * 100)}%`}
             />
           )}
-          <MetadataRow label="Reviewed" value={clip.is_reviewed ? "Yes" : "No"} />
+          <MetadataRow
+            label="Reviewed"
+            value={
+              clip.is_reviewed === true
+                ? "Yes"
+                : clip.is_reviewed === false
+                  ? "No"
+                  : "Unknown"
+            }
+          />
           {video.recorded_at && (
             <MetadataRow
               label="Recorded"

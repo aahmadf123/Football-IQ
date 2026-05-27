@@ -221,19 +221,25 @@ function Dashboard() {
 }
 
 function PracticeInboxSection() {
-  const { inboxItems, data, mockMode, refreshInbox } = useAppState();
+  const { inboxItems, data, mockMode, apiStatus } = useAppState();
   const jobs = data.jobs;
 
-  // Outside mock mode, never substitute a fake job-based view. Show a real
-  // empty/connecting state instead so the UI does not appear successful when
-  // the backend has no inbox data or is not reachable.
+  // Outside mock mode, never substitute a fake job-based view. Distinguish
+  // a genuinely empty inbox from "still connecting" or "backend offline" so
+  // the UI does not appear successful when the backend has no inbox data or
+  // is not reachable.
   if (!mockMode && inboxItems.length === 0) {
+    const isLoading = apiStatus === "loading" || apiStatus === "idle";
+    const isOffline = apiStatus === "offline";
     return (
       <section className="panel panel-pad span-12">
         <h2 className="panel-title">Practice Inbox — Processing Status</h2>
         <p className="kicker" style={{ marginTop: 6 }}>
-          No videos in the inbox yet. Upload practice or game film to begin
-          processing.
+          {isLoading
+            ? "Connecting to the inbox…"
+            : isOffline
+              ? "Inbox unavailable — backend is offline."
+              : "No videos in the inbox yet. Upload practice or game film to begin processing."}
         </p>
       </section>
     );
@@ -330,14 +336,13 @@ function PracticeInboxSection() {
         {inboxItems.length} video{inboxItems.length !== 1 ? "s" : ""} in inbox
       </p>
       {inboxItems.map((item) => (
-        <InboxVideoRow key={item.video_id} item={item} onRefresh={refreshInbox} />
+        <InboxVideoRow key={item.video_id} item={item} />
       ))}
     </section>
   );
 }
 
-function InboxVideoRow({ item, onRefresh }: { item: VideoInboxItem; onRefresh?: () => void }) {
-  void onRefresh; // refresh is debounced at the panel level
+function InboxVideoRow({ item }: { item: VideoInboxItem }) {
   const statusColor = (s: string) => {
     if (s === "ready") return "var(--accent-green, #4ade80)";
     if (s === "processing") return "var(--accent-amber, #fbbf24)";

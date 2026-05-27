@@ -37,7 +37,7 @@ export default function AlertsPage() {
 }
 
 function AlertsView() {
-  const { mockMode } = useAppState();
+  const { mockMode, authToken } = useAppState();
   const [state, setState] = useState<AlertsState>({ kind: "loading" });
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const streamRef = useRef<AlertStreamHandle | null>(null);
@@ -50,7 +50,7 @@ function AlertsView() {
       return;
     }
     try {
-      const alerts = await fetchAlerts({ limit: 50 });
+      const alerts = await fetchAlerts({ limit: 50 }, authToken);
       setState({ kind: "ready", alerts });
     } catch (err) {
       setState({
@@ -58,7 +58,7 @@ function AlertsView() {
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, []);
+  }, [authToken]);
 
   useEffect(() => {
     loadAlerts();
@@ -67,12 +67,13 @@ function AlertsView() {
   // SSE subscription with fallback to polling on error.
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl || typeof EventSource === "undefined") {
+    if (!baseUrl || typeof fetch === "undefined") {
       setStreamState("degraded");
       return;
     }
     setStreamState("connecting");
     let cancelled = false;
+    let handle: AlertStreamHandle | null = null;
 
     const startPolling = () => {
       if (cancelled || pollRef.current) return;
@@ -83,7 +84,7 @@ function AlertsView() {
     };
 
     try {
-      const handle = subscribeAlerts(
+      handle = subscribeAlerts(
         (event) => {
           if (cancelled) return;
           if (event.type === "connected") {
@@ -100,9 +101,11 @@ function AlertsView() {
         () => {
           if (cancelled) return;
           setStreamState("degraded");
-          handle.close();
+          handle?.close();
+          handle = null;
           startPolling();
         },
+        authToken,
       );
       streamRef.current = handle;
     } catch {
@@ -113,12 +116,13 @@ function AlertsView() {
       cancelled = true;
       streamRef.current?.close();
       streamRef.current = null;
+      handle = null;
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
     };
-  }, [loadAlerts]);
+  }, [loadAlerts, authToken]);
 
   return (
     <div className="content-grid">
