@@ -35,12 +35,16 @@ def speed_up_sse_keepalive(monkeypatch: pytest.MonkeyPatch) -> None:
     and speeds up keepalive timeout during tests.
     """
     import app.routers.alerts_sse
+
     monkeypatch.setattr(app.routers.alerts_sse, "_KEEPALIVE_SECONDS", 0.1)
 
     import starlette.requests
+
     async def mock_is_disconnected(self) -> bool:
         return False
+
     monkeypatch.setattr(starlette.requests.Request, "is_disconnected", mock_is_disconnected)
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
