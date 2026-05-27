@@ -2,17 +2,27 @@
  * Football-IQ Cloudflare Worker — edge API entrypoint.
  *
  * Routes:
- *   GET  /health                          → liveness probe (no auth)
- *   POST /api/v1/videos/upload-url        → Worker proxy upload URL + R2 key
- *   PUT  /api/v1/videos/upload/*          → proxy PUT to R2 raw-video bucket
- *   GET  /api/v1/videos/:videoId/download → presigned R2 GET URL
- *   POST /api/v1/jobs                     → submit video processing job
+ *   GET  /health                          -> liveness probe (no auth)
+ *   POST /api/v1/videos/upload-url        -> Worker proxy upload URL + R2 key
+ *   PUT  /api/v1/videos/upload/*          -> proxy PUT to R2 raw-video bucket
+ *   GET  /api/v1/videos/download-url      -> HMAC-signed R2 streaming URL
+ *   POST /api/v1/jobs                     -> submit video processing job
+ *   GET  /dl/:bucket/*key                 -> stream R2 object (HMAC-verified)
  *
  * All /api/* routes require a valid Bearer JWT issued by the backend.
+ * The /dl/* streaming route uses HMAC-signed query params instead.
  */
 
 import { extractBearerToken, verifyJwt } from "./auth.js";
-import { buildUploadProxyUrl, createDownloadUrl, putObject } from "./r2.js";
+import {
+  buildUploadProxyUrl,
+  createSignedStreamUrl,
+  getObject,
+  isDownloadableBucket,
+  isValidKey,
+  putObject,
+  verifySignedUrl,
+} from "./r2.js";
 import { enqueueVideoProcessingJob } from "./queue.js";
 import type { Env } from "./types.js";
 
@@ -32,7 +42,8 @@ function corsHeaders(origin: string): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, Range",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -65,6 +76,11 @@ export default {
     // ── Liveness probe ────────────────────────────────────────────────────
     if (url.pathname === "/health" && request.method === "GET") {
       return withCors(json({ status: "ok" }), cors);
+    }
+
+    // ── Signed streaming endpoint (no Bearer auth — HMAC-verified) ────────
+    if (url.pathname.startsWith("/dl/") && request.method === "GET") {
+      return withCors(await handleStream(request, env, url), cors);
     }
 
     // ── Auth gate for all /api/* routes ───────────────────────────────────
@@ -114,16 +130,27 @@ export default {
       }
     }
 
-    // ── GET /api/v1/videos/:videoId/download ──────────────────────────────
-    const downloadMatch = url.pathname.match(/^\/api\/v1\/videos\/([^/]+)\/download$/);
-    if (downloadMatch && request.method === "GET") {
-      const key = `raw/${downloadMatch[1]}`;
+    // ── GET /api/v1/videos/download-url ───────────────────────────────────
+    if (url.pathname === "/api/v1/videos/download-url" && request.method === "GET") {
+      const bucket = url.searchParams.get("bucket");
+      const key = url.searchParams.get("key");
+
+      if (!bucket || !key) {
+        return withCors(json({ error: "bucket and key query params are required" }, 400), cors);
+      }
+      if (!isDownloadableBucket(bucket)) {
+        return withCors(json({ error: `Bucket not allowed: ${bucket}` }, 400), cors);
+      }
+      if (!isValidKey(key)) {
+        return withCors(json({ error: "Invalid key" }, 400), cors);
+      }
+
       try {
-        const downloadUrl = await createDownloadUrl(env, "raw-video", key);
+        const downloadUrl = await createSignedStreamUrl(env, request.url, bucket, key);
         return withCors(json({ downloadUrl }), cors);
       } catch (err) {
-        if (err instanceof Response) return withCors(err, cors);
-        return withCors(json({ error: "Could not generate download URL" }, 500), cors);
+        const message = err instanceof Error ? err.message : "Could not generate download URL";
+        return withCors(json({ error: message }, 500), cors);
       }
     }
 
@@ -162,3 +189,61 @@ export default {
     return withCors(json({ error: "Not found" }, 404), cors);
   },
 };
+
+// ── Stream handler ────────────────────────────────────────────────────────────
+
+async function handleStream(request: Request, env: Env, url: URL): Promise<Response> {
+  // Parse /dl/<bucket>/<key...>
+  const pathAfterDl = url.pathname.slice(4); // strip "/dl/"
+  const slashIdx = pathAfterDl.indexOf("/");
+  if (slashIdx === -1) {
+    return json({ error: "Invalid stream path" }, 400);
+  }
+
+  const bucket = decodeURIComponent(pathAfterDl.slice(0, slashIdx));
+  const key = decodeURIComponent(pathAfterDl.slice(slashIdx + 1));
+
+  if (!isDownloadableBucket(bucket)) {
+    return json({ error: `Bucket not allowed: ${bucket}` }, 403);
+  }
+  if (!isValidKey(key)) {
+    return json({ error: "Invalid key" }, 400);
+  }
+
+  const exp = url.searchParams.get("exp");
+  const sig = url.searchParams.get("sig");
+  if (!exp || !sig) {
+    return json({ error: "Missing signature parameters" }, 401);
+  }
+
+  const valid = await verifySignedUrl(env, bucket, key, exp, sig);
+  if (!valid) {
+    return json({ error: "Invalid or expired signature" }, 403);
+  }
+
+  const rangeHeader = request.headers.get("Range");
+  const obj = await getObject(env, bucket, key, rangeHeader);
+  if (!obj) {
+    return json({ error: "Object not found" }, 404);
+  }
+
+  const headers = new Headers();
+  headers.set("Content-Type", obj.httpMetadata?.contentType ?? "video/mp4");
+  headers.set("Accept-Ranges", "bytes");
+  headers.set("Cache-Control", "private, max-age=3600");
+  headers.set("X-Content-Type-Options", "nosniff");
+
+  if (obj.size !== undefined) {
+    if (rangeHeader && obj.range) {
+      const range = obj.range as { offset: number; length: number };
+      const start = range.offset;
+      const end = start + range.length - 1;
+      headers.set("Content-Length", String(range.length));
+      headers.set("Content-Range", `bytes ${start}-${end}/${obj.size}`);
+      return new Response(obj.body, { status: 206, headers });
+    }
+    headers.set("Content-Length", String(obj.size));
+  }
+
+  return new Response(obj.body, { status: 200, headers });
+}

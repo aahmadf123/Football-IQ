@@ -1,19 +1,34 @@
 /**
- * Cloudflare R2 helpers — upload proxy and download URL generation.
+ * Cloudflare R2 helpers — upload proxy, signed streaming URLs, and object retrieval.
  *
  * Upload flow:
- *   1. Client calls POST /api/v1/videos/upload-url → { uploadUrl, key }
+ *   1. Client calls POST /api/v1/videos/upload-url -> { uploadUrl, key }
  *   2. Client PUTs the file body to the returned uploadUrl (Worker proxy)
  *   3. Worker writes the body to the R2 bucket via its binding
  *
- * Download flow:
- *   - GET /api/v1/videos/:videoId/download still returns a synthetic URL
- *     (future: real presigned S3-compat URL).
+ * Download / playback flow:
+ *   1. Client calls GET /api/v1/videos/download-url?bucket=raw-video&key=raw/...
+ *      (authenticated via Bearer JWT) -> { downloadUrl }
+ *   2. downloadUrl is an HMAC-signed Worker URL:
+ *      /dl/<bucket>/<key>?exp=<unix>&sig=<hex>
+ *   3. <video src={downloadUrl}> fetches the URL; the Worker verifies the
+ *      signature, reads the object from R2, and streams it with proper
+ *      Content-Type, Content-Length, Accept-Ranges, and Range support.
  */
 
 import type { Env } from "./types.js";
 
 export type R2BucketName = "raw-video" | "clips" | "overlays" | "artifacts";
+
+/** Buckets the download endpoint is allowed to serve. */
+const DOWNLOADABLE_BUCKETS: ReadonlySet<string> = new Set<string>([
+  "raw-video",
+  "clips",
+]);
+
+export function isDownloadableBucket(name: string): name is "raw-video" | "clips" {
+  return DOWNLOADABLE_BUCKETS.has(name);
+}
 
 export function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
   switch (bucketName) {
@@ -28,18 +43,13 @@ export function getBucket(env: Env, bucketName: R2BucketName): R2Bucket {
   }
 }
 
-/**
- * Build the Worker proxy upload URL for a given key.
- * The frontend PUTs the file body directly to this URL.
- */
+// ── Upload helpers ───────────────────────────────────────────────────────────
+
 export function buildUploadProxyUrl(requestUrl: string, key: string): string {
   const base = new URL(requestUrl);
   return `${base.origin}/api/v1/videos/upload/${encodeURIComponent(key)}`;
 }
 
-/**
- * Write a request body directly to R2 via the Worker binding.
- */
 export async function putObject(
   env: Env,
   bucketName: R2BucketName,
@@ -55,22 +65,114 @@ export async function putObject(
   return bucket.put(key, body, { httpMetadata });
 }
 
+// ── Signed-URL helpers ───────────────────────────────────────────────────────
+
+function hexEncode(buf: ArrayBuffer): string {
+  return [...new Uint8Array(buf)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function hmacSign(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return hexEncode(sig);
+}
+
 /**
- * Create a presigned GET URL so a client can download directly from R2.
+ * Validate that a key does not attempt path traversal.
+ * Rejects keys containing `..`, leading `/`, or null bytes.
  */
-export async function createDownloadUrl(
+export function isValidKey(key: string): boolean {
+  if (!key || key.length === 0) return false;
+  if (key.includes("\0")) return false;
+  if (key.startsWith("/")) return false;
+  if (key.includes("..")) return false;
+  return true;
+}
+
+/**
+ * Build an HMAC-signed streaming URL for a given bucket + key.
+ * The URL is valid for `ttlSeconds` (default 1 hour).
+ */
+export async function createSignedStreamUrl(
   env: Env,
-  bucketName: R2BucketName,
+  requestUrl: string,
+  bucketName: string,
   key: string,
   ttlSeconds = 3600,
 ): Promise<string> {
-  const bucket = getBucket(env, bucketName);
-  const head = await bucket.head(key);
-  if (!head) {
-    throw new Response(`Object not found: ${key}`, { status: 404 });
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const message = `${bucketName}:${key}:${exp}`;
+  const sig = await hmacSign(env.JWT_SECRET, message);
+  const base = new URL(requestUrl);
+  const encodedKey = key
+    .split("/")
+    .map((s) => encodeURIComponent(s))
+    .join("/");
+  const dlUrl = new URL(`/dl/${encodeURIComponent(bucketName)}/${encodedKey}`, base.origin);
+  dlUrl.searchParams.set("exp", String(exp));
+  dlUrl.searchParams.set("sig", sig);
+  return dlUrl.toString();
+}
+
+/**
+ * Verify an HMAC signature for a signed streaming URL.
+ */
+export async function verifySignedUrl(
+  env: Env,
+  bucketName: string,
+  key: string,
+  exp: string,
+  sig: string,
+): Promise<boolean> {
+  const expNum = parseInt(exp, 10);
+  if (isNaN(expNum) || expNum < Math.floor(Date.now() / 1000)) {
+    return false;
   }
-  const url = new URL(`https://r2-proxy.internal/${bucketName}/${key}`);
-  url.searchParams.set("action", "download");
-  url.searchParams.set("expires", String(Math.floor(Date.now() / 1000) + ttlSeconds));
-  return url.toString();
+  const message = `${bucketName}:${key}:${exp}`;
+  const expected = await hmacSign(env.JWT_SECRET, message);
+  return sig === expected;
+}
+
+/**
+ * Retrieve an R2 object, optionally with a Range header for partial content.
+ */
+export async function getObject(
+  env: Env,
+  bucketName: "raw-video" | "clips",
+  key: string,
+  rangeHeader?: string | null,
+): Promise<R2ObjectBody | null> {
+  const bucket = getBucket(env, bucketName);
+  const options: R2GetOptions = {};
+  if (rangeHeader) {
+    options.range = parseRangeHeader(rangeHeader);
+  }
+  const obj = await bucket.get(key, options);
+  return obj;
+}
+
+/**
+ * Parse an HTTP Range header into R2's range format.
+ * Supports `bytes=start-end` and `bytes=start-`.
+ */
+function parseRangeHeader(
+  header: string,
+): { offset: number; length?: number } | undefined {
+  const match = /^bytes=(\d+)-(\d*)$/.exec(header.trim());
+  if (!match) return undefined;
+  const start = parseInt(match[1], 10);
+  if (match[2]) {
+    const end = parseInt(match[2], 10);
+    return { offset: start, length: end - start + 1 };
+  }
+  return { offset: start };
 }
