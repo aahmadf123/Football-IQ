@@ -1234,3 +1234,19 @@ class ReportJob(Base):
     )
 
     requester: Mapped["User | None"] = relationship("User", foreign_keys=[requested_by])
+
+
+# ── CFBD cache tables (Issues #160/#161/#162) ──────────────────────────────────
+# Imported here so the College Football Data cache tables register with
+# ``Base.metadata`` (Alembic autogenerate + the test suite see them) without
+# bloating this module. The models themselves live in ``app.cfbd.models``.
+from app.cfbd.models import (  # noqa: E402,F401
+    CFBDDrive,
+    CFBDGame,
+    CFBDPlay,
+    CFBDSyncRun,
+    CFBDSyncStatus,
+    CFBDTeam,
+    CFBDTeamGameStat,
+    CFBDWinProbability,
+)

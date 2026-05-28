@@ -109,6 +109,26 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## College Football Data (CFBD)
+
+| Field | Detail |
+|---|---|
+| **Resource** | College Football Data (CFBD) API |
+| **Sport coverage** | College football ✅ (American football — Toledo Rockets / MAC). Not soccer. |
+| **Toledo / MAC relevance** | Direct — Toledo + MAC schedules, games, drives, plays, team game stats, win probability. |
+| **Source URL** | https://collegefootballdata.com (org: https://github.com/CFBD; ecosystem: https://cfbfastr.sportsdataverse.org) |
+| **License / access terms** | Free API; account-issued API key required. Review CFBD terms and rate limits before any external/commercial deployment. |
+| **Runtime category** | Production API (backend-only) → cached ingestion into Postgres. |
+| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`) — backend env / Fly.io / GitHub Actions secret. Never exposed to frontend, browser bundles, logs, or coach-visible errors, and never stored in the database. |
+| **Data privacy risk** | None expected — public team/game statistics. No PII, medical, or recruiting data ingested in v1. |
+| **Model-router / registry path** | N/A — data integration, not an inference model. |
+| **Overlap with closed decisions** | None. Single-camera (#101), pgvector (#8/#77), SAM (#74) decisions are untouched. |
+| **Calibrated-tracking dependency** | None. |
+| **Football-IQ usage** | Issues #160/#161/#162 — backend `app/cfbd/` client + `cfbd_*` Postgres cache tables (migration 0016). Synced via `python -m app.cfbd --season <year>`. Cached data is served without live vendor calls; CFBD is never called from the frontend. |
+| **Notes** | No vendor key is committed, logged, returned to clients, or written to the database. Cached rows remain available when CFBD is unavailable. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.

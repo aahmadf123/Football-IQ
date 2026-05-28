@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000"
 
+    # ── College Football Data (CFBD) — backend-only (Issues #160/#161/#162) ─
+    # Vendor integration for Toledo/MAC analytics. The key is read by the
+    # backend ONLY and must never reach frontend code, browser bundles, logs,
+    # or coach-visible errors. ``cfbd_api_key`` defaults to empty so the app
+    # boots without it; the client fails safely with a backend-only error when
+    # a CFBD call is attempted without a key (see app.cfbd.client).
+    cfbd_api_key: str = ""
+    cfbd_base_url: str = "https://api.collegefootballdata.com"
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:
