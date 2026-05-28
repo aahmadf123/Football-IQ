@@ -1,7 +1,8 @@
-"""Health-check router — /health, /ready, and /live."""
+"""Health-check router — /health, /ready, /live, and /api/v1/health/workload."""
 
 import os
 import time
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends
@@ -9,6 +10,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.governance import Action, Resource, audit_event, require_policy
+from app.models import User
+from app.workload import assess_workload
 
 router = APIRouter(tags=["health"])
 log = structlog.get_logger(__name__)
@@ -54,3 +58,25 @@ async def ready(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
         raise HTTPException(status_code=503, detail={"status": "not_ready", "checks": checks})
 
     return {"status": "ready", "checks": checks}
+
+
+@router.get("/api/v1/health/workload")
+async def health_workload(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[User, Depends(require_policy(Resource.HEALTH_WORKLOAD, Action.READ))],
+) -> dict[str, object]:
+    """Return the current workload snapshot used by the gating layer.
+
+    Restricted to sportsperformance / analyst / admin roles (see
+    :data:`app.governance.POLICY`).  The payload contains only aggregate job
+    counts and thresholds — never per-player health, names, or other PII.
+    """
+    snapshot = await assess_workload(db)
+    audit_event(
+        "audit.health_workload.read",
+        actor_id=user.id,
+        actor_role=user.role.value,
+        resource=Resource.HEALTH_WORKLOAD.value,
+        action=Action.READ.value,
+    )
+    return snapshot.to_dict()
