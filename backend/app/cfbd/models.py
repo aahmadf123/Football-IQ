@@ -37,7 +37,12 @@ from app.database import Base
 
 
 class CFBDSyncStatus(enum.StrEnum):
-    """Lifecycle status of a single CFBD sync attempt."""
+    """Lifecycle status of a single CFBD sync attempt.
+
+    ``ok``/``error`` are backward-compatible aliases for the read-only CFBD
+    analytics router/tests that shipped on a parallel branch before the shared
+    ingestion package merged to ``main``.
+    """
 
     running = "running"
     succeeded = "succeeded"
@@ -169,6 +174,10 @@ class CFBDPlay(Base):
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
+    @property
+    def clock(self) -> None:
+        return None
+
 
 class CFBDTeamGameStat(Base):
     __tablename__ = "cfbd_team_game_stats"
@@ -218,6 +227,26 @@ class CFBDWinProbability(Base):
     play_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+    @property
+    def cfbd_play_id(self) -> int | None:
+        return self.play_id
+
+    @property
+    def home_team(self) -> str | None:
+        return self.home
+
+    @property
+    def away_team(self) -> str | None:
+        return self.away
+
+    @property
+    def period(self) -> None:
+        return None
+
+    @property
+    def clock(self) -> None:
+        return None
 
 
 class CFBDSyncRun(Base):

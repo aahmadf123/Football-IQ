@@ -342,7 +342,7 @@ async def get_game_plays(
             offense=p.offense,
             defense=p.defense,
             period=p.period,
-            clock=getattr(p, "clock", None),
+            clock=p.clock,
             down=p.down,
             distance=p.distance,
             yard_line=p.yard_line,
@@ -415,11 +415,11 @@ async def get_game_win_probability(
     timeline = [
         CfbdWinProbOut(
             play_number=w.play_number,
-            home_team=getattr(w, "home_team", getattr(w, "home", None)),
-            away_team=getattr(w, "away_team", getattr(w, "away", None)),
+            home_team=w.home_team,
+            away_team=w.away_team,
             home_win_prob=w.home_win_prob,
-            period=getattr(w, "period", None),
-            clock=getattr(w, "clock", None),
+            period=w.period,
+            clock=w.clock,
             play_text=w.play_text,
         )
         for w in rows
