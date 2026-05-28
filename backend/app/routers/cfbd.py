@@ -29,7 +29,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -51,7 +50,6 @@ from app.models import (
 )
 from app.workload import require_workload_capacity
 
-log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/cfbd", tags=["cfbd"])
 
 # The school name CFBD uses for the Toledo Rockets and the MAC conference label.
@@ -129,7 +127,6 @@ class CfbdPlayOut(BaseModel):
     offense: str | None
     defense: str | None
     period: int | None
-    clock: str | None
     down: int | None
     distance: int | None
     yard_line: int | None
@@ -169,8 +166,6 @@ class CfbdWinProbOut(BaseModel):
     home_team: str | None
     away_team: str | None
     home_win_prob: float | None
-    period: int | None
-    clock: str | None
     play_text: str | None
 
 
@@ -342,7 +337,6 @@ async def get_game_plays(
             offense=p.offense,
             defense=p.defense,
             period=p.period,
-            clock=p.clock,
             down=p.down,
             distance=p.distance,
             yard_line=p.yard_line,
@@ -418,8 +412,6 @@ async def get_game_win_probability(
             home_team=w.home_team,
             away_team=w.away_team,
             home_win_prob=w.home_win_prob,
-            period=w.period,
-            clock=w.clock,
             play_text=w.play_text,
         )
         for w in rows
@@ -496,14 +488,7 @@ def _public_sync_status(status: Any) -> str:
 def _opponent_points(
     row: CfbdTeamGameStat, points_by_game_team: dict[tuple[int, str], int]
 ) -> int | None:
-    """Best-effort opponent score from the flexible ``stats`` bag."""
-    stats = row.stats or {}
-    if isinstance(stats, dict):
-        value = stats.get("opponent_points")
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value)
+    """Look up the opponent's score for ``row`` from the same game."""
     opponent = getattr(row, "opponent", None)
     if row.cfbd_game_id is not None and opponent:
         return points_by_game_team.get((row.cfbd_game_id, opponent))

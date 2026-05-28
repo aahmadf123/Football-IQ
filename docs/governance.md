@@ -123,9 +123,14 @@ retry strategies.  Every decision (allowed or rejected) is emitted as
 * `POST /api/v1/jobs/{id}/retry`
 * `GET /api/cfbd/mac/benchmark` (Issue #163 — cross-conference aggregation)
 
-These two endpoints currently authorize via `require_any_staff` and apply
-workload gating independently. The `heavy_workload:trigger` policy row is
-reserved for endpoints that explicitly opt into `require_policy(...)`.
+`POST /api/v1/jobs` and `POST /api/v1/jobs/{id}/retry` authorize via
+`require_any_staff` and apply workload gating independently.
+`GET /api/cfbd/mac/benchmark` authorizes via the
+`require_policy(Resource.CFBD_ANALYTICS, Action.READ)` gate (coaching
+staff only) and additionally applies workload gating because the
+benchmark aggregates across the whole conference. The
+`heavy_workload:trigger` policy row is reserved for endpoints that
+explicitly opt into `require_policy(...)`.
 
 The gating dependency is intentionally cheap and reusable — apply it to
 additional heavy endpoints (embedding rebuilds, video re-renders, bulk

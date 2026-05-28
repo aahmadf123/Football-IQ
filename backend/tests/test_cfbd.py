@@ -26,7 +26,7 @@ from app.main import app
 from app.models import CfbdSyncStatus, User, UserRole
 from fastapi.testclient import TestClient
 
-NOW = datetime(2026, 5, 28, 12, 0, tzinfo=UTC)
+NOW = datetime.now(UTC)
 
 
 # ── Fixtures / helpers ─────────────────────────────────────────────────────────
@@ -251,22 +251,36 @@ def test_game_drives_and_win_probability_empty() -> None:
 def test_mac_benchmark_aggregates() -> None:
     rows = [
         SimpleNamespace(
+            cfbd_game_id=1,
             team="Toledo",
             conference="Mid-American",
+            opponent="Akron",
             points=31,
-            stats={"opponent_points": 10},
+            stats=[],
         ),
         SimpleNamespace(
+            cfbd_game_id=2,
             team="Toledo",
             conference="Mid-American",
+            opponent="Ball State",
             points=24,
-            stats={"opponent_points": 20},
+            stats=[],
         ),
         SimpleNamespace(
+            cfbd_game_id=1,
             team="Akron",
             conference="Mid-American",
+            opponent="Toledo",
             points=10,
-            stats={"opponent_points": 31},
+            stats=[],
+        ),
+        SimpleNamespace(
+            cfbd_game_id=2,
+            team="Ball State",
+            conference="Mid-American",
+            opponent="Toledo",
+            points=20,
+            stats=[],
         ),
     ]
     db = _make_db(

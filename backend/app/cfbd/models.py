@@ -174,10 +174,6 @@ class CFBDPlay(Base):
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
-    @property
-    def clock(self) -> None:
-        return None
-
 
 class CFBDTeamGameStat(Base):
     __tablename__ = "cfbd_team_game_stats"
@@ -239,14 +235,6 @@ class CFBDWinProbability(Base):
     @property
     def away_team(self) -> str | None:
         return self.away
-
-    @property
-    def period(self) -> None:
-        return None
-
-    @property
-    def clock(self) -> None:
-        return None
 
 
 class CFBDSyncRun(Base):
