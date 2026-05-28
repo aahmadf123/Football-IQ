@@ -2,10 +2,13 @@
 
 Adds the outward-facing visibility lifecycle to ``players`` and a
 ``player_visibility_audit`` append-only table that records every state
-transition.  See ``docs/governance.md`` for the full policy.
+transition. See ``docs/governance.md`` for the full policy.
 
-States: ``staff_only`` (default), ``player_approved``, ``recruiting_approved``,
-``archived``.
+States:
+    ``staff_only`` (default)
+    ``player_approved``
+    ``recruiting_approved``
+    ``archived``
 
 Revision ID: 0012
 Revises: 0011
@@ -24,19 +27,19 @@ depends_on: str | Sequence[str] | None = None
 
 
 ENUM_NAME = "player_visibility_state"
-ENUM_VALUES = ("staff_only", "player_approved", "recruiting_approved", "archived")
+ENUM_VALUES = (
+    "staff_only",
+    "player_approved",
+    "recruiting_approved",
+    "archived",
+)
 
 
 def upgrade() -> None:
     conn = op.get_bind()
 
     # Create the enum type idempotently.
-    enum_exists = conn.execute(
-        sa.text(
-            "SELECT 1 FROM pg_type WHERE typname = :name"
-        ),
-        {"name": ENUM_NAME},
-    ).scalar()
+    enum_exists = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = :name"), {"name": ENUM_NAME}).scalar()
     if not enum_exists:
         sa.Enum(*ENUM_VALUES, name=ENUM_NAME).create(conn, checkfirst=False)
 
