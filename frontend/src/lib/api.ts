@@ -13,9 +13,15 @@ import type {
   ApiVideo,
   ClipOverlayPayload,
   OpponentSummary,
+  ReportCreateRequest,
+  ReportDownloadResponse,
+  ReportJob,
   SelfScoutResponse,
   SessionKind,
   SourceType,
+  SystemSettingsResponse,
+  SystemSettingsUpdate,
+  UserPreferences,
   OurPossession,
 } from "./types";
 
@@ -557,6 +563,107 @@ export function r2KeySuffixFromStorageUri(uri: string | null | undefined): strin
   if (!uri) return null;
   const m = /^r2:\/\/raw-video\/raw\/(.+)$/.exec(uri);
   return m ? m[1] : null;
+}
+
+// ── Settings (Issue #112) ────────────────────────────────────────────────────
+
+export async function getSystemSettings(
+  token?: string,
+): Promise<SystemSettingsResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<SystemSettingsResponse>(`${base}/api/v1/settings/system`, token);
+}
+
+export async function updateSystemSettings(
+  patch: SystemSettingsUpdate,
+  token?: string,
+): Promise<SystemSettingsResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const res = await fetch(`${base}/api/v1/settings/system`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Settings update failed (${res.status}): ${body}`);
+  }
+  return res.json() as Promise<SystemSettingsResponse>;
+}
+
+export async function getUserPreferences(
+  token?: string,
+): Promise<UserPreferences> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<UserPreferences>(`${base}/api/v1/settings/me`, token);
+}
+
+export async function updateUserPreferences(
+  patch: Partial<UserPreferences>,
+  token?: string,
+): Promise<UserPreferences> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const res = await fetch(`${base}/api/v1/settings/me`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Preferences update failed (${res.status}): ${body}`);
+  }
+  return res.json() as Promise<UserPreferences>;
+}
+
+// ── Reports (Issue #111) ─────────────────────────────────────────────────────
+
+export async function listReports(token?: string): Promise<ReportJob[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ReportJob[]>(`${base}/api/v1/reports`, token);
+}
+
+export async function createReport(
+  body: ReportCreateRequest,
+  token?: string,
+): Promise<ReportJob> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const res = await fetch(`${base}/api/v1/reports`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Report request failed (${res.status}): ${errorBody}`);
+  }
+  return res.json() as Promise<ReportJob>;
+}
+
+export async function getReport(
+  reportId: string,
+  token?: string,
+): Promise<ReportJob> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ReportJob>(`${base}/api/v1/reports/${reportId}`, token);
+}
+
+export async function getReportDownloadUrl(
+  reportId: string,
+  token?: string,
+): Promise<ReportDownloadResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ReportDownloadResponse>(
+    `${base}/api/v1/reports/${reportId}/download`,
+    token,
+  );
 }
 
 /**

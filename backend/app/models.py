@@ -180,6 +180,14 @@ class PlayerVisibilityState(enum.StrEnum):
     archived = "archived"
 
 
+class ReportFormat(enum.StrEnum):
+    """Output format for a generated coaching report (Issue #111)."""
+
+    pdf = "pdf"
+    csv = "csv"
+    json = "json"
+
+
 # ── Models ────────────────────────────────────────────────────────────────────
 
 
@@ -1096,3 +1104,100 @@ class PlayerVisibilityAudit(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ── Settings (Issue #112) ─────────────────────────────────────────────────────
+
+
+class SystemSetting(Base):
+    """System-wide configuration as flexible KV rows.
+
+    One row per logical key (e.g. ``"system_config"``, ``"model_sensitivity"``).
+    ``value`` is a JSON blob whose shape is validated by the Pydantic schemas
+    in ``app.schemas.settings``. Reads always merge persisted values over the
+    schema defaults so absent rows still produce a populated config response.
+    """
+
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class UserSetting(Base):
+    """Per-user preference rows.
+
+    Composite PK on ``(user_id, key)`` so a user can store any number of
+    independent preference blobs. Schemas in ``app.schemas.settings`` define
+    the known keys and their shapes.
+    """
+
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+# ── Reports (Issue #111) ──────────────────────────────────────────────────────
+
+
+class ReportJob(Base):
+    """Async report export tracking.
+
+    Deliberately separate from :class:`ProcessingJob` (which is wired to the
+    GPU pipeline + Cloudflare Queues): report generation runs in-process via
+    FastAPI ``BackgroundTasks`` and produces lightweight artifacts (PDF/CSV/
+    JSON) uploaded to R2. Status reuses :class:`JobStatus` so the frontend can
+    share status pill rendering across both job kinds.
+    """
+
+    __tablename__ = "report_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    format: Mapped[ReportFormat] = mapped_column(
+        Enum(ReportFormat, name="report_format"), nullable=False
+    )
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(JobStatus, name="job_status", create_type=False),
+        nullable=False,
+        default=JobStatus.queued,
+    )
+    # Section selections + filters (date range, session kind, etc.)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # R2 URI of the generated artifact, populated on success.
+    output_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    requester: Mapped["User | None"] = relationship("User", foreign_keys=[requested_by])

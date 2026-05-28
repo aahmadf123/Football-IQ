@@ -13,13 +13,29 @@ import {
   Upload,
   UserRound,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
 import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
 import { useAppState, SIDE_LABELS, type ApiStatus, type UploadPhase } from "@/lib/app-state";
-import type { VideoInboxItem } from "@/lib/api";
+import {
+  createReport,
+  getReport,
+  getReportDownloadUrl,
+  getSystemSettings,
+  listReports,
+  updateSystemSettings,
+  type VideoInboxItem,
+} from "@/lib/api";
 import { MockBadge } from "@/components/mock-badge";
-import type { FootballData, PageKey, PlayerSummary, PlaySummary } from "@/lib/types";
+import type {
+  FootballData,
+  PageKey,
+  PlayerSummary,
+  PlaySummary,
+  ReportFormat,
+  ReportJob,
+  SystemSettingsResponse,
+} from "@/lib/types";
 
 export function PageRenderer({ page }: { page: PageKey }) {
   const state = useAppState();
@@ -702,73 +718,270 @@ function HealthWorkload({ data }: { data: FootballData }) {
   );
 }
 
-function Reports({ data, onUploadClick }: { data: FootballData; onUploadClick: () => void }) {
-  const [selections, setSelections] = useState<Record<string, boolean>>({});
-  const sections = ["Self-scout exposure", "Position group development", "Model quality", "Opponent prep package"];
+const REPORT_SECTIONS: readonly string[] = [
+  "Self-scout exposure",
+  "Position group development",
+  "Model quality",
+  "Opponent prep package",
+] as const;
 
-  const generate = () => {
-    const picked = sections.filter((s) => selections[s] !== false);
-    if (picked.length === 0) {
-      alert("Select at least one section to include in the report.");
+const REPORT_POLL_INTERVAL_MS = 2000;
+const REPORT_POLL_TIMEOUT_MS = 120_000;
+
+function Reports({ data, onUploadClick }: { data: FootballData; onUploadClick: () => void }) {
+  const { authToken } = useAppState();
+  const [selections, setSelections] = useState<Record<string, boolean>>({});
+  const [format, setFormat] = useState<ReportFormat>("pdf");
+  const [reports, setReports] = useState<ReportJob[]>([]);
+  const [listStatus, setListStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [listError, setListError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const pollHandles = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  const refreshList = useCallback(async () => {
+    if (!authToken) {
+      setListStatus("idle");
       return;
     }
-    const lines = [
-      "TOLEDO FOOTBALL IQ — Coaching Report",
-      `Generated: ${new Date().toLocaleString()}`,
-      "",
-      ...picked.map((s) => `- ${s}`),
-      "",
-      `Total plays: ${data.plays.length}`,
-      `Total clips: ${data.clips.length}`,
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `toledo-football-report-${new Date().toISOString().slice(0, 10)}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setListStatus("loading");
+    setListError(null);
+    try {
+      const items = await listReports(authToken);
+      setReports(items);
+      setListStatus("idle");
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err));
+      setListStatus("error");
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
+
+  // Clean up outstanding polls on unmount.
+  useEffect(() => {
+    return () => {
+      pollHandles.current.forEach((h) => clearTimeout(h));
+      pollHandles.current.clear();
+    };
+  }, []);
+
+  const pollReport = useCallback(
+    (reportId: string) => {
+      if (!authToken) return;
+      const start = Date.now();
+      const tick = async () => {
+        try {
+          const job = await getReport(reportId, authToken);
+          setReports((cur) => cur.map((r) => (r.id === reportId ? job : r)));
+          if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") {
+            return;
+          }
+          if (Date.now() - start > REPORT_POLL_TIMEOUT_MS) return;
+          const h = setTimeout(() => {
+            pollHandles.current.delete(h);
+            void tick();
+          }, REPORT_POLL_INTERVAL_MS);
+          pollHandles.current.add(h);
+        } catch {
+          // On a transient error, stop polling — the user can refresh manually.
+        }
+      };
+      void tick();
+    },
+    [authToken],
+  );
+
+  const handleGenerate = async () => {
+    if (!authToken) {
+      setGenerateError("You must be signed in to generate a report.");
+      return;
+    }
+    const picked = REPORT_SECTIONS.filter((s) => selections[s] !== false);
+    if (picked.length === 0) {
+      setGenerateError("Select at least one section to include.");
+      return;
+    }
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const job = await createReport(
+        { report_type: "coaching_summary", format, sections: [...picked] },
+        authToken,
+      );
+      setReports((cur) => [job, ...cur]);
+      pollReport(job.id);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownload = async (reportId: string) => {
+    if (!authToken) return;
+    setDownloadingId(reportId);
+    try {
+      const { download_url } = await getReportDownloadUrl(reportId, authToken);
+      window.location.href = download_url;
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Report Builder</h2>
-        {sections.map((label) => (
+        {REPORT_SECTIONS.map((label) => (
           <div key={label} className="form-control" style={{ marginTop: 10 }}>
             <label>{label}</label>
             <select
               value={selections[label] === false ? "skip" : "include"}
-              onChange={(e) => setSelections((cur) => ({ ...cur, [label]: e.target.value === "include" }))}
+              onChange={(e) =>
+                setSelections((cur) => ({ ...cur, [label]: e.target.value === "include" }))
+              }
             >
               <option value="include">Include in packet</option>
               <option value="skip">Skip this section</option>
             </select>
           </div>
         ))}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button className="control-button primary" onClick={generate}><Download size={15} /> Generate Report</button>
-          <button className="control-button" onClick={onUploadClick}><Upload size={15} /> Add Film</button>
+        <div className="form-control" style={{ marginTop: 10 }}>
+          <label>Format</label>
+          <select value={format} onChange={(e) => setFormat(e.target.value as ReportFormat)}>
+            <option value="pdf">PDF</option>
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </select>
         </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button
+            className="control-button primary"
+            onClick={handleGenerate}
+            disabled={generating || !authToken}
+          >
+            <Download size={15} /> {generating ? "Requesting…" : "Generate Report"}
+          </button>
+          <button className="control-button" onClick={onUploadClick}>
+            <Upload size={15} /> Add Film
+          </button>
+        </div>
+        {!authToken && (
+          <p className="kicker" style={{ marginTop: 8 }}>
+            Sign in to generate and download reports.
+          </p>
+        )}
+        {generateError && (
+          <p className="kicker" style={{ marginTop: 8, color: "var(--danger, crimson)" }}>
+            {generateError}
+          </p>
+        )}
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Preview</h2>
-        <div style={{ minHeight: 270, borderRadius: 7, background: "oklch(0.94 0.01 252)", color: "oklch(0.18 0.04 252)", padding: 22 }}>
-          <strong>TOLEDO FOOTBALL IQ</strong>
-          <p>Practice intelligence report · {new Date().toLocaleDateString()}</p>
+        <div
+          style={{
+            minHeight: 270,
+            borderRadius: 7,
+            background: "oklch(0.94 0.01 252)",
+            color: "oklch(0.18 0.04 252)",
+            padding: 22,
+          }}
+        >
+          <strong>FOOTBALL-IQ COACHING REPORT</strong>
+          <p>Generated from live database aggregates</p>
           <hr />
-          <p>Top insight: Inside Zone success rate is up 18% this week.</p>
-          <p>{data.plays.length} plays · {data.clips.length} clips reviewed</p>
+          <p>
+            {data.plays.length} plays · {data.clips.length} clips · {data.videos.length} videos in
+            current session view
+          </p>
+          <p className="kicker" style={{ marginTop: 8 }}>
+            Sections selected:{" "}
+            {REPORT_SECTIONS.filter((s) => selections[s] !== false).join(", ") || "none"}
+          </p>
         </div>
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Export Queue</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          {data.videos.map((video) => <MetricLine key={video.id} label={video.filename} value={video.status} />)}
-        </div>
+        {listStatus === "loading" && (
+          <p className="kicker" style={{ marginTop: 12 }}>
+            Loading reports…
+          </p>
+        )}
+        {listStatus === "error" && (
+          <p className="kicker" style={{ marginTop: 12, color: "var(--danger, crimson)" }}>
+            {listError ?? "Failed to load reports."}
+          </p>
+        )}
+        {listStatus === "idle" && reports.length === 0 && (
+          <p className="kicker" style={{ marginTop: 12 }}>
+            No reports yet — pick sections and click Generate.
+          </p>
+        )}
+        {reports.length > 0 && (
+          <div className="list-stack" style={{ marginTop: 12 }}>
+            {reports.map((report) => (
+              <ReportRow
+                key={report.id}
+                report={report}
+                downloading={downloadingId === report.id}
+                onDownload={() => handleDownload(report.id)}
+              />
+            ))}
+          </div>
+        )}
       </section>
+    </div>
+  );
+}
+
+function ReportRow({
+  report,
+  downloading,
+  onDownload,
+}: {
+  report: ReportJob;
+  downloading: boolean;
+  onDownload: () => void;
+}) {
+  const stamp = new Date(report.created_at).toLocaleString();
+  const subtitle =
+    report.status === "failed" && report.error_message
+      ? `failed: ${report.error_message}`
+      : `${report.format.toUpperCase()} · ${stamp}`;
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 4px",
+        borderBottom: "1px solid var(--line-soft)",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{report.status}</div>
+        <div
+          className="kicker"
+          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          {subtitle}
+        </div>
+      </div>
+      {report.status === "succeeded" ? (
+        <button className="control-button" onClick={onDownload} disabled={downloading}>
+          <Download size={13} /> {downloading ? "…" : "Download"}
+        </button>
+      ) : (
+        <span className="kicker">{report.status === "failed" ? "—" : "in progress"}</span>
+      )}
     </div>
   );
 }
@@ -836,25 +1049,216 @@ function ClipsHighlights() {
 }
 
 function SettingsView({ data }: { data: FootballData }) {
+  const { authToken } = useAppState();
+  const [settings, setSettings] = useState<SystemSettingsResponse | null>(null);
+  const [draft, setDraft] = useState<SystemSettingsResponse | null>(null);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("loading");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<null | "system_config" | "model_sensitivity">(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedSection, setSavedSection] = useState<null | "system_config" | "model_sensitivity">(
+    null,
+  );
+
+  useEffect(() => {
+    if (!authToken) {
+      setLoadState("idle");
+      return;
+    }
+    let cancelled = false;
+    setLoadState("loading");
+    setLoadError(null);
+    getSystemSettings(authToken)
+      .then((s) => {
+        if (cancelled) return;
+        setSettings(s);
+        setDraft(s);
+        setLoadState("idle");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        setLoadState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
+  const save = async (section: "system_config" | "model_sensitivity") => {
+    if (!authToken || !draft) return;
+    setSaving(section);
+    setSaveError(null);
+    setSavedSection(null);
+    try {
+      const updated = await updateSystemSettings({ [section]: draft[section] }, authToken);
+      setSettings(updated);
+      setDraft(updated);
+      setSavedSection(section);
+      setTimeout(() => setSavedSection((cur) => (cur === section ? null : cur)), 2500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(msg);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const updateSystemConfig = <K extends keyof SystemSettingsResponse["system_config"]>(
+    key: K,
+    value: SystemSettingsResponse["system_config"][K],
+  ) => {
+    setDraft((cur) =>
+      cur ? { ...cur, system_config: { ...cur.system_config, [key]: value } } : cur,
+    );
+  };
+
+  const updateSensitivity = <K extends keyof SystemSettingsResponse["model_sensitivity"]>(
+    key: K,
+    value: SystemSettingsResponse["model_sensitivity"][K],
+  ) => {
+    setDraft((cur) =>
+      cur ? { ...cur, model_sensitivity: { ...cur.model_sensitivity, [key]: value } } : cur,
+    );
+  };
+
+  const systemDirty =
+    settings != null &&
+    draft != null &&
+    JSON.stringify(settings.system_config) !== JSON.stringify(draft.system_config);
+  const sensitivityDirty =
+    settings != null &&
+    draft != null &&
+    JSON.stringify(settings.model_sensitivity) !== JSON.stringify(draft.model_sensitivity);
+
   return (
     <div className="content-grid">
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">System Config <MockBadge status="mock" /></h2>
-        {/* Inputs are not yet wired to a settings endpoint. */}
-        {["Team name", "Capture camera", "S3/R2 bucket", "Auto-export access"].map((label) => (
-          <div key={label} className="form-control" style={{ marginTop: 10 }}>
-            <label>{label}</label>
-            <input defaultValue={label === "Team name" ? "Toledo Rockets" : "Configured"} />
-          </div>
-        ))}
+        <h2 className="panel-title">System Config</h2>
+        {loadState === "loading" && (
+          <p className="kicker" style={{ marginTop: 12 }}>
+            Loading settings…
+          </p>
+        )}
+        {loadState === "error" && (
+          <p className="kicker" style={{ marginTop: 12, color: "var(--danger, crimson)" }}>
+            {loadError ?? "Failed to load settings."}
+          </p>
+        )}
+        {!authToken && (
+          <p className="kicker" style={{ marginTop: 12 }}>
+            Sign in to view and edit system settings.
+          </p>
+        )}
+        {draft && (
+          <>
+            <div className="form-control" style={{ marginTop: 10 }}>
+              <label>Team name</label>
+              <input
+                value={draft.system_config.team_name}
+                maxLength={120}
+                onChange={(e) => updateSystemConfig("team_name", e.target.value)}
+              />
+            </div>
+            <div className="form-control" style={{ marginTop: 10 }}>
+              <label>Capture camera</label>
+              <input
+                value={draft.system_config.capture_camera}
+                maxLength={120}
+                onChange={(e) => updateSystemConfig("capture_camera", e.target.value)}
+              />
+            </div>
+            <div className="form-control" style={{ marginTop: 10 }}>
+              <label>S3/R2 bucket (display only)</label>
+              <input
+                value={draft.system_config.storage_bucket}
+                maxLength={120}
+                onChange={(e) => updateSystemConfig("storage_bucket", e.target.value)}
+              />
+            </div>
+            <div className="form-control" style={{ marginTop: 10 }}>
+              <label>Auto-export access</label>
+              <select
+                value={draft.system_config.auto_export_access}
+                onChange={(e) =>
+                  updateSystemConfig(
+                    "auto_export_access",
+                    e.target.value as SystemSettingsResponse["system_config"]["auto_export_access"],
+                  )
+                }
+              >
+                <option value="off">Off</option>
+                <option value="staff">Staff</option>
+                <option value="all">All users</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+              <button
+                className="control-button primary"
+                onClick={() => save("system_config")}
+                disabled={!systemDirty || saving === "system_config"}
+              >
+                {saving === "system_config" ? "Saving…" : "Save"}
+              </button>
+              {savedSection === "system_config" && (
+                <span className="kicker" style={{ color: "var(--ok, seagreen)" }}>
+                  Saved
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </section>
       <section className="panel panel-pad span-4">
         <h2 className="panel-title">Legal Taxonomy</h2>
         <TableSimple rows={[["Inside Zone", "Toledo"], ["Mesh", "Generic"], ["Duo", "Generic"], ["PA Boot", "Toledo"]]} />
       </section>
       <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Model Sensitivity <MockBadge status="mock" /></h2>
-        <BarList items={[["Boundary sensitivity", 68], ["Identity confidence", 82], ["Motion minimum", 72], ["Pose review gate", 88]]} />
+        <h2 className="panel-title">Model Sensitivity</h2>
+        {draft && (
+          <>
+            {(
+              [
+                ["boundary_sensitivity", "Boundary sensitivity"],
+                ["identity_confidence", "Identity confidence"],
+                ["motion_minimum", "Motion minimum"],
+                ["pose_review_gate", "Pose review gate"],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="form-control" style={{ marginTop: 10 }}>
+                <label>
+                  {label} ({draft.model_sensitivity[key]})
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={draft.model_sensitivity[key]}
+                  onChange={(e) => updateSensitivity(key, Number(e.target.value))}
+                />
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+              <button
+                className="control-button primary"
+                onClick={() => save("model_sensitivity")}
+                disabled={!sensitivityDirty || saving === "model_sensitivity"}
+              >
+                {saving === "model_sensitivity" ? "Saving…" : "Save"}
+              </button>
+              {savedSection === "model_sensitivity" && (
+                <span className="kicker" style={{ color: "var(--ok, seagreen)" }}>
+                  Saved
+                </span>
+              )}
+            </div>
+          </>
+        )}
+        {saveError && (
+          <p className="kicker" style={{ marginTop: 8, color: "var(--danger, crimson)" }}>
+            {saveError}
+          </p>
+        )}
       </section>
       <section className="panel panel-pad span-6">
         <h2 className="panel-title">Pipeline Monitor <MockBadge status="mock" /></h2>
