@@ -203,13 +203,12 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
     """Build the freshness block for ``source_endpoint`` from ``cfbd_sync_runs``."""
     settings = get_settings()
     stale_after = settings.cfbd_cache_stale_after_hours
-    endpoint_col = getattr(CfbdSyncRun, "endpoint")
     endpoint_names = SYNC_ENDPOINT_ALIASES.get(source_endpoint, (source_endpoint,))
 
     latest = (
         await db.execute(
             select(CfbdSyncRun)
-            .where(endpoint_col.in_(endpoint_names))
+            .where(CfbdSyncRun.endpoint.in_(endpoint_names))
             .order_by(desc(CfbdSyncRun.started_at))
             .limit(1)
         )
@@ -218,7 +217,7 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
     last_success = (
         await db.execute(
             select(CfbdSyncRun)
-            .where(endpoint_col.in_(endpoint_names))
+            .where(CfbdSyncRun.endpoint.in_(endpoint_names))
             .where(CfbdSyncRun.status.in_([CfbdSyncStatus.ok, CfbdSyncStatus.partial]))
             .order_by(desc(CfbdSyncRun.finished_at))
             .limit(1)
