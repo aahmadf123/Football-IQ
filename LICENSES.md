@@ -109,19 +109,23 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
-## CollegeFootballData (CFBD) API
+## College Football Data (CFBD)
 
 | Field | Detail |
 |---|---|
-| **Resource** | CollegeFootballData.com (CFBD) REST API |
-| **Sport coverage** | College (American) football ✅ — Toledo / MAC relevant |
-| **Source URL** | https://collegefootballdata.com — API https://api.collegefootballdata.com |
-| **License / access terms** | Free tier with API key (Patreon tiers for higher limits). Data is for non-commercial / analytical use; verify current terms before any commercial deployment. Attribution to CollegeFootballData.com is surfaced in the UI. |
-| **Runtime category** | Cached ingestion (backend-only) → read-only API. No live vendor call in the request path. |
-| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`). **Backend-only** — never exposed to the frontend, browser bundle, Workers, logs, or coach-visible errors. Not stored in the database. |
-| **Data privacy risk** | None — public college-football game data. No PII, medical, recruiting, or betting data ingested. |
-| **Model-router / registry path** | N/A — analytics data, not an inference model. |
-| **Football-IQ usage** | Issues #161 (backend client), #162 (Postgres cache), #163 (read-only `/api/cfbd/*` API + College Data frontend surface). Tables: `cfbd_teams/games/drives/plays/team_game_stats/win_probability/sync_runs`. |
+| **Resource** | College Football Data (CFBD) API |
+| **Sport coverage** | College football ✅ (American football — Toledo Rockets / MAC). Not soccer. |
+| **Toledo / MAC relevance** | Direct — Toledo + MAC schedules, games, drives, plays, team game stats, win probability. |
+| **Source URL** | https://collegefootballdata.com — API https://api.collegefootballdata.com (org: https://github.com/CFBD; ecosystem: https://cfbfastr.sportsdataverse.org) |
+| **License / access terms** | Free tier / API-key access; review CFBD terms and rate limits before any external or commercial deployment. Attribution to CollegeFootballData.com is surfaced in the UI. |
+| **Runtime category** | Production API (backend-only) → cached ingestion into Postgres → read-only backend API. No live vendor call in the request path. |
+| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`) — backend env / Fly.io / GitHub Actions secret. Never exposed to frontend, browser bundles, Workers, logs, or coach-visible errors, and never stored in the database. |
+| **Data privacy risk** | None expected — public team/game statistics. No PII, medical, or recruiting data ingested in v1. |
+| **Model-router / registry path** | N/A — data integration, not an inference model. |
+| **Overlap with closed decisions** | None. Single-camera (#101), pgvector (#8/#77), SAM (#74) decisions are untouched. |
+| **Calibrated-tracking dependency** | None. |
+| **Football-IQ usage** | Issues #160/#161/#162/#163 — backend `app/cfbd/` client + `cfbd_*` Postgres cache tables (migration 0016), plus read-only `/api/cfbd/*` and College Data frontend surfaces. Synced via `python -m app.cfbd --season <year>`. |
+| **Notes** | No vendor key is committed, logged, returned to clients, or written to the database. Cached rows remain available when CFBD is unavailable. |
 
 ---
 

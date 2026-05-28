@@ -41,11 +41,12 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000"
 
-    # ── CollegeFootballData (CFBD) ────────────────────────────────────────
-    # Backend-only secret. Never exposed to the frontend, browser bundles, or
-    # logs. The read-only analytics router (Issue #163) does NOT use the key —
-    # it reads cached Postgres tables. The key is consumed by the CFBD client /
-    # ingestion (Issues #161/#162) when those run server-side.
+    # ── College Football Data (CFBD) — backend-only (Issues #160/#161/#162) ─
+    # Vendor integration for Toledo/MAC analytics. The key is read by the
+    # backend ONLY and must never reach frontend code, browser bundles, logs,
+    # or coach-visible errors. ``cfbd_api_key`` defaults to empty so the app
+    # boots without it; the client fails safely with a backend-only error when
+    # a CFBD call is attempted without a key (see app.cfbd.client).
     cfbd_api_key: str = ""
     cfbd_base_url: str = "https://api.collegefootballdata.com"
     # Cached CFBD rows older than this are flagged ``stale`` to the UI. College

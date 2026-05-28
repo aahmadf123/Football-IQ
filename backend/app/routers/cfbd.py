@@ -58,6 +58,14 @@ router = APIRouter(prefix="/api/cfbd", tags=["cfbd"])
 TOLEDO_SCHOOL = "Toledo"
 MAC_CONFERENCE = "Mid-American"
 SOURCE_LABEL = "CollegeFootballData.com"
+SYNC_ENDPOINT_ALIASES = {
+    "teams": ("teams", "/teams"),
+    "games": ("games", "/games"),
+    "drives": ("drives", "/drives"),
+    "plays": ("plays", "/plays"),
+    "team_game_stats": ("team_game_stats", "/games/teams"),
+    "win_probability": ("win_probability", "/metrics/wp"),
+}
 
 # Read-policy dependency shared by every endpoint (coaching staff only).
 _require_cfbd_read = require_policy(Resource.CFBD_ANALYTICS, Action.READ)
@@ -195,11 +203,13 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
     """Build the freshness block for ``source_endpoint`` from ``cfbd_sync_runs``."""
     settings = get_settings()
     stale_after = settings.cfbd_cache_stale_after_hours
+    endpoint_col = getattr(CfbdSyncRun, "endpoint")
+    endpoint_names = SYNC_ENDPOINT_ALIASES.get(source_endpoint, (source_endpoint,))
 
     latest = (
         await db.execute(
             select(CfbdSyncRun)
-            .where(CfbdSyncRun.source_endpoint == source_endpoint)
+            .where(endpoint_col.in_(endpoint_names))
             .order_by(desc(CfbdSyncRun.started_at))
             .limit(1)
         )
@@ -208,7 +218,7 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
     last_success = (
         await db.execute(
             select(CfbdSyncRun)
-            .where(CfbdSyncRun.source_endpoint == source_endpoint)
+            .where(endpoint_col.in_(endpoint_names))
             .where(CfbdSyncRun.status.in_([CfbdSyncStatus.ok, CfbdSyncStatus.partial]))
             .order_by(desc(CfbdSyncRun.finished_at))
             .limit(1)
@@ -218,7 +228,7 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
     if latest is None:
         sync_status = "never"
     else:
-        sync_status = latest.status.value
+        sync_status = _public_sync_status(latest.status)
 
     last_synced_at = last_success.finished_at if last_success is not None else None
 
@@ -333,7 +343,7 @@ async def get_game_plays(
             offense=p.offense,
             defense=p.defense,
             period=p.period,
-            clock=p.clock,
+            clock=getattr(p, "clock", None),
             down=p.down,
             distance=p.distance,
             yard_line=p.yard_line,
@@ -406,11 +416,11 @@ async def get_game_win_probability(
     timeline = [
         CfbdWinProbOut(
             play_number=w.play_number,
-            home_team=w.home_team,
-            away_team=w.away_team,
+            home_team=getattr(w, "home_team", getattr(w, "home", None)),
+            away_team=getattr(w, "away_team", getattr(w, "away", None)),
             home_win_prob=w.home_win_prob,
-            period=w.period,
-            clock=w.clock,
+            period=getattr(w, "period", None),
+            clock=getattr(w, "clock", None),
             play_text=w.play_text,
         )
         for w in rows
@@ -434,6 +444,11 @@ async def get_mac_benchmark(
     if season is not None:
         stmt = stmt.where(CfbdTeamGameStat.season == season)
     rows = list((await db.execute(stmt)).scalars().all())
+    points_by_game_team = {
+        (r.cfbd_game_id, r.team): r.points
+        for r in rows
+        if getattr(r, "cfbd_game_id", None) is not None and getattr(r, "points", None) is not None
+    }
 
     acc: dict[str, dict[str, float]] = {}
     for r in rows:
@@ -444,7 +459,7 @@ async def get_mac_benchmark(
         if r.points is not None:
             bucket["pf"] += r.points
             bucket["pf_n"] += 1
-        opp_points = _opponent_points(r)
+        opp_points = _opponent_points(r, points_by_game_team)
         if opp_points is not None:
             bucket["pa"] += opp_points
             bucket["pa_n"] += 1
@@ -470,14 +485,29 @@ async def get_mac_benchmark(
     return CfbdMacBenchmarkResponse(season=season, conference=conference, teams=teams, cache=cache)
 
 
-def _opponent_points(row: CfbdTeamGameStat) -> int | None:
+def _public_sync_status(status: Any) -> str:
+    value = getattr(status, "value", status)
+    if value == "succeeded":
+        return "ok"
+    if value == "failed":
+        return "error"
+    return str(value)
+
+
+def _opponent_points(
+    row: CfbdTeamGameStat, points_by_game_team: dict[tuple[int, str], int]
+) -> int | None:
     """Best-effort opponent score from the flexible ``stats`` bag."""
     stats = row.stats or {}
-    value = stats.get("opponent_points")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
+    if isinstance(stats, dict):
+        value = stats.get("opponent_points")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+    opponent = getattr(row, "opponent", None)
+    if row.cfbd_game_id is not None and opponent:
+        return points_by_game_team.get((row.cfbd_game_id, opponent))
     return None
 
 
