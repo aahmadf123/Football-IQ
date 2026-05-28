@@ -1,8 +1,8 @@
 """Report export jobs (Issue #111).
 
 Adds ``report_jobs`` for tracking async report generation. The status column
-reuses the existing ``job_status`` enum (created by an earlier migration), so
-the only new enum here is ``report_format``.
+reuses the existing ``job_status`` enum (created by migration 0001), so the
+only new enum here is ``report_format``.
 
 Revision ID: 0014
 Revises: 0013
@@ -13,6 +13,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0014"
 down_revision: str | None = "0013"
@@ -28,19 +29,19 @@ STATUS_ENUM_VALUES = ("queued", "running", "succeeded", "failed", "cancelled")
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
+    bind = op.get_bind()
 
-    fmt_exists = conn.execute(
-        sa.text("SELECT 1 FROM pg_type WHERE typname = :name"),
-        {"name": FORMAT_ENUM_NAME},
-    ).scalar()
-    if not fmt_exists:
-        sa.Enum(*FORMAT_ENUM_VALUES, name=FORMAT_ENUM_NAME).create(conn, checkfirst=False)
+    # Build enum types with ``create_type=False`` so column references below
+    # never trigger SQLAlchemy's auto-create path (which would re-issue a
+    # ``CREATE TYPE`` and fail with DuplicateObject).  The format enum is
+    # created up-front with ``checkfirst=True`` for idempotency; the status
+    # enum was already created by migration 0001.
+    fmt_enum = postgresql.ENUM(*FORMAT_ENUM_VALUES, name=FORMAT_ENUM_NAME, create_type=False)
+    postgresql.ENUM(*FORMAT_ENUM_VALUES, name=FORMAT_ENUM_NAME).create(bind, checkfirst=True)
 
-    fmt_enum = sa.Enum(*FORMAT_ENUM_VALUES, name=FORMAT_ENUM_NAME, create_type=False)
-    status_enum = sa.Enum(*STATUS_ENUM_VALUES, name=STATUS_ENUM_NAME, create_type=False)
+    status_enum = postgresql.ENUM(*STATUS_ENUM_VALUES, name=STATUS_ENUM_NAME, create_type=False)
 
-    table_exists = conn.execute(
+    table_exists = bind.execute(
         sa.text(
             "SELECT 1 FROM information_schema.tables "
             "WHERE table_schema='public' AND table_name='report_jobs'"
@@ -51,7 +52,7 @@ def upgrade() -> None:
             "report_jobs",
             sa.Column(
                 "id",
-                sa.dialects.postgresql.UUID(as_uuid=True),
+                postgresql.UUID(as_uuid=True),
                 primary_key=True,
             ),
             sa.Column("report_type", sa.String(64), nullable=False),
@@ -62,7 +63,7 @@ def upgrade() -> None:
             sa.Column("error_message", sa.Text, nullable=True),
             sa.Column(
                 "requested_by",
-                sa.dialects.postgresql.UUID(as_uuid=True),
+                postgresql.UUID(as_uuid=True),
                 sa.ForeignKey("users.id", ondelete="CASCADE"),
                 nullable=False,
             ),
@@ -97,4 +98,4 @@ def downgrade() -> None:
     op.drop_index("ix_report_jobs_requested_by", table_name="report_jobs")
     op.drop_index("ix_report_jobs_report_type", table_name="report_jobs")
     op.drop_table("report_jobs")
-    sa.Enum(name=FORMAT_ENUM_NAME).drop(op.get_bind(), checkfirst=True)
+    postgresql.ENUM(name=FORMAT_ENUM_NAME).drop(op.get_bind(), checkfirst=True)
