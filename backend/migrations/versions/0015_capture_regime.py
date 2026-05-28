@@ -7,10 +7,10 @@ the source video and denormalized onto each clip when the segment stage
 creates it, mirroring how ``session_kind`` is propagated (see 0010).
 
 Existing rows are backfilled to ``unknown`` / ``0.0`` per the issue's
-acceptance criteria so downstream code can safely assume the columns are
-non-null after this migration runs (the columns themselves stay nullable
-because ingest is the only writer and may legitimately set ``NULL``
-mid-flight before the detector finishes).
+acceptance criteria. The columns themselves remain nullable because ingest
+is the only writer and may legitimately leave them ``NULL`` mid-flight
+before the detector finishes, so downstream code must still tolerate
+``NULL`` on newly created or otherwise not-yet-backfilled rows.
 
 Revision ID: 0015
 Revises: 0014
