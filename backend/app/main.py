@@ -35,8 +35,10 @@ from app.routers.overlays import router as overlays_router
 from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
 from app.routers.practice_sessions import router as practice_sessions_router
+from app.routers.reports import router as reports_router
 from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
+from app.routers.settings import router as settings_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
 
@@ -109,3 +111,5 @@ app.include_router(pose_router)
 app.include_router(embeddings_router)
 app.include_router(search_router)
 app.include_router(concept_proposals_router)
+app.include_router(settings_router)
+app.include_router(reports_router)

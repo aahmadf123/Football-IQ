@@ -19,6 +19,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0012"
 down_revision: str | None = "0011"
@@ -38,15 +39,12 @@ ENUM_VALUES = (
 def upgrade() -> None:
     conn = op.get_bind()
 
-    # Create the enum type idempotently.
-    enum_exists = conn.execute(
-        sa.text("SELECT 1 FROM pg_type WHERE typname = :name"),
-        {"name": ENUM_NAME},
-    ).scalar()
-    if not enum_exists:
-        sa.Enum(*ENUM_VALUES, name=ENUM_NAME).create(conn, checkfirst=False)
-
-    enum_type = sa.Enum(*ENUM_VALUES, name=ENUM_NAME, create_type=False)
+    # Create the enum type idempotently up-front, then reference it from
+    # column definitions with ``create_type=False`` so SQLAlchemy doesn't
+    # re-issue a ``CREATE TYPE`` during ``op.create_table`` (which would
+    # fail with ``DuplicateObject``).
+    postgresql.ENUM(*ENUM_VALUES, name=ENUM_NAME).create(conn, checkfirst=True)
+    enum_type = postgresql.ENUM(*ENUM_VALUES, name=ENUM_NAME, create_type=False)
 
     # players.visibility_state
     col_exists = conn.execute(
@@ -84,7 +82,7 @@ def upgrade() -> None:
                     "players",
                     sa.Column(
                         "visibility_updated_by",
-                        sa.dialects.postgresql.UUID(as_uuid=True),
+                        postgresql.UUID(as_uuid=True),
                         sa.ForeignKey("users.id", ondelete="SET NULL"),
                         nullable=True,
                     ),
@@ -112,12 +110,12 @@ def upgrade() -> None:
             "player_visibility_audit",
             sa.Column(
                 "id",
-                sa.dialects.postgresql.UUID(as_uuid=True),
+                postgresql.UUID(as_uuid=True),
                 primary_key=True,
             ),
             sa.Column(
                 "player_id",
-                sa.dialects.postgresql.UUID(as_uuid=True),
+                postgresql.UUID(as_uuid=True),
                 sa.ForeignKey("players.id", ondelete="CASCADE"),
                 nullable=False,
             ),
@@ -125,7 +123,7 @@ def upgrade() -> None:
             sa.Column("next_state", enum_type, nullable=False),
             sa.Column(
                 "actor_id",
-                sa.dialects.postgresql.UUID(as_uuid=True),
+                postgresql.UUID(as_uuid=True),
                 sa.ForeignKey("users.id", ondelete="SET NULL"),
                 nullable=True,
             ),
@@ -153,4 +151,4 @@ def downgrade() -> None:
     op.drop_column("players", "visibility_updated_at")
     op.drop_column("players", "visibility_updated_by")
     op.drop_column("players", "visibility_state")
-    sa.Enum(name=ENUM_NAME).drop(op.get_bind(), checkfirst=True)
+    postgresql.ENUM(name=ENUM_NAME).drop(op.get_bind(), checkfirst=True)

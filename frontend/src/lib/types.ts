@@ -345,3 +345,67 @@ export type OverlayLayerKey =
   | "events"
   | "metrics"
   | "wireframe";
+
+// ── Settings (Issue #112) ───────────────────────────────────────────────────
+
+export type AutoExportAccess = "off" | "staff" | "all";
+
+export interface SystemConfig {
+  team_name: string;
+  capture_camera: string;
+  storage_bucket: string;
+  auto_export_access: AutoExportAccess;
+}
+
+export interface ModelSensitivity {
+  boundary_sensitivity: number;
+  identity_confidence: number;
+  motion_minimum: number;
+  pose_review_gate: number;
+}
+
+export interface SystemSettingsResponse {
+  system_config: SystemConfig;
+  model_sensitivity: ModelSensitivity;
+}
+
+export interface SystemSettingsUpdate {
+  system_config?: Partial<SystemConfig>;
+  model_sensitivity?: Partial<ModelSensitivity>;
+}
+
+export interface UserPreferences {
+  theme: "light" | "dark" | "system";
+  default_session_kind: "all" | "practice" | "scrimmage" | "game";
+  default_side_of_ball: "all" | "offense" | "defense" | "special";
+}
+
+// ── Reports (Issue #111) ────────────────────────────────────────────────────
+
+export type ReportFormat = "pdf" | "csv" | "json";
+export type ReportStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface ReportJob {
+  id: string;
+  report_type: string;
+  format: ReportFormat;
+  status: ReportStatus;
+  parameters: { sections?: string[] } | null;
+  output_uri: string | null;
+  error_message: string | null;
+  requested_by: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface ReportCreateRequest {
+  report_type?: string;
+  format?: ReportFormat;
+  sections?: string[];
+}
+
+export interface ReportDownloadResponse {
+  download_url: string;
+  expires_at: string;
+}
