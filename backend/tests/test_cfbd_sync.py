@@ -182,9 +182,7 @@ async def cfbd_session() -> AsyncGenerator[AsyncSession, None]:
     # so teardown only drops the tables this fixture actually created and does
     # not silently delete pre-existing tables and leave the DB out of sync.
     async with engine.connect() as conn:
-        existing_names: set[str] = set(
-            await conn.run_sync(lambda c: inspect(c).get_table_names())
-        )
+        existing_names: set[str] = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
     created_tables = [t for t in _TABLES if t.name not in existing_names]
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=created_tables))
