@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import (
+    CaptureRegime,
     ProcessingJob,
     SessionKind,
     SideOfBall,
@@ -55,6 +56,8 @@ class VideoStatusUpdate(BaseModel):
     width: int | None = None
     height: int | None = None
     codec: str | None = None
+    capture_regime: CaptureRegime | None = None
+    regime_confidence: float | None = None
 
 
 class VideoResponse(BaseModel):
@@ -74,6 +77,8 @@ class VideoResponse(BaseModel):
     opponent_team: str | None
     practice_session_id: uuid.UUID | None
     our_possession: SideOfBall | None
+    capture_regime: CaptureRegime | None
+    regime_confidence: float | None
     metadata_: dict[str, Any] | None = None
     created_at: str
 
@@ -98,6 +103,8 @@ class VideoResponse(BaseModel):
             opponent_team=v.opponent_team,
             practice_session_id=v.practice_session_id,
             our_possession=v.our_possession,
+            capture_regime=v.capture_regime,
+            regime_confidence=v.regime_confidence,
             metadata_=v.metadata_,
             created_at=v.created_at.isoformat(),
         )
@@ -227,9 +234,18 @@ async def update_video_status(
         video.height = body.height
     if body.codec is not None:
         video.codec = body.codec
+    if body.capture_regime is not None:
+        video.capture_regime = body.capture_regime
+    if body.regime_confidence is not None:
+        video.regime_confidence = body.regime_confidence
 
     await db.flush()
-    log.info("video_status_updated", video_id=str(video_id), status=body.status)
+    log.info(
+        "video_status_updated",
+        video_id=str(video_id),
+        status=body.status,
+        capture_regime=str(video.capture_regime) if video.capture_regime else None,
+    )
     return VideoResponse.from_orm_video(video)
 
 

@@ -57,6 +57,8 @@ def patch_video_status(
     width: int | None = None,
     height: int | None = None,
     codec: str | None = None,
+    capture_regime: str | None = None,
+    regime_confidence: float | None = None,
 ) -> None:
     """PATCH /api/v1/videos/{video_id}/status with probed metadata."""
     payload: dict[str, Any] = {"status": status}
@@ -70,6 +72,10 @@ def patch_video_status(
         payload["height"] = height
     if codec is not None:
         payload["codec"] = codec
+    if capture_regime is not None:
+        payload["capture_regime"] = capture_regime
+    if regime_confidence is not None:
+        payload["regime_confidence"] = regime_confidence
     try:
         with _client() as c:
             c.patch(f"/api/v1/videos/{video_id}/status", json=payload)

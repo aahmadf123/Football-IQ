@@ -26,6 +26,10 @@ from typing import Any
 import structlog
 
 from pipeline import backend, r2
+from pipeline.homography.regime_detector import (
+    UNKNOWN as REGIME_UNKNOWN,
+    CaptureRegimeDetector,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -81,6 +85,14 @@ def _process(video_id: str, video_path: Path, job_id: str, input_uri: str) -> di
     # ── Thumbnail contact sheet ────────────────────────────────────────────
     sheet_uri = _generate_contact_sheet(video_id, video_path, duration)
 
+    # ── Capture-regime detection (Issue #126) ─────────────────────────────
+    # Runs once on the source MP4 so every clip created later inherits the
+    # regime. Failures fall back to ``unknown`` / 0.0 — never crash the
+    # ingest pipeline because regime is a routing signal, not a gate.
+    regime, regime_confidence, regime_features = _detect_capture_regime(
+        video_id, video_path
+    )
+
     # ── Update video record ───────────────────────────────────────────────
     backend.patch_video_status(
         video_id,
@@ -90,15 +102,48 @@ def _process(video_id: str, video_path: Path, job_id: str, input_uri: str) -> di
         width=width,
         height=height,
         codec=codec,
+        capture_regime=regime,
+        regime_confidence=regime_confidence,
     )
 
     artifacts: dict[str, Any] = {
         "probe": probe,
         "warnings": warnings,
         "thumbnail_uri": sheet_uri,
+        # Forward regime to the next pipeline stage's input_artifacts so
+        # segment / calibrate / detect can branch without re-querying.
+        "capture_regime": regime,
+        "regime_confidence": regime_confidence,
+        "regime_features": regime_features,
     }
-    log.info("stage_ingest_done", video_id=video_id, warnings=warnings)
+    log.info(
+        "stage_ingest_done",
+        video_id=video_id,
+        warnings=warnings,
+        capture_regime=regime,
+        regime_confidence=regime_confidence,
+    )
     return artifacts
+
+
+def _detect_capture_regime(
+    video_id: str, video_path: Path
+) -> tuple[str, float, dict[str, float]]:
+    """Run the capture-regime detector with a hard ``unknown`` fallback."""
+    try:
+        detector = CaptureRegimeDetector()
+        result = detector.detect(video_path)
+        log.info(
+            "regime_detected",
+            video_id=video_id,
+            regime=result.regime,
+            confidence=result.confidence,
+            reason_codes=result.reason_codes,
+        )
+        return result.regime, result.confidence, result.features
+    except Exception as exc:
+        log.warning("regime_detection_failed", video_id=video_id, error=str(exc))
+        return REGIME_UNKNOWN, 0.0, {}
 
 
 def _ffprobe(path: Path) -> dict[str, Any]:
