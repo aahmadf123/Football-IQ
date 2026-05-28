@@ -742,7 +742,9 @@ function Reports({ data, onUploadClick }: { data: FootballData; onUploadClick: (
 
   const refreshList = useCallback(async () => {
     if (!authToken) {
+      setReports([]);
       setListStatus("idle");
+      setListError(null);
       return;
     }
     setListStatus("loading");
@@ -1055,14 +1057,37 @@ function SettingsView({ data }: { data: FootballData }) {
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState<null | "system_config" | "model_sensitivity">(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveErrors, setSaveErrors] = useState<{
+    system_config: string | null;
+    model_sensitivity: string | null;
+  }>({ system_config: null, model_sensitivity: null });
   const [savedSection, setSavedSection] = useState<null | "system_config" | "model_sensitivity">(
     null,
   );
+  const savedIndicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedIndicatorTimeoutRef.current) {
+        clearTimeout(savedIndicatorTimeoutRef.current);
+        savedIndicatorTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!authToken) {
+      setSettings(null);
+      setDraft(null);
       setLoadState("idle");
+      setLoadError(null);
+      setSaving(null);
+      setSaveErrors({ system_config: null, model_sensitivity: null });
+      setSavedSection(null);
+      if (savedIndicatorTimeoutRef.current) {
+        clearTimeout(savedIndicatorTimeoutRef.current);
+        savedIndicatorTimeoutRef.current = null;
+      }
       return;
     }
     let cancelled = false;
@@ -1088,17 +1113,24 @@ function SettingsView({ data }: { data: FootballData }) {
   const save = async (section: "system_config" | "model_sensitivity") => {
     if (!authToken || !draft) return;
     setSaving(section);
-    setSaveError(null);
+    setSaveErrors((cur) => ({ ...cur, [section]: null }));
     setSavedSection(null);
+    if (savedIndicatorTimeoutRef.current) {
+      clearTimeout(savedIndicatorTimeoutRef.current);
+      savedIndicatorTimeoutRef.current = null;
+    }
     try {
       const updated = await updateSystemSettings({ [section]: draft[section] }, authToken);
       setSettings(updated);
       setDraft(updated);
       setSavedSection(section);
-      setTimeout(() => setSavedSection((cur) => (cur === section ? null : cur)), 2500);
+      savedIndicatorTimeoutRef.current = setTimeout(
+        () => setSavedSection((cur) => (cur === section ? null : cur)),
+        2500,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setSaveError(msg);
+      setSaveErrors((cur) => ({ ...cur, [section]: msg }));
     } finally {
       setSaving(null);
     }
@@ -1206,6 +1238,11 @@ function SettingsView({ data }: { data: FootballData }) {
                 </span>
               )}
             </div>
+            {saveErrors.system_config && (
+              <p className="kicker" style={{ marginTop: 8, color: "var(--danger, crimson)" }}>
+                {saveErrors.system_config}
+              </p>
+            )}
           </>
         )}
       </section>
@@ -1254,9 +1291,9 @@ function SettingsView({ data }: { data: FootballData }) {
             </div>
           </>
         )}
-        {saveError && (
+        {saveErrors.model_sensitivity && (
           <p className="kicker" style={{ marginTop: 8, color: "var(--danger, crimson)" }}>
-            {saveError}
+            {saveErrors.model_sensitivity}
           </p>
         )}
       </section>

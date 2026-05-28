@@ -19,6 +19,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
+import anyio
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -136,7 +137,13 @@ async def _run_report_job(job_id: uuid.UUID) -> None:
 
             ext = job.format.value
             key = f"reports/{job.id}.{ext}"
-            uri = put_object(settings.r2_bucket_artifacts, key, body, content_type)
+            uri = await anyio.to_thread.run_sync(
+                put_object,
+                settings.r2_bucket_artifacts,
+                key,
+                body,
+                content_type,
+            )
 
             job.output_uri = uri
             job.status = JobStatus.succeeded
@@ -167,6 +174,11 @@ async def create_report(
         )
 
     if body.sections is not None:
+        if len(body.sections) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="sections must not be empty",
+            )
         unknown = [s for s in body.sections if s not in ALL_SECTIONS]
         if unknown:
             raise HTTPException(

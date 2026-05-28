@@ -38,7 +38,11 @@ def get_r2_client() -> Any:
     a clear error when R2 credentials are not configured.
     """
     settings = get_settings()
-    if not settings.r2_endpoint_url or not settings.r2_access_key_id:
+    if (
+        not settings.r2_endpoint_url
+        or not settings.r2_access_key_id
+        or not settings.r2_secret_access_key
+    ):
         raise RuntimeError(
             "R2 storage is not configured. Set R2_ENDPOINT_URL, "
             "R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY in the environment."

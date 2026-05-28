@@ -15,7 +15,7 @@ import json
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -172,7 +172,7 @@ async def aggregate_coaching_summary(
         "corrections": total_corrections,
     }
     return CoachingSummaryData(
-        generated_at=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
         sections=sections,
         totals=totals,
     )
