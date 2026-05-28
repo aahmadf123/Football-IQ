@@ -1,0 +1,94 @@
+name: External resource proposal
+description: Propose adding an external dataset, model, API, or library
+title: "[resource]: <name>"
+labels: ["external-resource"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Football-IQ is an **American football** platform (college football,
+        NFL-style analysis, Toledo Rockets / MAC). Soccer / association-football
+        resources are rejected — see the denylist in
+        [`docs/external-resource-rubric.md`](../blob/main/docs/external-resource-rubric.md).
+  - type: input
+    id: resource-name
+    attributes:
+      label: Resource name
+      placeholder: e.g. CFBD, NFL Big Data Bowl
+    validations:
+      required: true
+  - type: dropdown
+    id: sport-coverage
+    attributes:
+      label: Sport coverage
+      options:
+        - American football
+        - College football
+        - NFL
+        - Soccer / association football (likely rejected)
+    validations:
+      required: true
+  - type: input
+    id: source-url
+    attributes:
+      label: Source URL
+    validations:
+      required: true
+  - type: textarea
+    id: license
+    attributes:
+      label: License / access terms
+      description: License name + summary; account or approval required?
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime-category
+    attributes:
+      label: Runtime category
+      options:
+        - production API
+        - cached ingestion
+        - offline training
+        - offline benchmark
+        - documentation only
+    validations:
+      required: true
+  - type: input
+    id: toledo-relevance
+    attributes:
+      label: Toledo / MAC relevance
+      placeholder: Direct / broad American football / none
+  - type: input
+    id: secret-requirement
+    attributes:
+      label: Secret / key requirement
+      placeholder: API key / token env var, or "none"
+  - type: textarea
+    id: privacy-risk
+    attributes:
+      label: Data privacy risk
+      placeholder: PII, medical / wellness, recruiting-sensitive, or none
+  - type: input
+    id: model-router-path
+    attributes:
+      label: Model-router / model-registry path (if it affects inference)
+  - type: textarea
+    id: overlap
+    attributes:
+      label: Overlap with closed architecture decisions
+      placeholder: Any ADR (docs/adr/) or product decision this touches?
+  - type: dropdown
+    id: tracking-dependency
+    attributes:
+      label: Assumes calibrated tracking? (dependency on #127 / #128 / #129)
+      options:
+        - "No"
+        - "Yes — depends on #127 / #128 / #129"
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Gates
+      options:
+        - label: Confirmed it is NOT on the soccer / association-football denylist.
+          required: true
+        - label: License gate completed for any coach-visible / production-adjacent use.

@@ -80,3 +80,8 @@ cd frontend && npm run e2e:install && npm run e2e
 ## Contributing
 
 See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Open issues and PRs against the `main` branch.
+
+Adding an external dataset, model, API, or library? Football-IQ is an **American
+football** platform — soccer / association-football resources are rejected.
+Follow the rubric, soccer denylist, and license gate in
+[docs/external-resource-rubric.md](docs/external-resource-rubric.md) before proposing one.

@@ -112,6 +112,7 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.
+- New external resources (datasets, models, APIs, libraries) must clear the rubric, soccer/association-football denylist, and license gate in [`docs/external-resource-rubric.md`](docs/external-resource-rubric.md). Football-IQ is an American football platform — soccer resources are rejected.
 - CI includes a license-allowlist check (see `.github/workflows/ci.yml`) that fails if a new package is missing from `LICENSES.md`.
 - Model weights (`.pt`, `.pth`, `.onnx`, `.engine`) must never be committed to the repository. Download at runtime using `HF_TOKEN` (Hugging Face) or `NGC_API_KEY` (NVIDIA NGC).
 - For any model with a gated or non-commercial license, Football-IQ's use case (university-internal, non-commercial coaching analytics) must be re-verified before any external or commercial deployment.
