@@ -155,6 +155,47 @@ GPU worker reuses the `R2_*` variables for downloading and uploading video files
 
 Leave these blank for local development; the backend falls back to local JWT auth.
 
+### College Football Data (CFBD) — backend-only (optional)
+
+| Variable | What it is |
+|----------|-----------|
+| `CFBD_API_KEY` | College Football Data API key — **backend only** |
+| `CFBD_BASE_URL` | API base URL (default `https://api.collegefootballdata.com`) |
+
+CFBD powers the Toledo/MAC analytics cache (Issues #160/#161/#162) and is
+called **only** from the FastAPI backend — never from the frontend, the Worker,
+or any browser bundle. The key is never persisted to the database and never
+appears in logs or coach-visible errors.
+
+To set it up locally **without committing any value**:
+
+1. Request a free key at <https://collegefootballdata.com/key>.
+2. Add it to your local, git-ignored `.env` (copied from `.env.example`):
+
+   ```bash
+   # .env  — never commit this file
+   CFBD_API_KEY=<paste-your-key-here>
+   ```
+
+3. Leave `CFBD_BASE_URL` at its default unless you are pointing at a mock.
+
+If `CFBD_API_KEY` is unset, the app still boots normally; any CFBD call fails
+fast with a clear backend-only `CFBDConfigError` rather than an opaque 401, and
+previously cached data in the `cfbd_*` tables remains fully queryable.
+
+To populate the cache for a season once the key is set:
+
+```bash
+cd backend
+python -m app.cfbd --season 2024                 # Toledo + MAC, regular season
+python -m app.cfbd --season 2024 --season-type postseason
+```
+
+The command upserts idempotently (safe to re-run) and records every attempt in
+`cfbd_sync_runs` (endpoint, params, row counts, status, error summary). If one
+endpoint is rate-limited or down, the others still sync and the failure is
+recorded without aborting the run.
+
 ### Deployment variables (not needed locally)
 
 `FLY_API_TOKEN` and `FLY_APP_NAME` are only used by the CD pipeline (`cd.yml`). Do not set them locally.
