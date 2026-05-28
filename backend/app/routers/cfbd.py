@@ -218,7 +218,7 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
         await db.execute(
             select(CfbdSyncRun)
             .where(CfbdSyncRun.endpoint.in_(endpoint_names))
-            .where(CfbdSyncRun.status.in_([CfbdSyncStatus.ok, CfbdSyncStatus.partial]))
+            .where(CfbdSyncRun.status.in_([CfbdSyncStatus.succeeded, CfbdSyncStatus.partial]))
             .order_by(desc(CfbdSyncRun.finished_at))
             .limit(1)
         )
