@@ -235,9 +235,7 @@ async def create_clip(
     # denormalization above so downstream stages don't need to JOIN videos.
     capture_regime = body.capture_regime or video.capture_regime
     regime_confidence = (
-        body.regime_confidence
-        if body.regime_confidence is not None
-        else video.regime_confidence
+        body.regime_confidence if body.regime_confidence is not None else video.regime_confidence
     )
 
     clip = Clip(

@@ -39,12 +39,8 @@ def upgrade() -> None:
     # Create the enum up-front (checkfirst keeps the migration idempotent),
     # then reference it on every column with ``create_type=False`` so
     # SQLAlchemy never re-issues a CREATE TYPE on subsequent adds.
-    postgresql.ENUM(*REGIME_ENUM_VALUES, name=REGIME_ENUM_NAME).create(
-        bind, checkfirst=True
-    )
-    regime_enum = postgresql.ENUM(
-        *REGIME_ENUM_VALUES, name=REGIME_ENUM_NAME, create_type=False
-    )
+    postgresql.ENUM(*REGIME_ENUM_VALUES, name=REGIME_ENUM_NAME).create(bind, checkfirst=True)
+    regime_enum = postgresql.ENUM(*REGIME_ENUM_VALUES, name=REGIME_ENUM_NAME, create_type=False)
 
     for table in ("videos", "clips"):
         op.add_column(
@@ -55,9 +51,7 @@ def upgrade() -> None:
             table,
             sa.Column("regime_confidence", sa.Float(), nullable=True),
         )
-        op.create_index(
-            f"ix_{table}_capture_regime", table, ["capture_regime"]
-        )
+        op.create_index(f"ix_{table}_capture_regime", table, ["capture_regime"])
 
     # Backfill pre-existing rows to ``unknown`` / 0.0 per Issue #126.
     op.execute(
