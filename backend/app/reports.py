@@ -119,8 +119,7 @@ async def aggregate_coaching_summary(
             .order_by(func.count().desc())
         )
         rows = [
-            SectionRow(label=(grouping or "Unknown"), value=str(n))
-            for grouping, n in result.all()
+            SectionRow(label=(grouping or "Unknown"), value=str(n)) for grouping, n in result.all()
         ]
         if not rows:
             rows = [SectionRow(label="No clips tagged yet", value="0")]
@@ -133,10 +132,7 @@ async def aggregate_coaching_summary(
             .group_by(Player.position_group)
             .order_by(Player.position_group.asc())
         )
-        rows = [
-            SectionRow(label=(group or "Unknown"), value=str(n))
-            for group, n in result.all()
-        ]
+        rows = [SectionRow(label=(group or "Unknown"), value=str(n)) for group, n in result.all()]
         if not rows:
             rows = [SectionRow(label="No active players", value="0")]
         sections.append(Section(title=SECTION_DEVELOPMENT, rows=rows))
@@ -162,8 +158,7 @@ async def aggregate_coaching_summary(
             .order_by(func.count().desc())
         )
         rows = [
-            SectionRow(label=opponent or "Unknown", value=str(n))
-            for opponent, n in result.all()
+            SectionRow(label=opponent or "Unknown", value=str(n)) for opponent, n in result.all()
         ]
         if not rows:
             rows = [SectionRow(label="No opponent-tagged film yet", value="0")]

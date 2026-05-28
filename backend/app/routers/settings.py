@@ -69,9 +69,7 @@ async def _upsert_system_setting(
     await db.flush()
 
 
-async def _load_user_setting(
-    db: AsyncSession, user_id: Any, key: str
-) -> dict[str, Any] | None:
+async def _load_user_setting(db: AsyncSession, user_id: Any, key: str) -> dict[str, Any] | None:
     result = await db.execute(
         select(UserSetting).where(UserSetting.user_id == user_id, UserSetting.key == key)
     )

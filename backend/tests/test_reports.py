@@ -141,9 +141,7 @@ def test_create_report_rejects_unknown_type(monkeypatch: pytest.MonkeyPatch) -> 
     coach = _make_user(UserRole.coach)
     app.dependency_overrides[get_current_user] = lambda: coach
     app.dependency_overrides[require_coach_or_above] = lambda: coach
-    monkeypatch.setattr(
-        "app.routers.reports._run_report_job", lambda *a, **kw: None
-    )
+    monkeypatch.setattr("app.routers.reports._run_report_job", lambda *a, **kw: None)
 
     with TestClient(app) as c:
         resp = c.post(
@@ -159,9 +157,7 @@ def test_create_report_rejects_unknown_sections(monkeypatch: pytest.MonkeyPatch)
     coach = _make_user(UserRole.coach)
     app.dependency_overrides[get_current_user] = lambda: coach
     app.dependency_overrides[require_coach_or_above] = lambda: coach
-    monkeypatch.setattr(
-        "app.routers.reports._run_report_job", lambda *a, **kw: None
-    )
+    monkeypatch.setattr("app.routers.reports._run_report_job", lambda *a, **kw: None)
 
     with TestClient(app) as c:
         resp = c.post(

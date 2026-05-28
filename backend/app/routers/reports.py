@@ -91,9 +91,7 @@ class ReportDownloadResponse(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-_STAFF_ROLES: frozenset[UserRole] = frozenset(
-    {UserRole.admin, UserRole.analyst}
-)
+_STAFF_ROLES: frozenset[UserRole] = frozenset({UserRole.admin, UserRole.analyst})
 
 
 def _can_see_all_reports(user: User) -> bool:
@@ -256,6 +254,4 @@ async def get_report_download_url(
     settings = get_settings()
     url = generate_download_url_for_uri(job.output_uri)
     expires_at = datetime.now(UTC) + timedelta(seconds=settings.r2_presign_ttl)
-    return ReportDownloadResponse(
-        download_url=url, expires_at=expires_at.isoformat()
-    )
+    return ReportDownloadResponse(download_url=url, expires_at=expires_at.isoformat())
