@@ -166,8 +166,15 @@ class CFBDClient:
                 attempt=attempt,
             )
 
-            if status == httpx.codes.OK:
+            if 200 <= status < 300:
                 return response.json()
+
+            if 300 <= status < 400:
+                raise CFBDClientError(
+                    f"CFBD returned unexpected redirect {status}; "
+                    "set follow_redirects=True if redirects are expected",
+                    status_code=status,
+                )
 
             if status in (httpx.codes.UNAUTHORIZED, httpx.codes.FORBIDDEN):
                 raise CFBDAuthError()

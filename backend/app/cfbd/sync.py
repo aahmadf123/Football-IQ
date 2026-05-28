@@ -319,6 +319,7 @@ async def sync_plays(
     read = 0
     written = 0
     failures = 0
+    errors: list[str] = []
     for week in week_list:
         try:
             plays = await client.get_plays(
@@ -326,7 +327,7 @@ async def sync_plays(
             )
         except CFBDError as exc:
             failures += 1
-            result.error = str(exc)
+            errors.append(f"week={week}: {exc}")
             log.warning(
                 "cfbd.sync.partial",
                 endpoint=endpoint,
@@ -365,6 +366,7 @@ async def sync_plays(
     result.rows_read = read
     result.rows_written = written
     result.status = _aggregate_status(failures, len(week_list))
+    result.error = "; ".join(errors) if errors else None
     await _record_run(
         session,
         endpoint=endpoint,
@@ -457,6 +459,7 @@ async def sync_win_probability(
             await session.execute(
                 select(CFBDGame.cfbd_game_id).where(
                     CFBDGame.season == season,
+                    CFBDGame.season_type == season_type,
                     ((CFBDGame.home_team == team) | (CFBDGame.away_team == team)),
                 )
             )
@@ -468,12 +471,13 @@ async def sync_win_probability(
     read = 0
     written = 0
     failures = 0
+    errors: list[str] = []
     for game_id in game_ids:
         try:
             wps = await client.get_win_probability(game_id=game_id)
         except CFBDError as exc:
             failures += 1
-            result.error = str(exc)
+            errors.append(f"game_id={game_id}: {exc}")
             log.warning(
                 "cfbd.sync.partial",
                 endpoint=endpoint,
@@ -514,6 +518,7 @@ async def sync_win_probability(
     result.rows_read = read
     result.rows_written = written
     result.status = _aggregate_status(failures, len(game_ids))
+    result.error = "; ".join(errors) if errors else None
     await _record_run(
         session,
         endpoint=endpoint,
