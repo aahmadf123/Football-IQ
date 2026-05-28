@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
-from app.models import Clip, Metric, SessionKind, SideOfBall, User, Video
+from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, User, Video
 
 # Recognized clip-level possession values (must match SideOfBall enum).
 _VALID_SIDES: frozenset[str] = frozenset(s.value for s in SideOfBall)
@@ -39,6 +39,8 @@ class ClipCreate(BaseModel):
     job_id: uuid.UUID | None = None
     our_possession: SideOfBall | None = None
     side_of_ball: SideOfBall | None = None
+    capture_regime: CaptureRegime | None = None
+    regime_confidence: float | None = None
 
 
 class ClipUpdate(BaseModel):
@@ -52,6 +54,8 @@ class ClipUpdate(BaseModel):
     boundary_confidence: float | None = None
     our_possession: SideOfBall | None = None
     side_of_ball: SideOfBall | None = None
+    capture_regime: CaptureRegime | None = None
+    regime_confidence: float | None = None
 
 
 class ClipResponse(BaseModel):
@@ -74,6 +78,8 @@ class ClipResponse(BaseModel):
     session_kind: SessionKind | None
     our_possession: SideOfBall | None
     side_of_ball: SideOfBall | None
+    capture_regime: CaptureRegime | None
+    regime_confidence: float | None
     created_at: str
 
     @classmethod
@@ -96,6 +102,8 @@ class ClipResponse(BaseModel):
             session_kind=c.session_kind,
             our_possession=c.our_possession,
             side_of_ball=c.side_of_ball,
+            capture_regime=c.capture_regime,
+            regime_confidence=c.regime_confidence,
             created_at=c.created_at.isoformat(),
         )
 
@@ -222,6 +230,14 @@ async def create_clip(
             detail="our_possession is required for clips of session_kind='game'",
         )
 
+    # Inherit capture-regime from the parent video (set at ingest) unless
+    # the caller passed an explicit override. Mirrors the session_kind
+    # denormalization above so downstream stages don't need to JOIN videos.
+    capture_regime = body.capture_regime or video.capture_regime
+    regime_confidence = (
+        body.regime_confidence if body.regime_confidence is not None else video.regime_confidence
+    )
+
     clip = Clip(
         id=uuid.uuid4(),
         video_id=video_id,
@@ -239,6 +255,8 @@ async def create_clip(
         session_kind=video.session_kind,
         our_possession=our_possession,
         side_of_ball=side_of_ball,
+        capture_regime=capture_regime,
+        regime_confidence=regime_confidence,
     )
     db.add(clip)
     await db.flush()
@@ -306,6 +324,13 @@ async def update_clip(
         clip.our_possession = body.our_possession
     if body.side_of_ball is not None:
         clip.side_of_ball = body.side_of_ball
+    if body.capture_regime is not None:
+        # Coach override: treat manual corrections as high-confidence.
+        clip.capture_regime = body.capture_regime
+        if body.regime_confidence is None:
+            clip.regime_confidence = 1.0
+    if body.regime_confidence is not None:
+        clip.regime_confidence = body.regime_confidence
 
     await db.flush()
     log.info("clip_updated", clip_id=str(clip_id))

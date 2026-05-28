@@ -88,6 +88,8 @@ def _make_video(**overrides: Any) -> Video:
     v.opponent_team = overrides.get("opponent_team", None)
     v.practice_session_id = overrides.get("practice_session_id", None)
     v.our_possession = overrides.get("our_possession", None)
+    v.capture_regime = overrides.get("capture_regime", None)
+    v.regime_confidence = overrides.get("regime_confidence", None)
     v.metadata_ = overrides.get("metadata_", None)
     v.created_at = overrides.get("created_at", datetime.now(UTC))
     return v

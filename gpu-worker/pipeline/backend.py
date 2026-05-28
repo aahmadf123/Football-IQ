@@ -57,6 +57,8 @@ def patch_video_status(
     width: int | None = None,
     height: int | None = None,
     codec: str | None = None,
+    capture_regime: str | None = None,
+    regime_confidence: float | None = None,
 ) -> None:
     """PATCH /api/v1/videos/{video_id}/status with probed metadata."""
     payload: dict[str, Any] = {"status": status}
@@ -70,6 +72,10 @@ def patch_video_status(
         payload["height"] = height
     if codec is not None:
         payload["codec"] = codec
+    if capture_regime is not None:
+        payload["capture_regime"] = capture_regime
+    if regime_confidence is not None:
+        payload["regime_confidence"] = regime_confidence
     try:
         with _client() as c:
             c.patch(f"/api/v1/videos/{video_id}/status", json=payload)
@@ -359,13 +365,59 @@ def fetch_clips_with_labels(
     limit: int = 500,
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """Fetch clips and their labels for self-scout analysis."""
-    params: dict[str, Any] = {"limit": limit}
-    if video_id:
-        params["video_id"] = video_id
+    if limit <= 0:
+        return [], {}
+
+    clips: list[dict[str, Any]] = []
     with _client() as c:
-        clips_resp = c.get("/api/v1/clips", params=params)
-        clips_resp.raise_for_status()
-        clips: list[dict[str, Any]] = clips_resp.json()
+        if video_id:
+            clip_offset = 0
+            while len(clips) < limit:
+                remaining = limit - len(clips)
+                clips_resp = c.get(
+                    f"/api/v1/videos/{video_id}/clips",
+                    params={"limit": min(500, remaining), "offset": clip_offset},
+                )
+                clips_resp.raise_for_status()
+                batch: list[dict[str, Any]] = clips_resp.json()
+                if not batch:
+                    break
+                clips.extend(batch[:remaining])
+                if len(batch) < min(500, remaining):
+                    break
+                clip_offset += len(batch)
+        else:
+            video_offset = 0
+            video_page_limit = 200
+            while len(clips) < limit:
+                videos_resp = c.get(
+                    "/api/v1/videos",
+                    params={"limit": video_page_limit, "offset": video_offset},
+                )
+                videos_resp.raise_for_status()
+                videos: list[dict[str, Any]] = videos_resp.json()
+                if not videos:
+                    break
+
+                for video in videos:
+                    vid = video.get("id")
+                    if not vid:
+                        continue
+                    remaining = limit - len(clips)
+                    clips_resp = c.get(
+                        f"/api/v1/videos/{vid}/clips",
+                        params={"limit": min(500, remaining), "offset": 0},
+                    )
+                    clips_resp.raise_for_status()
+                    batch = clips_resp.json()
+                    if batch:
+                        clips.extend(batch[:remaining])
+                    if len(clips) >= limit:
+                        break
+
+                if len(videos) < video_page_limit:
+                    break
+                video_offset += len(videos)
 
         labels_by_clip: dict[str, list[dict[str, Any]]] = {}
         for clip in clips:

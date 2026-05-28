@@ -48,6 +48,11 @@ def _make_video(
     v.opponent_team = opponent_team
     v.recorded_at = datetime.now(UTC)
     v.created_at = datetime.now(UTC)
+    # Capture-regime metadata (Issue #126) defaults to NULL on a fresh
+    # video so MagicMock doesn't auto-fabricate a value that would later
+    # fail pydantic validation in ClipResponse.
+    v.capture_regime = None
+    v.regime_confidence = None
     return v
 
 

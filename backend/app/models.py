@@ -164,6 +164,20 @@ class AlertSeverity(enum.StrEnum):
     high = "high"
 
 
+class CaptureRegime(enum.StrEnum):
+    """Source-capture regime inferred from pixels at ingest (Issue #126).
+
+    Toledo film arrives without SRT/GPS/IMU, so every Phase-CV stage routes on
+    whichever of these the ingest-time detector picked. ``unknown`` is the safe
+    fallback for low-confidence or feature-extraction failures and is also the
+    backfill value for rows that existed before this column was added.
+    """
+
+    drone_follow = "drone_follow"
+    fixed_sideline = "fixed_sideline"
+    unknown = "unknown"
+
+
 class PlayerVisibilityState(enum.StrEnum):
     """Outward-facing visibility lifecycle for a player profile (Issue #114).
 
@@ -289,6 +303,15 @@ class Video(Base):
     our_possession: Mapped[SideOfBall | None] = mapped_column(
         Enum(SideOfBall, name="side_of_ball"), nullable=True
     )
+    # ── Capture regime (Issue #126) ───────────────────────────────────────
+    # Inferred from pixels at ingest. Denormalized onto clip rows when
+    # clips are created so downstream stages don't need to JOIN videos.
+    capture_regime: Mapped[CaptureRegime | None] = mapped_column(
+        Enum(CaptureRegime, name="capture_regime", create_type=False),
+        nullable=True,
+        index=True,
+    )
+    regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -357,6 +380,16 @@ class Clip(Base):
     side_of_ball: Mapped[SideOfBall | None] = mapped_column(
         Enum(SideOfBall, name="side_of_ball", create_type=False), nullable=True, index=True
     )
+
+    # ── Capture regime (Issue #126) ───────────────────────────────────────
+    # Denormalized from the parent video at clip-create time. ``unknown``
+    # is the safe fallback when the detector can't classify confidently.
+    capture_regime: Mapped[CaptureRegime | None] = mapped_column(
+        Enum(CaptureRegime, name="capture_regime", create_type=False),
+        nullable=True,
+        index=True,
+    )
+    regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
