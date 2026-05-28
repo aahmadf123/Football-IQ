@@ -9,7 +9,7 @@ body:
         Football-IQ is an **American football** platform (college football,
         NFL-style analysis, Toledo Rockets / MAC). Soccer / association-football
         resources are rejected — see the denylist in
-        [`docs/external-resource-rubric.md`](../blob/main/docs/external-resource-rubric.md).
+        [docs/external-resource-rubric.md](https://github.com/aahmadf123/Football-IQ/blob/main/docs/external-resource-rubric.md).
   - type: input
     id: resource-name
     attributes:

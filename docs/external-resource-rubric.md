@@ -35,7 +35,7 @@ blocker to *proposing*; they are a blocker to *adopting*.
 | **Data privacy risk** | Does it carry PII, medical / wellness, or recruiting-sensitive data? |
 | **Model-router / model-registry path** | If it affects inference, which router bucket / registry path? (See [`docs/model-routing.md`](model-routing.md).) Default: nightly-only until benchmarked. |
 | **Overlap with closed decisions** | Does it contradict an accepted ADR ([`docs/adr/`](adr/)) or product decision? |
-| **Calibrated-tracking dependency** | Does it assume calibrated tracking? If so, note the dependency on #127 / #128 / #129. |
+| **Calibrated-tracking dependency** | Does it assume calibrated tracking? If so, note the dependency on [#127](https://github.com/aahmadf123/Football-IQ/issues/127) / [#128](https://github.com/aahmadf123/Football-IQ/issues/128) / [#129](https://github.com/aahmadf123/Football-IQ/issues/129). |
 
 A proposal that cannot answer **Sport coverage** and **License / access terms**
 is incomplete and must not be adopted.
@@ -61,8 +61,8 @@ sources, benchmarks, or training data:
 | Generic **FIFA / UEFA / European league** datasets | Soccer. |
 
 > **Rule of thumb for AI agents:** if a "football" resource talks about
-> *pitches, matches, goals, fixtures, leagues, clubs, transfers, xG, or
-> formations like 4-4-2*, it is **soccer**. American football talks about
+> *pitches, matches, goals, fixtures, leagues, clubs, transfers, expected
+> goals (xG), or formations like 4-4-2*, it is **soccer**. American football talks about
 > *downs, drives, formations like I-formation / shotgun, coverages, snaps, and
 > yards*. When in doubt, treat it as soccer and reject it.
 
