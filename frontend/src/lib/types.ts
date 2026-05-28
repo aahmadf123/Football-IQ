@@ -12,6 +12,7 @@ export type PageKey =
   | "clips-highlights"
   | "alerts"
   | "clip-review"
+  | "college-data"
   | "settings";
 
 // Backend-aligned enums (ADR 0001). These describe API payloads, not the
@@ -408,4 +409,73 @@ export interface ReportCreateRequest {
 export interface ReportDownloadResponse {
   download_url: string;
   expires_at: string;
+}
+
+// ── CFBD cached analytics (Issue #163) ──────────────────────────────────────
+// All of these come from the Football-IQ backend, which reads cached
+// CollegeFootballData.com rows. The frontend never calls CFBD directly and
+// never sees the CFBD API key.
+
+export type CfbdSyncStatus = "ok" | "partial" | "error" | "running" | "never";
+
+export interface CfbdCacheMeta {
+  source: string; // "CollegeFootballData.com"
+  source_endpoint: string;
+  sync_status: CfbdSyncStatus;
+  last_synced_at: string | null;
+  stale: boolean;
+  stale_after_hours: number;
+  row_count: number;
+}
+
+export interface CfbdTeam {
+  cfbd_team_id: number | null;
+  school: string;
+  mascot: string | null;
+  abbreviation: string | null;
+  conference: string | null;
+  division: string | null;
+  color: string | null;
+  alt_color: string | null;
+}
+
+export interface CfbdTeamResponse {
+  team: CfbdTeam | null;
+  cache: CfbdCacheMeta;
+}
+
+export interface CfbdGame {
+  cfbd_game_id: number;
+  season: number;
+  week: number | null;
+  season_type: string | null;
+  start_date: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  home_points: number | null;
+  away_points: number | null;
+  venue: string | null;
+  completed: boolean | null;
+}
+
+export interface CfbdScheduleResponse {
+  season: number | null;
+  games: CfbdGame[];
+  cache: CfbdCacheMeta;
+}
+
+export interface CfbdMacBenchmarkRow {
+  team: string;
+  conference: string | null;
+  games: number;
+  avg_points_for: number | null;
+  avg_points_against: number | null;
+  point_differential: number | null;
+}
+
+export interface CfbdMacBenchmarkResponse {
+  season: number | null;
+  conference: string;
+  teams: CfbdMacBenchmarkRow[];
+  cache: CfbdCacheMeta;
 }

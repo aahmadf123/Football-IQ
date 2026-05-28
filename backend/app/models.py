@@ -34,6 +34,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -1234,3 +1235,199 @@ class ReportJob(Base):
     )
 
     requester: Mapped["User | None"] = relationship("User", foreign_keys=[requested_by])
+
+
+# ── CFBD cache (Issues #161/#162/#163) ──────────────────────────────────────
+#
+# Cached CollegeFootballData.com rows so Football-IQ can serve Toledo/MAC
+# analytics without making a live vendor call on every request. These tables are
+# populated by the backend-only CFBD client / ingestion (Issues #161/#162); the
+# read-only analytics router (Issue #163) reads them. CFBD source identifiers are
+# preserved verbatim and no vendor API key is ever stored here. American football
+# (college) only — see docs/external-resource-rubric.md.
+
+
+class CfbdSyncStatus(enum.StrEnum):
+    """Outcome of a single CFBD ingestion attempt."""
+
+    running = "running"
+    ok = "ok"
+    partial = "partial"
+    error = "error"
+
+
+class CfbdSyncRun(Base):
+    """One ingestion attempt for a CFBD endpoint family (idempotent upserts).
+
+    Drives the ``cache_meta`` the API returns so the UI can render empty /
+    stale / unavailable states without guessing.
+    """
+
+    __tablename__ = "cfbd_sync_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Logical endpoint family, e.g. "teams", "games", "plays", "drives",
+    # "team_game_stats", "win_probability".
+    source_endpoint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # Request parameters used (season, week, team, …). No secrets are stored.
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[CfbdSyncStatus] = mapped_column(
+        Enum(CfbdSyncStatus, name="cfbd_sync_status"),
+        nullable=False,
+        default=CfbdSyncStatus.running,
+        index=True,
+    )
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CfbdTeamRow(Base):
+    """A CFBD team (Toledo, MAC peers, scheduled opponents)."""
+
+    __tablename__ = "cfbd_teams"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cfbd_team_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, unique=True, index=True
+    )
+    school: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    mascot: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    abbreviation: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    conference: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    division: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    color: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    alt_color: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    logos: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    raw: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class CfbdGame(Base):
+    """A CFBD game / schedule row."""
+
+    __tablename__ = "cfbd_games"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cfbd_game_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True, index=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    season_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    home_team: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    away_team: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    home_conference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    away_conference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    home_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    venue: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    completed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    raw: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class CfbdDrive(Base):
+    """A CFBD drive summary for a game."""
+
+    __tablename__ = "cfbd_drives"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cfbd_drive_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True, index=True)
+    cfbd_game_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    offense: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    defense: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    drive_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scoring: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    start_period: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_period: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    plays: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    drive_result: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    raw: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class CfbdPlay(Base):
+    """A CFBD play-by-play row for a game."""
+
+    __tablename__ = "cfbd_plays"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cfbd_play_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True, index=True)
+    cfbd_game_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    cfbd_drive_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    offense: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    defense: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    period: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    clock: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    down: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yard_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yards_gained: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    play_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    play_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ppa: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raw: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class CfbdTeamGameStat(Base):
+    """A CFBD team's box-score stats for a single game."""
+
+    __tablename__ = "cfbd_team_game_stats"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cfbd_game_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    team: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    conference: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    opponent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    home_away: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Flexible stat bag (total_yards, rushing_yards, passing_yards, …) so new
+    # CFBD categories don't require a migration.
+    stats: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    raw: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("cfbd_game_id", "team", name="uq_cfbd_team_game_stats_game_team"),
+    )
+
+
+class CfbdWinProbability(Base):
+    """A single CFBD win-probability sample within a game's timeline."""
+
+    __tablename__ = "cfbd_win_probability"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cfbd_game_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    play_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cfbd_play_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    home_team: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    away_team: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    home_win_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    period: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    clock: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    play_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("cfbd_game_id", "play_number", name="uq_cfbd_win_probability_game_play"),
+    )

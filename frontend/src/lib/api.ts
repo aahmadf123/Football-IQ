@@ -11,6 +11,9 @@ import type {
   ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
+  CfbdMacBenchmarkResponse,
+  CfbdScheduleResponse,
+  CfbdTeamResponse,
   ClipOverlayPayload,
   OpponentSummary,
   ReportCreateRequest,
@@ -689,4 +692,43 @@ export async function fetchVideoDownloadUrl(
   } catch {
     return null;
   }
+}
+
+// ── CFBD cached analytics (Issue #163) ──────────────────────────────────────
+// These hit the Football-IQ backend only (NEXT_PUBLIC_API_URL). The backend
+// reads cached CollegeFootballData.com rows — the CFBD key is never sent to or
+// seen by the browser.
+
+export async function fetchCfbdToledoTeam(
+  token?: string,
+): Promise<CfbdTeamResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<CfbdTeamResponse>(`${base}/api/cfbd/teams/toledo`, token);
+}
+
+export async function fetchCfbdToledoSchedule(
+  season?: number,
+  token?: string,
+): Promise<CfbdScheduleResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const qs = season != null ? `?season=${encodeURIComponent(season)}` : "";
+  return getJSON<CfbdScheduleResponse>(
+    `${base}/api/cfbd/teams/toledo/schedule${qs}`,
+    token,
+  );
+}
+
+export async function fetchCfbdMacBenchmark(
+  season?: number,
+  token?: string,
+): Promise<CfbdMacBenchmarkResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const qs = season != null ? `?season=${encodeURIComponent(season)}` : "";
+  return getJSON<CfbdMacBenchmarkResponse>(
+    `${base}/api/cfbd/mac/benchmark${qs}`,
+    token,
+  );
 }

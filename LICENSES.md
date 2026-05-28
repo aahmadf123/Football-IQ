@@ -109,6 +109,34 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## CollegeFootballData (CFBD) API
+
+| Field | Detail |
+|---|---|
+| **Resource** | CollegeFootballData.com (CFBD) REST API |
+| **Sport coverage** | College (American) football ✅ — Toledo / MAC relevant |
+| **Source URL** | https://collegefootballdata.com — API https://api.collegefootballdata.com |
+| **License / access terms** | Free tier with API key (Patreon tiers for higher limits). Data is for non-commercial / analytical use; verify current terms before any commercial deployment. Attribution to CollegeFootballData.com is surfaced in the UI. |
+| **Runtime category** | Cached ingestion (backend-only) → read-only API. No live vendor call in the request path. |
+| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`). **Backend-only** — never exposed to the frontend, browser bundle, Workers, logs, or coach-visible errors. Not stored in the database. |
+| **Data privacy risk** | None — public college-football game data. No PII, medical, recruiting, or betting data ingested. |
+| **Model-router / registry path** | N/A — analytics data, not an inference model. |
+| **Football-IQ usage** | Issues #161 (backend client), #162 (Postgres cache), #163 (read-only `/api/cfbd/*` API + College Data frontend surface). Tables: `cfbd_teams/games/drives/plays/team_game_stats/win_probability/sync_runs`. |
+
+---
+
+## Field visualization evaluation — sportypy / sportyR / cfbplotR (Issue #169)
+
+| Field | Detail |
+|---|---|
+| **Resources evaluated** | `sportypy` (Python, MIT, https://sportypy.sportsdataverse.org); `sportyR` (R, MIT, https://github.com/sportsdataverse/sportyR); `cfbplotR` (R, MIT, https://github.com/sportsdataverse/cfbplotR) |
+| **Sport coverage** | American / college football ✅ |
+| **Decision** | **Not adopted as runtime dependencies.** Interactive overlays use frontend-native SVG (`frontend/src/components/field-diagram.tsx`). `sportypy` is **deferred** for possible future *offline* Python report plots; R packages (`sportyR`, `cfbplotR`) are **rejected** as a production dependency (no R runtime). See [`docs/adr/0002-field-visualization.md`](docs/adr/0002-field-visualization.md). |
+| **Secret / key requirement** | None for any of them. |
+| **License impact** | All MIT; none are currently installed/redistributed. A `LICENSES.md` row + dependency add is required *if* `sportypy` is later adopted. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.

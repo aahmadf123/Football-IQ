@@ -39,6 +39,7 @@ any (resource, action) pair not listed in the table is forbidden.
 | `player_metrics`      | `read`     | admin, analyst, coach, sportsperformance, player |
 | `health_workload`     | `read`     | admin, analyst, sportsperformance             |
 | `heavy_workload`      | `trigger`  | admin, analyst                                |
+| `cfbd_analytics`      | `read`     | admin, analyst, coach, sportsperformance      |
 
 Routers enforce policies via `require_policy(resource, action)` where the
 resource/action matrix is applied. Every denial
@@ -120,6 +121,7 @@ retry strategies.  Every decision (allowed or rejected) is emitted as
 
 * `POST /api/v1/jobs`
 * `POST /api/v1/jobs/{id}/retry`
+* `GET /api/cfbd/mac/benchmark` (Issue #163 — cross-conference aggregation)
 
 These two endpoints currently authorize via `require_any_staff` and apply
 workload gating independently. The `heavy_workload:trigger` policy row is

@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000"
 
+    # ── CollegeFootballData (CFBD) ────────────────────────────────────────
+    # Backend-only secret. Never exposed to the frontend, browser bundles, or
+    # logs. The read-only analytics router (Issue #163) does NOT use the key —
+    # it reads cached Postgres tables. The key is consumed by the CFBD client /
+    # ingestion (Issues #161/#162) when those run server-side.
+    cfbd_api_key: str = ""
+    cfbd_base_url: str = "https://api.collegefootballdata.com"
+    # Cached CFBD rows older than this are flagged ``stale`` to the UI. College
+    # football data refreshes roughly weekly, so the default is 7 days.
+    cfbd_cache_stale_after_hours: int = 168
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:

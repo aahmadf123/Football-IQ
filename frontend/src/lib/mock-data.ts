@@ -53,6 +53,10 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     title: "Clip Review",
     subtitle: "Backend-backed clip metadata, processing status, and playback shell",
   },
+  "college-data": {
+    title: "College Data (CFBD)",
+    subtitle: "Cached Toledo / MAC analytics from CollegeFootballData.com",
+  },
   settings: {
     title: "Settings",
     subtitle: "Team configuration, roles, model sensitivity, and integrations",

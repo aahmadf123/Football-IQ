@@ -55,6 +55,7 @@ class Resource(enum.StrEnum):
     PLAYER_METRICS = "player_metrics"
     HEALTH_WORKLOAD = "health_workload"
     HEAVY_WORKLOAD = "heavy_workload"
+    CFBD_ANALYTICS = "cfbd_analytics"
 
 
 class Action(enum.StrEnum):
@@ -101,6 +102,17 @@ POLICY: dict[tuple[Resource, Action], frozenset[UserRole]] = {
     # Triggering heavy workloads (heavy jobs, embeddings rebuilds, text search):
     # analyst-or-above only.  Subject to additional health/workload gating.
     (Resource.HEAVY_WORKLOAD, Action.TRIGGER): frozenset({UserRole.admin, UserRole.analyst}),
+    # Cached CFBD (CollegeFootballData.com) college-football analytics surface
+    # (Issue #163). Public college data, but kept to coaching staff — never
+    # exposed to player/viewer/recruiting accounts.
+    (Resource.CFBD_ANALYTICS, Action.READ): frozenset(
+        {
+            UserRole.admin,
+            UserRole.analyst,
+            UserRole.coach,
+            UserRole.sportsperformance,
+        }
+    ),
 }
 
 
