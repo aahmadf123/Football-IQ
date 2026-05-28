@@ -231,16 +231,18 @@ class CaptureRegimeDetector(RegimeDetectorAdapter):
         confidence = abs(p_drone - 0.5) * 2.0  # 0..1, peaks at the extremes
         reason_codes: list[str] = []
 
-        if confidence < self.min_confidence:
-            regime = UNKNOWN
-            reason_codes.append("low_confidence")
-        elif p_drone >= 0.5 + self.margin:
+        if p_drone >= 0.5 + self.margin:
             regime = DRONE_FOLLOW
         elif p_drone <= 0.5 - self.margin:
             regime = FIXED_SIDELINE
-        else:
+        elif 0.5 - self.margin < p_drone < 0.5 + self.margin:
             regime = UNKNOWN
             reason_codes.append("within_margin")
+        elif confidence < self.min_confidence:
+            regime = UNKNOWN
+            reason_codes.append("low_confidence")
+        else:
+            regime = UNKNOWN
 
         return RegimeResult(
             regime=regime,
