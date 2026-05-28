@@ -58,7 +58,9 @@ def _uri_to_r2_key(uri: str) -> str:
     return uri
 
 
-def _process(video_id: str, video_path: Path, job_id: str, input_uri: str) -> dict[str, Any]:
+def _process(
+    video_id: str, video_path: Path, job_id: str, input_uri: str
+) -> dict[str, Any]:
     probe = _ffprobe(video_path)
     warnings: list[str] = []
 
@@ -150,8 +152,10 @@ def _ffprobe(path: Path) -> dict[str, Any]:
     """Run ffprobe on the video and return a dict of key metadata."""
     cmd = [
         "ffprobe",
-        "-v", "quiet",
-        "-print_format", "json",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
         "-show_streams",
         "-show_format",
         str(path),
@@ -159,7 +163,11 @@ def _ffprobe(path: Path) -> dict[str, Any]:
     try:
         out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=60)
         data: dict[str, Any] = json.loads(out)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+    ) as exc:
         log.error("ffprobe_failed", path=str(path), error=str(exc))
         return {}
 
@@ -194,11 +202,16 @@ def _generate_contact_sheet(video_id: str, path: Path, duration: float) -> str:
         frames_dir = Path(tmp_dir) / "frames"
         frames_dir.mkdir()
         cmd = [
-            "ffmpeg", "-y",
-            "-hwaccel", "cuda",
-            "-i", str(path),
-            "-vf", f"fps=1/{interval:.1f},scale=320:-1",
-            "-frames:v", "10",
+            "ffmpeg",
+            "-y",
+            "-hwaccel",
+            "cuda",
+            "-i",
+            str(path),
+            "-vf",
+            f"fps=1/{interval:.1f},scale=320:-1",
+            "-frames:v",
+            "10",
             str(frames_dir / "thumb%03d.jpg"),
         ]
         try:
@@ -206,16 +219,24 @@ def _generate_contact_sheet(video_id: str, path: Path, duration: float) -> str:
         except Exception:
             # Try without hardware acceleration as fallback
             cmd_fallback = [
-                "ffmpeg", "-y",
-                "-i", str(path),
-                "-vf", f"fps=1/{interval:.1f},scale=320:-1",
-                "-frames:v", "10",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(path),
+                "-vf",
+                f"fps=1/{interval:.1f},scale=320:-1",
+                "-frames:v",
+                "10",
                 str(frames_dir / "thumb%03d.jpg"),
             ]
             try:
-                subprocess.run(cmd_fallback, check=True, capture_output=True, timeout=120)
+                subprocess.run(
+                    cmd_fallback, check=True, capture_output=True, timeout=120
+                )
             except Exception as exc:
-                log.warning("thumbnail_generation_failed", video_id=video_id, error=str(exc))
+                log.warning(
+                    "thumbnail_generation_failed", video_id=video_id, error=str(exc)
+                )
                 return ""
 
         # Tile into a contact sheet using ffmpeg tile filter

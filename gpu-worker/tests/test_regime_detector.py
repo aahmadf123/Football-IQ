@@ -42,7 +42,9 @@ def _solid_field_frame(h: int = 90, w: int = 160) -> np.ndarray:
     return frame
 
 
-def _cropped_field_frame(h: int = 90, w: int = 160, crop_frac: float = 0.4) -> np.ndarray:
+def _cropped_field_frame(
+    h: int = 90, w: int = 160, crop_frac: float = 0.4
+) -> np.ndarray:
     """Field-green only in the central region; left+right bands are non-field."""
     frame = np.zeros((h, w, 3), dtype=np.uint8)
     crop = int(w * crop_frac / 2)
@@ -190,9 +192,7 @@ def test_detector_handles_unsamplable_video(tmp_path):
     result = detector.detect(bogus)
     assert result.regime == UNKNOWN
     assert result.confidence == 0.0
-    assert any(
-        code in result.reason_codes for code in ("no_frames", "sample_failed")
-    )
+    assert any(code in result.reason_codes for code in ("no_frames", "sample_failed"))
 
 
 # ── Custom logistic coefficients override the fallback ───────────────────────

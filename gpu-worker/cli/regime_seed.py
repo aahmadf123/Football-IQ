@@ -42,15 +42,45 @@ def _fetch_clips(
     limit: int,
     timeout: float = 30.0,
 ) -> list[dict[str, Any]]:
-    """GET /api/v1/clips returning up to ``limit`` rows."""
+    """Collect up to ``limit`` clips by paging videos and listing their clips.
+
+    The backend exposes ``GET /api/v1/videos`` and
+    ``GET /api/v1/videos/{id}/clips`` but no top-level ``GET /api/v1/clips``
+    list endpoint, so we iterate videos (newest first per the router's
+    default ordering) and accumulate clips until we hit ``limit``.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    clips: list[dict[str, Any]] = []
     with httpx.Client(base_url=backend_url, timeout=timeout) as c:
-        resp = c.get(
-            "/api/v1/clips",
-            params={"limit": limit},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
-        return list(resp.json())
+        video_offset = 0
+        video_page = 50
+        while len(clips) < limit:
+            v_resp = c.get(
+                "/api/v1/videos",
+                params={"limit": video_page, "offset": video_offset},
+                headers=headers,
+            )
+            v_resp.raise_for_status()
+            videos = list(v_resp.json())
+            if not videos:
+                break
+            for video in videos:
+                if len(clips) >= limit:
+                    break
+                video_id = video.get("id")
+                if not video_id:
+                    continue
+                remaining = limit - len(clips)
+                c_resp = c.get(
+                    f"/api/v1/videos/{video_id}/clips",
+                    params={"limit": remaining},
+                    headers=headers,
+                )
+                if c_resp.status_code != 200:
+                    continue
+                clips.extend(c_resp.json())
+            video_offset += len(videos)
+    return clips[:limit]
 
 
 def _video_uri(
@@ -80,7 +110,11 @@ def _predict_for_clip(clip: dict[str, Any], video_uri: str | None) -> dict[str, 
     if not video_uri:
         return {"regime": UNKNOWN, "confidence": 0.0, "features": {}}
 
-    r2_key = video_uri[len("r2://") :].split("/", 1)[1] if video_uri.startswith("r2://") else video_uri
+    r2_key = (
+        video_uri[len("r2://") :].split("/", 1)[1]
+        if video_uri.startswith("r2://")
+        else video_uri
+    )
     video_path: Path | None = None
     try:
         video_path = r2.download_to_temp(r2_key)
@@ -128,7 +162,9 @@ def run(
                 "predicted_regime": prediction["regime"],
                 "confidence": prediction["confidence"],
                 "static_bg_score": prediction["features"].get("static_bg_score", ""),
-                "vp_altitude_score": prediction["features"].get("vp_altitude_score", ""),
+                "vp_altitude_score": prediction["features"].get(
+                    "vp_altitude_score", ""
+                ),
                 "global_affine_score": prediction["features"].get(
                     "global_affine_score", ""
                 ),

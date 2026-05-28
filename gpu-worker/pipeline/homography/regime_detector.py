@@ -188,12 +188,12 @@ class CaptureRegimeDetector(RegimeDetectorAdapter):
         margin: float | None = None,
     ) -> None:
         self.margin = (
-            margin if margin is not None else _env_float("REGIME_MARGIN", DEFAULT_MARGIN)
+            margin
+            if margin is not None
+            else _env_float("REGIME_MARGIN", DEFAULT_MARGIN)
         )
         self.min_confidence = _env_float("REGIME_MIN_CONFIDENCE", 0.55)
-        self.coefs = _load_coefs(
-            model_path or os.environ.get("REGIME_MODEL_PATH", "")
-        )
+        self.coefs = _load_coefs(model_path or os.environ.get("REGIME_MODEL_PATH", ""))
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -345,7 +345,9 @@ def _vanishing_point_score(frame: np.ndarray) -> float:
         r1, t1 = vert_lines[i]
         for j in range(i + 1, len(vert_lines)):
             r2, t2 = vert_lines[j]
-            denom = math.sin(t1 - t2)
+            # Solve [cos(t1) sin(t1); cos(t2) sin(t2)] · [x; y] = [r1; r2]
+            # for y via Cramer's rule. Determinant: sin(t2 - t1).
+            denom = math.sin(t2 - t1)
             if abs(denom) < 1e-3:
                 continue
             y = (r2 * math.cos(t1) - r1 * math.cos(t2)) / denom
