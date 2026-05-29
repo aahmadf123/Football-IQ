@@ -129,6 +129,25 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## Sportradar NCAAFB API v7 — evaluated, not adopted (Issue #165)
+
+| Field | Detail |
+|---|---|
+| **Resource** | Sportradar NCAAFB (NCAA Football) API v7 |
+| **Sport coverage** | American / college football ✅ (NCAA FB). Not soccer. |
+| **Toledo / MAC relevance** | Broad college football incl. MAC; no Toledo-specific advantage over CFBD established. |
+| **Source URL** | https://developer.sportradar.com/football/docs/ncaafb-ig-api-basics |
+| **License / access terms** | Commercial B2B contract. Trial: 30 days / 1,000 calls / 1 QPS. Production QPS per signed package. Not redistributable; respect documented TTLs (2 s live PBP, 120 s seasonal stats). |
+| **Runtime category** | Documentation only — **evaluated, not adopted** (spike #165). Would be backend-only production API if adopted. |
+| **Secret / key requirement** | If adopted: proposed `SPORTRADAR_API_KEY` (+ `SPORTRADAR_BASE_URL`, `SPORTRADAR_ACCESS_LEVEL`, `SPORTRADAR_NCAAFB_VERSION`). Backend-only; `x-api-key` header; never exposed to frontend, browser bundles, Workers, logs, PR/issue text, R2 artifacts, coach-visible errors, or the database. **No value committed.** |
+| **Data privacy risk** | Public team/game statistics and game-day player availability statuses. No medical/wellness data; treat statuses as not-for-logging. |
+| **Model-router / registry path** | N/A — data integration, not an inference model. |
+| **Overlap with closed decisions** | None. CFBD (#160–#163) remains the authoritative college-data source; this spike does **not** replace it. Single-camera (#101), pgvector (#8/#77), SAM (#74) untouched. |
+| **Calibrated-tracking dependency** | None (#127/#128/#129 not implicated). |
+| **Decision** | **Not adopted now — defer** behind a scoped live in-game feature. CFBD stays authoritative. See [`reports/spike-issue165-sportradar-ncaafb-v7.md`](reports/spike-issue165-sportradar-ncaafb-v7.md). |
+
+---
+
 ## Field visualization evaluation — sportypy / sportyR / cfbplotR (Issue #169)
 
 | Field | Detail |
