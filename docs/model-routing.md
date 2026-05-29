@@ -238,6 +238,18 @@ WHERE id = '...';
 
 This is additive — existing artifact keys are untouched.
 
+## Not routed: pre-snap prediction (Issues #135 / #136)
+
+The pre-snap run/pass predictor (`gpu-worker/pipeline/play_prediction/`,
+`stage_presnap_prediction.py`) consumes the **outputs** of the routed stages
+and runs a small classifier + deterministic Bayesian math. In its default path
+it loads no heavy weights and runs identically in both priority buckets, so —
+exactly like the Bayesian snap detector — it registers **no** `model_router`
+stage and is absent from `DEFAULT_ROUTING`. Optional formation-MLP / motion-LSTM
+checkpoints (`PLAY_PREDICTION_FORMATION_MODEL` / `PLAY_PREDICTION_MOTION_MODEL`)
+load at runtime and fall back to the deterministic path when absent. See
+[`docs/pre-snap-prediction.md`](pre-snap-prediction.md).
+
 ## Unknown stages
 
 `select_model("not-a-stage", priority)` returns the module-level
