@@ -245,7 +245,7 @@ GPU worker (CUDA pipeline):
 
 ```bash
 cd gpu-worker
-pip install -r requirements.txt
+pip install -r requirements.txt pytest
 pytest -v
 ```
 
