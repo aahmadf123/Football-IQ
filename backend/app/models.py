@@ -1250,3 +1250,14 @@ from app.cfbd.models import (  # noqa: E402,F401
     CFBDTeamGameStat,
     CFBDWinProbability,
 )
+
+# Backward-compatible aliases used by the read-only analytics router/tests from
+# Issue #163. The canonical ORM classes now live in ``app.cfbd.models``.
+CfbdSyncStatus = CFBDSyncStatus
+CfbdSyncRun = CFBDSyncRun
+CfbdTeamRow = CFBDTeam
+CfbdGame = CFBDGame
+CfbdDrive = CFBDDrive
+CfbdPlay = CFBDPlay
+CfbdTeamGameStat = CFBDTeamGameStat
+CfbdWinProbability = CFBDWinProbability

@@ -16,6 +16,7 @@ from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
 from app.routers.auth import router as auth_router
 from app.routers.calibrations import router as calibrations_router
+from app.routers.cfbd import router as cfbd_router
 from app.routers.clips import router as clips_router
 from app.routers.concept_proposals import router as concept_proposals_router
 from app.routers.correction_analytics import (
@@ -113,3 +114,4 @@ app.include_router(search_router)
 app.include_router(concept_proposals_router)
 app.include_router(settings_router)
 app.include_router(reports_router)
+app.include_router(cfbd_router)

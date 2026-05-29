@@ -116,16 +116,28 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 | **Resource** | College Football Data (CFBD) API |
 | **Sport coverage** | College football ✅ (American football — Toledo Rockets / MAC). Not soccer. |
 | **Toledo / MAC relevance** | Direct — Toledo + MAC schedules, games, drives, plays, team game stats, win probability. |
-| **Source URL** | https://collegefootballdata.com (org: https://github.com/CFBD; ecosystem: https://cfbfastr.sportsdataverse.org) |
-| **License / access terms** | Free API; account-issued API key required. Review CFBD terms and rate limits before any external/commercial deployment. |
-| **Runtime category** | Production API (backend-only) → cached ingestion into Postgres. |
-| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`) — backend env / Fly.io / GitHub Actions secret. Never exposed to frontend, browser bundles, logs, or coach-visible errors, and never stored in the database. |
+| **Source URL** | https://collegefootballdata.com — API https://api.collegefootballdata.com (org: https://github.com/CFBD; ecosystem: https://cfbfastr.sportsdataverse.org) |
+| **License / access terms** | Free tier / API-key access; review CFBD terms and rate limits before any external or commercial deployment. Attribution to CollegeFootballData.com is surfaced in the UI. |
+| **Runtime category** | Production API (backend-only) → cached ingestion into Postgres → read-only backend API. No live vendor call in the request path. |
+| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`) — backend env / Fly.io / GitHub Actions secret. Never exposed to frontend, browser bundles, Workers, logs, or coach-visible errors, and never stored in the database. |
 | **Data privacy risk** | None expected — public team/game statistics. No PII, medical, or recruiting data ingested in v1. |
 | **Model-router / registry path** | N/A — data integration, not an inference model. |
 | **Overlap with closed decisions** | None. Single-camera (#101), pgvector (#8/#77), SAM (#74) decisions are untouched. |
 | **Calibrated-tracking dependency** | None. |
-| **Football-IQ usage** | Issues #160/#161/#162 — backend `app/cfbd/` client + `cfbd_*` Postgres cache tables (migration 0016). Synced via `python -m app.cfbd --season <year>`. Cached data is served without live vendor calls; CFBD is never called from the frontend. |
+| **Football-IQ usage** | Issues #160/#161/#162/#163 — backend `app/cfbd/` client + `cfbd_*` Postgres cache tables (migration 0016), plus read-only `/api/cfbd/*` and College Data frontend surfaces. Synced via `python -m app.cfbd --season <year>`. |
 | **Notes** | No vendor key is committed, logged, returned to clients, or written to the database. Cached rows remain available when CFBD is unavailable. |
+
+---
+
+## Field visualization evaluation — sportypy / sportyR / cfbplotR (Issue #169)
+
+| Field | Detail |
+|---|---|
+| **Resources evaluated** | `sportypy` (Python, MIT, https://sportypy.sportsdataverse.org); `sportyR` (R, MIT, https://github.com/sportsdataverse/sportyR); `cfbplotR` (R, MIT, https://github.com/sportsdataverse/cfbplotR) |
+| **Sport coverage** | American / college football ✅ |
+| **Decision** | **Not adopted as runtime dependencies.** Interactive overlays use frontend-native SVG (`frontend/src/components/field-diagram.tsx`). `sportypy` is **deferred** for possible future *offline* Python report plots; R packages (`sportyR`, `cfbplotR`) are **rejected** as a production dependency (no R runtime). See [`docs/adr/0002-field-visualization.md`](docs/adr/0002-field-visualization.md). |
+| **Secret / key requirement** | None for any of them. |
+| **License impact** | All MIT; none are currently installed/redistributed. A `LICENSES.md` row + dependency add is required *if* `sportypy` is later adopted. |
 
 ---
 

@@ -47,6 +47,7 @@ const navItems = [
   { key: "player-development", label: "Player Development", href: "/player-development", icon: UsersRound },
   { key: "health-workload", label: "Health & Workload", href: "/health-workload", icon: HeartPulse },
   { key: "reports", label: "Reports", href: "/reports", icon: FileText },
+  { key: "college-data", label: "College Data", href: "/college-data", icon: CalendarDays },
   { key: "clips-highlights", label: "Clips & Highlights", href: "/clips-highlights", icon: Clapperboard },
   { key: "settings", label: "Settings", href: "/settings", icon: Settings },
 ] as const;

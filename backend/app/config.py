@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # a CFBD call is attempted without a key (see app.cfbd.client).
     cfbd_api_key: str = ""
     cfbd_base_url: str = "https://api.collegefootballdata.com"
+    # Cached CFBD rows older than this are flagged ``stale`` to the UI. College
+    # football data refreshes roughly weekly, so the default is 7 days.
+    cfbd_cache_stale_after_hours: int = 168
 
     @field_validator("database_sync_url", mode="before")
     @classmethod
