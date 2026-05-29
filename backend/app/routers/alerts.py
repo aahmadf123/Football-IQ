@@ -269,6 +269,18 @@ async def action_alert(
     if alert is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
+    # Apply the same position-group scoping that ``list_alerts`` enforces:
+    # admins/analysts may action any alert; coaches/sportsperformance staff
+    # may only action alerts inside their assigned position group, so a coach
+    # who learns another group's alert UUID cannot mark it addressed on behalf
+    # of the owning staff.
+    if current_user.role not in (UserRole.admin, UserRole.analyst):
+        user_pg: str | None = getattr(current_user, "position_group", None)
+        if not user_pg or alert.position_group.upper() != user_pg.upper():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found"
+            )
+
     alert.is_actioned = True
     alert.actioned_by = current_user.id
     alert.actioned_at = datetime.now(UTC)

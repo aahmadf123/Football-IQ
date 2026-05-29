@@ -11,8 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
-from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, Tracklet, User, Video
-from app.routers.metrics import FRONTIER_METRIC_NAMES, HEAD_ORIENTATION_METRIC_NAMES
+from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, User, Video
 
 # Recognized clip-level possession values (must match SideOfBall enum).
 _VALID_SIDES: frozenset[str] = frozenset(s.value for s in SideOfBall)
@@ -107,25 +106,6 @@ class ClipResponse(BaseModel):
             regime_confidence=c.regime_confidence,
             created_at=c.created_at.isoformat(),
         )
-
-
-class MetricCreate(BaseModel):
-    model_config = {"protected_namespaces": ()}
-
-    clip_id: uuid.UUID
-    tracklet_id: uuid.UUID | None = None
-    metric_name: str
-    metric_value: dict[str, Any]
-    unit: str | None = None
-    is_suppressed: bool = False
-    suppression_reason: str | None = None
-    experimental_flag: bool = False
-    analytics_safe: bool = False
-    confidence: float | None = None
-    evidence_uri: str | None = None
-    model_version_id: uuid.UUID | None = None
-    calibration_version_id: uuid.UUID | None = None
-    job_id: uuid.UUID | None = None
 
 
 class MetricResponse(BaseModel):
@@ -367,63 +347,7 @@ async def get_clip_metrics(
     return [MetricResponse.from_orm_metric(m) for m in result.scalars().all()]
 
 
-@router.post(
-    "/api/v1/metrics",
-    response_model=MetricResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_metric(
-    body: MetricCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(require_any_staff)],
-) -> MetricResponse:
-    """Store a computed analytics metric for a clip (written by the GPU worker).
-
-    Head-orientation and frontier-analytics (xSep/xYards/xPressure, Issue #10)
-    metric names are forced experimental and never ``analytics_safe`` on ingest,
-    regardless of the payload — a coach must review them before they leave the
-    experimental surface. No unvalidated metric is ever stored as trusted.
-    """
-    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
-    if clip_result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
-
-    if body.tracklet_id is not None:
-        t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
-        if t_result.scalar_one_or_none() is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
-
-    name_lower = body.metric_name.lower()
-    is_always_experimental = (
-        body.metric_name in HEAD_ORIENTATION_METRIC_NAMES or name_lower in FRONTIER_METRIC_NAMES
-    )
-    effective_experimental = body.experimental_flag or is_always_experimental
-    effective_analytics_safe = body.analytics_safe and not is_always_experimental
-
-    metric = Metric(
-        id=uuid.uuid4(),
-        clip_id=body.clip_id,
-        tracklet_id=body.tracklet_id,
-        metric_name=body.metric_name,
-        metric_value=body.metric_value,
-        unit=body.unit,
-        is_suppressed=body.is_suppressed,
-        suppression_reason=body.suppression_reason,
-        experimental_flag=effective_experimental,
-        analytics_safe=effective_analytics_safe,
-        confidence=body.confidence,
-        evidence_uri=body.evidence_uri,
-        model_version_id=body.model_version_id,
-        calibration_version_id=body.calibration_version_id,
-        job_id=body.job_id,
-    )
-    db.add(metric)
-    await db.flush()
-    log.info(
-        "metric_created",
-        metric_id=str(metric.id),
-        clip_id=str(body.clip_id),
-        metric_name=body.metric_name,
-        experimental=effective_experimental,
-    )
-    return MetricResponse.from_orm_metric(metric)
+# ``POST /api/v1/metrics`` is owned by ``app.routers.metrics`` (a single handler
+# keeps the experimental-flag / analytics-safe ingest policy and role gate in
+# one place). It used to be duplicated here, which silently shadowed the
+# stricter metrics-router handler because ``clips_router`` is registered first.
