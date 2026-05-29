@@ -34,6 +34,8 @@ log = structlog.get_logger(__name__)
 
 IOU_TRACKER = "iou-tracker"
 SAM3_MASK_TRACKER = "sam3-mask-tracker"
+BOTSORT = "botsort"
+STRONGSORT = "strongsort"
 STUB_TRACKER = "stub"
 
 
@@ -377,15 +379,26 @@ def get_tracker(variant: str, **kwargs: Any) -> TrackerBase:
     Logic:
       - ``iou-tracker`` (or unknown / empty) → IoUTracker
       - ``sam3-mask-tracker``                → SAM3MaskTracker
+      - ``botsort``                          → BoTSORTTracker (Issue #129, nightly)
+      - ``strongsort``                       → StrongSORTTracker (Issue #129, nightly)
       - ``stub``                             → StubTracker
 
-    No external imports are required by any tracker, so this factory
-    cannot fail at import-time — unlike ``get_detector``, which may
-    fall back when ultralytics is missing.
+    The BoT-SORT / StrongSORT adapters live in ``pipeline.tracking`` and are
+    imported lazily here so this module (and ``pytest`` collection) never
+    depends on them at import time. They are pure-NumPy and carry no model
+    weights, so the import cannot fail on a clean environment.
     """
     v = (variant or "").lower()
     if v == SAM3_MASK_TRACKER:
         return SAM3MaskTracker(**kwargs)
+    if v == BOTSORT:
+        from pipeline.tracking.botsort_adapter import BoTSORTTracker
+
+        return BoTSORTTracker(**kwargs)
+    if v == STRONGSORT:
+        from pipeline.tracking.strongsort_adapter import StrongSORTTracker
+
+        return StrongSORTTracker(**kwargs)
     if v == STUB_TRACKER:
         return StubTracker()
     if v and v != IOU_TRACKER:

@@ -59,6 +59,28 @@ SAM3_1: str = "sam3.1"
 IOU_TRACKER: str = "iou-tracker"
 SAM3_MASK_TRACKER: str = "sam3-mask-tracker"
 
+# Tracker variants — Issue #129. BoT-SORT (ECC camera-motion compensation +
+# appearance ReID, ~2 GB) and StrongSORT (matching cascade + appearance EMA,
+# best offline IDF1, ~3 GB) are heavier than the IoU tracker and rely on a
+# ReID model at runtime. Neither has cleared a same-session benchmark on the
+# production GTX 1660 Ti, so both stay nightly-only behind the guardrail (see
+# ``NIGHTLY_ONLY_VARIANTS``). The same-session path keeps ``iou-tracker`` so
+# the period-break window stays predictable. BoT-SORT can serve the *nightly*
+# track bucket when ``ENABLE_BOTSORT_NIGHTLY`` is set; StrongSORT is reachable
+# for the nightly bucket via ``MODEL_ROUTING_CONFIG``.
+BOTSORT: str = "botsort"
+STRONGSORT: str = "strongsort"
+
+# Re-ID OCR variant — Issue #131. PARSeq reads small / rotated / motion-blurred
+# jersey numbers far better than Tesseract but needs a torch model at runtime,
+# so it is nightly-only. Same-session re-ID keeps the lightweight Tesseract
+# ``jersey-ocr`` path. The PARSeq adapter falls back to Tesseract at runtime
+# when its weights are unavailable, but the *routing decision* recorded in the
+# audit is still ``parseq-ocr`` (mirrors how ``detect`` records ``yolov8m``
+# even when a fallback fires).
+JERSEY_OCR: str = "jersey-ocr"
+PARSEQ_OCR: str = "parseq-ocr"
+
 # Ball variant — Issue #133. A *dedicated* nano ball model (not a class on the
 # player detector). Same model serves both priority buckets; SAHI tiling is
 # gated by capture regime at the stage call site, not by priority (see
@@ -87,7 +109,7 @@ CALIB_HOUGH_DLT_KALMAN: str = "calib-hough-dlt-kalman"
 # these in the same_session bucket, the router falls back to the default
 # same-session variant and logs a warning — see ``select_model``.
 NIGHTLY_ONLY_VARIANTS: frozenset[str] = frozenset(
-    {SAM3_1, SAM3_MASK_TRACKER, PLAY_EMBED_BASELINE}
+    {SAM3_1, SAM3_MASK_TRACKER, PLAY_EMBED_BASELINE, BOTSORT, STRONGSORT, PARSEQ_OCR}
 )
 
 # Returned for any stage that is not in the routing table.
@@ -103,6 +125,15 @@ _NIGHTLY_KEY = "nightly"
 # eval (see ``reports/phase2-issue74-sam3-eval.md``).
 _SAM3_NIGHTLY_ENV = "ENABLE_SAM3_NIGHTLY"
 
+# When set to a truthy value, the nightly bucket for ``track`` is upgraded
+# from ``iou-tracker`` to BoT-SORT (Issue #129). Default off: nightly track
+# stays on the IoU tracker until BoT-SORT clears the same-holdout IDF1 / ID-
+# switch benchmark in the issue's acceptance criteria. If both this flag and
+# ``ENABLE_SAM3_NIGHTLY`` are set, SAM 3.1's mask tracker wins the nightly
+# track slot — it is tied to SAM 3.1's mask detections, so applying it last
+# (see ``_build_routing``) gives it precedence.
+_BOTSORT_NIGHTLY_ENV = "ENABLE_BOTSORT_NIGHTLY"
+
 # Default stage × priority routing.
 #
 # Same-session variants must comfortably fit the 5–10 minute period-break
@@ -112,8 +143,8 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "calibrate":  {_SAME_SESSION_KEY: CALIB_HOUGH_DLT,     _NIGHTLY_KEY: CALIB_HOUGH_DLT_KALMAN},
     "detect":     {_SAME_SESSION_KEY: "yolov8n",           _NIGHTLY_KEY: "yolov8m"},
     "ball":       {_SAME_SESSION_KEY: YOLO_BALL,           _NIGHTLY_KEY: YOLO_BALL},
-    "track":      {_SAME_SESSION_KEY: "iou-tracker",       _NIGHTLY_KEY: "iou-tracker"},
-    "reid":       {_SAME_SESSION_KEY: "jersey-ocr",        _NIGHTLY_KEY: "jersey-ocr"},
+    "track":      {_SAME_SESSION_KEY: IOU_TRACKER,         _NIGHTLY_KEY: IOU_TRACKER},
+    "reid":       {_SAME_SESSION_KEY: JERSEY_OCR,          _NIGHTLY_KEY: PARSEQ_OCR},
     "pose":       {_SAME_SESSION_KEY: RTMPOSE_FAST,        _NIGHTLY_KEY: RTMPOSE_MEDIUM},
     "render":     {_SAME_SESSION_KEY: "ffmpeg-overlay",    _NIGHTLY_KEY: "ffmpeg-overlay"},
     "embeddings": {_SAME_SESSION_KEY: "none",              _NIGHTLY_KEY: PLAY_EMBED_BASELINE},
@@ -149,6 +180,31 @@ def _sam3_nightly_enabled() -> bool:
     """Whether SAM 3.1 + mask tracker should serve the nightly detect/track buckets."""
     raw = os.environ.get(_SAM3_NIGHTLY_ENV, "")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _botsort_nightly_enabled() -> bool:
+    """Whether BoT-SORT should serve the nightly ``track`` bucket."""
+    raw = os.environ.get(_BOTSORT_NIGHTLY_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _apply_botsort_nightly(
+    routing: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Swap the nightly ``track`` variant to BoT-SORT when the env flag is on.
+
+    Same-session ``track`` is never touched: even with the flag enabled,
+    period-break clips keep ``iou-tracker`` so latency stays predictable.
+    Applied *before* ``_apply_sam3_nightly`` so that when both flags are set
+    the SAM 3.1 mask tracker (tied to SAM 3.1 mask detections) wins the slot.
+    """
+    if not _botsort_nightly_enabled():
+        return routing
+    track = dict(routing.get("track", {}))
+    track[_NIGHTLY_KEY] = BOTSORT
+    routing["track"] = track
+    log.info("botsort_nightly_enabled", track_nightly=BOTSORT)
+    return routing
 
 
 def _apply_sam3_nightly(
@@ -223,6 +279,7 @@ def _build_routing() -> dict[str, dict[str, str]]:
             if isinstance(value, str):
                 merged[key] = value
         routing[stage] = merged
+    routing = _apply_botsort_nightly(routing)
     routing = _apply_sam3_nightly(routing)
     routing = _enforce_same_session_safety(routing)
     return routing

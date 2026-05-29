@@ -297,10 +297,18 @@ def _dispatch(
         tracklet_ids: list[str] = input_artifacts.get("tracklet_ids", [])
         tracklets: list[dict[str, Any]] = input_artifacts.get("tracklets", [])
         roster: list[dict[str, Any]] = input_artifacts.get("roster", [])
+        reid_variant = model_router.select_model("reid", priority)
         video_path = r2_mod.download_to_temp(_uri_to_r2_key(input_uri))
         try:
             return stage_reid.run(
-                clip_id, video_path, tracklet_ids, tracklets, roster, BACKEND_API_URL
+                clip_id,
+                video_path,
+                tracklet_ids,
+                tracklets,
+                roster,
+                BACKEND_API_URL,
+                variant=reid_variant,
+                priority=priority,
             )
         finally:
             video_path.unlink(missing_ok=True)
