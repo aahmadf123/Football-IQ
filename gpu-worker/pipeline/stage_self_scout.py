@@ -22,7 +22,6 @@ from typing import Any
 import structlog
 
 from pipeline import backend
-from pipeline.play_prediction import tendency_break_engine as tbe
 
 log = structlog.get_logger(__name__)
 
@@ -53,6 +52,10 @@ def run(
     against the season baseline derived from the full set.
     """
     del metrics_by_clip  # Unused in this stage for now.
+
+    # Imported lazily so merely importing this stage stays dependency-light
+    # (the play_prediction package pulls numpy via the signal extractor).
+    from pipeline.play_prediction import tendency_break_engine as tbe
 
     log.info("stage_self_scout_start", clip_count=len(clips))
 

@@ -305,7 +305,8 @@ def season_tendency_alerts(
         if bucket.total <= min_samples:
             continue
         pass_rate = bucket.pass_rate
-        if low_pass_rate < pass_rate < high_pass_rate:
+        # Strict per Issue #137: alert only when pass-rate > high or < low.
+        if low_pass_rate <= pass_rate <= high_pass_rate:
             continue
         lean = PASS if pass_rate >= high_pass_rate else RUN
         lean_rate = pass_rate if lean == PASS else bucket.run_rate

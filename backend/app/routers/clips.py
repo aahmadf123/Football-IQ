@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
-from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, User, Video
+from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, Tracklet, User, Video
 from app.routers.metrics import FRONTIER_METRIC_NAMES, HEAD_ORIENTATION_METRIC_NAMES
 
 # Recognized clip-level possession values (must match SideOfBall enum).
@@ -113,6 +113,7 @@ class MetricCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     clip_id: uuid.UUID
+    tracklet_id: uuid.UUID | None = None
     metric_name: str
     metric_value: dict[str, Any]
     unit: str | None = None
@@ -141,6 +142,7 @@ class MetricResponse(BaseModel):
     confidence: float | None
     evidence_uri: str | None
     clip_id: uuid.UUID
+    tracklet_id: uuid.UUID | None
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
@@ -160,6 +162,7 @@ class MetricResponse(BaseModel):
             confidence=m.confidence,
             evidence_uri=m.evidence_uri,
             clip_id=m.clip_id,
+            tracklet_id=m.tracklet_id,
             model_version_id=m.model_version_id,
             calibration_version_id=m.calibration_version_id,
             job_id=m.job_id,
@@ -385,6 +388,11 @@ async def create_metric(
     if clip_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
+    if body.tracklet_id is not None:
+        t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
+        if t_result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
+
     name_lower = body.metric_name.lower()
     is_always_experimental = (
         body.metric_name in HEAD_ORIENTATION_METRIC_NAMES or name_lower in FRONTIER_METRIC_NAMES
@@ -395,6 +403,7 @@ async def create_metric(
     metric = Metric(
         id=uuid.uuid4(),
         clip_id=body.clip_id,
+        tracklet_id=body.tracklet_id,
         metric_name=body.metric_name,
         metric_value=body.metric_value,
         unit=body.unit,

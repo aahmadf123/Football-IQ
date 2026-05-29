@@ -902,9 +902,11 @@ async def generate_tendency_break(
         *[(a, season_sid) for a in season_alerts],
         *[(a, game_sid) for a in game_alerts],
     ):
-        if (session_id, engine_alert.grouping_key) in existing:
+        # Dedup on the truncated name actually stored as ``Alert.metric_name``.
+        stored_name = engine_alert.grouping_key[:255]
+        if (session_id, stored_name) in existing:
             continue
-        existing.add((session_id, engine_alert.grouping_key))
+        existing.add((session_id, stored_name))
         metric_value = engine_alert.metric_value()
         if cfbd_baseline is not None and cfbd_team:
             metric_value["cfbd_baseline_pass_rate"] = cfbd_baseline
@@ -916,7 +918,7 @@ async def generate_tendency_break(
             alert_type=AlertType.formation_tendency,
             severity=AlertSeverity(engine_alert.severity),
             confidence=engine_alert.confidence,
-            metric_name=engine_alert.grouping_key[:255],
+            metric_name=stored_name,
             metric_value=metric_value,
             session_id=session_id,
             is_acknowledged=False,
