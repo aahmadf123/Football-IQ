@@ -319,7 +319,7 @@ def _dispatch(
         # pose_by_frame comes from the job JSON so its frame keys are strings;
         # normalise to int so snap_frame arithmetic and dict lookups work.
         _pose_raw = input_artifacts.get("pose_by_frame")
-        _pose_normed: dict | None = (
+        _pose_normed: dict[int, dict[str, dict[str, tuple[float, float]]]] | None = (
             {int(k): v for k, v in _pose_raw.items()} if _pose_raw else None
         )
         # Optional multi-signal inputs (Issues #132/#134). When absent the

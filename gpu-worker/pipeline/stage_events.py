@@ -232,17 +232,18 @@ def _detect_multisignal(
             if sm.first_airborne_frame is not None
             else None
         )
-        player_velocities = _compute_player_velocities(player_positions, sm.catch_frame, fps)
-        receiver_id = (
-            attrib.attribute_catch(
+        if sm.catch_frame is not None:
+            player_velocities = _compute_player_velocities(
+                player_positions, sm.catch_frame, fps
+            )
+            receiver_id = attrib.attribute_catch(
                 ball_track_field,
                 player_positions,
                 sm.catch_frame,
                 player_velocities=player_velocities,
             )
-            if sm.catch_frame is not None
-            else None
-        )
+        else:
+            receiver_id = None
         traj_metrics = _trajectory_metrics(
             sm.throw_frame, sm.catch_frame, ball_track_px, ball_track_field, homography, fps
         )
