@@ -122,9 +122,16 @@ def create_calibration(
     homography: list[float] | None,
     confidence: float,
     *,
+    confidence_threshold: float | None = None,
     analytics_safe: bool = False,
     reason_codes: list[str] | None = None,
     calibration_points: dict[str, Any] | None = None,
+    inlier_ratio: float | None = None,
+    line_count: int | None = None,
+    parallel_variance: float | None = None,
+    temporal_drift: float | None = None,
+    kalman_state: list[float] | None = None,
+    is_game_anchor: bool = False,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/calibrations and return the created calibration dict."""
@@ -132,13 +139,26 @@ def create_calibration(
         "video_id": video_id,
         "confidence": confidence,
         "analytics_safe": analytics_safe,
+        "is_game_anchor": is_game_anchor,
     }
     if homography is not None:
         payload["homography"] = homography
+    if confidence_threshold is not None:
+        payload["confidence_threshold"] = confidence_threshold
     if reason_codes is not None:
         payload["reason_codes"] = reason_codes
     if calibration_points is not None:
         payload["calibration_points"] = calibration_points
+    if inlier_ratio is not None:
+        payload["inlier_ratio"] = inlier_ratio
+    if line_count is not None:
+        payload["line_count"] = line_count
+    if parallel_variance is not None:
+        payload["parallel_variance"] = parallel_variance
+    if temporal_drift is not None:
+        payload["temporal_drift"] = temporal_drift
+    if kalman_state is not None:
+        payload["kalman_state"] = kalman_state
     if job_id is not None:
         payload["job_id"] = job_id
     with _client() as c:

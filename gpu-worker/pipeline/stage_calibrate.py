@@ -1,49 +1,93 @@
-"""Stage 3 — Field Calibration.
+"""Stage 3 — Regime-aware field calibration (Issues #127, #138).
 
-Pipeline:
-  1. Sample a small set of key frames from the clip.
-  2. Isolate the green field using HSV colour thresholding.
-  3. Run Canny edge detection on the masked image.
-  4. Detect lines via Hough transform — look for sidelines, yard lines, hash marks.
-  5. Fit a homography from pixel-to-field landmark correspondences.
-  6. Compute a calibration confidence score.
-  7. Determine analytics_safe = (confidence >= threshold) and no disqualifying codes.
-  8. Write a FieldCalibration record via the backend API.
+Replaces the original 4-corner stub homography with a real yard-line
+calibration that branches on the capture regime detected at ingest
+(Issue #126):
 
-Coordinate system (standard field):
-  X: 0–100 yards (end zone to end zone)
-  Y: -26.65 to +26.65 yards (right hash to left hash is ±1.83 yd, sideline ±26.65)
+* **FIXED_SIDELINE** (game film) — the elevated camera is effectively
+  bolted down, so a single homography is fit once on the cleanest frame and
+  flagged ``is_game_anchor``. Same-session jobs can reuse the cached anchor;
+  this stage produces it.
+* **DRONE_FOLLOW / unknown** (practice film) — the operator pans/zooms, so
+  the clip is calibrated per window. Nightly jobs additionally Kalman-smooth
+  the per-window homographies and use chained-ECC drift (Issue #138) as the
+  temporal-stability signal.
 
-Output: `field_calibrations` row with homography, confidence, analytics_safe.
+Shared math core (all pixel-only, single-camera, no GPS/IMU/SRT):
+  white-paint detection → Hough → angle clustering → labeled yard-line
+  correspondences → normalized DLT + RANSAC → 5-component confidence.
+
+Coordinate system (NCAA template, see ``homography/field_template.py``):
+  X: 0–100 yards (goal line to goal line)
+  Y: -26.665 to +26.665 yards (south sideline to north sideline)
+
+Output: a ``field_calibrations`` row with the homography, the blended
+confidence, the five confidence sub-components, the per-regime diagnostics
+(inlier_ratio, line_count, parallel_variance, temporal_drift), the Kalman
+state, ``is_game_anchor``, and ``analytics_safe``.
 """
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import structlog
 
 from pipeline import backend, r2
+from pipeline.homography import confidence_scorer as cs
+from pipeline.homography import dlt_ransac, kalman_smoother
+from pipeline.homography import yardline_keypoints as yk
 
 log = structlog.get_logger(__name__)
 
-CONFIDENCE_THRESHOLD = 0.7
-SAMPLE_INTERVAL_S = 5.0   # seconds between sampled frames
-N_SAMPLE_FRAMES = 6
+CONFIDENCE_THRESHOLD = 0.75   # Issue #127 gate: analytics_safe at ≥ 0.75
+RANSAC_THRESHOLD_PX = 3.0     # Issue #127 §7.1 re-projection threshold
+SAMPLE_INTERVAL_S = 5.0
+N_SAMPLE_FRAMES_FIXED = 6     # fixed camera: pick the single cleanest frame
+N_SAMPLE_FRAMES_DRONE = 12    # drone: sample more for a per-window series
+
+# Routing variants registered for the ``calibrate`` stage (model_router).
+VARIANT_LITE = "calib-hough-dlt"          # same-session: Hough + DLT, no Kalman
+VARIANT_KALMAN = "calib-hough-dlt-kalman"  # nightly: + Kalman temporal smoothing
+
+FIXED_SIDELINE = "fixed_sideline"
+DRONE_FOLLOW = "drone_follow"
+UNKNOWN = "unknown"
 
 
-def run(video_id: str, input_uri: str, job_id: str) -> dict[str, Any]:
-    """Run Stage 3 for the given clip and return output artifacts."""
-    log.info("stage_calibrate_start", video_id=video_id)
+def run(
+    video_id: str,
+    input_uri: str,
+    job_id: str,
+    *,
+    variant: str = VARIANT_KALMAN,
+    capture_regime: str | None = None,
+    priority: int = 0,
+) -> dict[str, Any]:
+    """Run Stage 3 for the given clip and return output artifacts.
+
+    Args:
+        capture_regime: regime from ingest (``fixed_sideline`` /
+            ``drone_follow`` / ``unknown``). ``None`` is treated as
+            ``unknown`` and uses the per-window drone path.
+        variant: model-router variant. ``calib-hough-dlt-kalman`` enables
+            Kalman smoothing of the per-window series (nightly); the lite
+            variant skips it (same-session).
+    """
+    regime = capture_regime or UNKNOWN
+    log.info(
+        "stage_calibrate_start",
+        video_id=video_id,
+        capture_regime=regime,
+        variant=variant,
+    )
 
     r2_key = _uri_to_r2_key(input_uri)
     video_path = r2.download_to_temp(r2_key)
     try:
-        return _calibrate(video_id, video_path, job_id)
+        return _calibrate(video_id, video_path, job_id, regime, variant)
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -54,157 +98,298 @@ def _uri_to_r2_key(uri: str) -> str:
     return uri
 
 
-def _calibrate(video_id: str, video_path: Path, job_id: str) -> dict[str, Any]:
-    frames = _sample_frames(video_path)
-    if not frames:
-        reason_codes = ["no_frames"]
-        _write_calibration(video_id, None, 0.0, False, reason_codes, None, job_id)
-        return {"analytics_safe": False, "reason_codes": reason_codes}
-
-    # Pick the frame with the most detected field lines
-    best_result: dict[str, Any] | None = None
-    best_line_count = -1
-    for frame in frames:
-        result = _calibrate_frame(frame)
-        n = result.get("line_count", 0)
-        if n > best_line_count:
-            best_line_count = n
-            best_result = result
-
-    if best_result is None:
-        best_result = {"line_count": 0, "homography": None, "confidence": 0.0,
-                       "calibration_points": None, "reason_codes": ["no_lines_detected"]}
-
-    homography: list[float] | None = best_result.get("homography")
-    confidence: float = best_result.get("confidence", 0.0)
-    calibration_points: dict[str, Any] | None = best_result.get("calibration_points")
-    reason_codes: list[str] = best_result.get("reason_codes", [])
-    analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and (not reason_codes)
-
-    _write_calibration(video_id, homography, confidence, analytics_safe,
-                       reason_codes, calibration_points, job_id)
-
-    log.info("stage_calibrate_done", video_id=video_id,
-             confidence=confidence, analytics_safe=analytics_safe)
-    return {"analytics_safe": analytics_safe, "confidence": confidence,
-            "reason_codes": reason_codes}
-
-
-def _sample_frames(video_path: Path) -> list[Any]:
-    """Extract N_SAMPLE_FRAMES evenly spaced frames from the video."""
-    cap = cv2.VideoCapture(str(video_path))
-    fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total / fps
-
-    frames: list[Any] = []
-    sample_times = [i * (duration / (N_SAMPLE_FRAMES + 1))
-                    for i in range(1, N_SAMPLE_FRAMES + 1)]
-
-    for t in sample_times:
-        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
-        ret, frame = cap.read()
-        if ret:
-            frames.append(frame)
-    cap.release()
-    return frames
-
-
-def _calibrate_frame(frame: Any) -> dict[str, Any]:
-    """Attempt to estimate homography from a single frame."""
-    reason_codes: list[str] = []
-
-    # ── HSV field isolation ───────────────────────────────────────────────
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # Grass green in HSV
-    lower_green = np.array([35, 40, 40])
-    upper_green = np.array([90, 255, 255])
-    mask = cv2.inRange(hsv, lower_green, upper_green)
-    field_coverage = float(np.sum(mask > 0)) / mask.size
-    if field_coverage < 0.25:
-        reason_codes.append("low_field_coverage")
-
-    # ── Canny edge detection ──────────────────────────────────────────────
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 50, 150)
-    # Apply field mask to suppress edges outside the playing surface
-    edges = cv2.bitwise_and(edges, edges, mask=mask)
-
-    # ── Hough line detection ──────────────────────────────────────────────
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=80,
-                            minLineLength=100, maxLineGap=20)
-    line_count = 0 if lines is None else len(lines)
-
-    if line_count < 4:
-        reason_codes.append("insufficient_lines")
-        return {"line_count": line_count, "homography": None, "confidence": 0.0,
-                "calibration_points": None, "reason_codes": reason_codes}
-
-    # ── Fit homography ────────────────────────────────────────────────────
-    h, w = frame.shape[:2]
-    # Use corner-based estimation as a baseline homography.
-    # Real implementation would cluster lines, detect yard-line intersections,
-    # and match them to known field coordinates.
-    src_pts = np.float32([
-        [w * 0.1, h * 0.85],
-        [w * 0.9, h * 0.85],
-        [w * 0.1, h * 0.35],
-        [w * 0.9, h * 0.35],
-    ])
-    # Standard field: 100 yd × 53.3 yd, normalised to Y centred at 0
-    dst_pts = np.float32([
-        [0, -26.65],
-        [100, -26.65],
-        [0, 26.65],
-        [100, 26.65],
-    ])
-    H, status = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-    if H is None:
-        reason_codes.append("homography_failed")
-        return {"line_count": line_count, "homography": None, "confidence": 0.0,
-                "calibration_points": None, "reason_codes": reason_codes}
-
-    inlier_ratio = float(np.sum(status)) / max(len(status), 1)
-    confidence = min(1.0, field_coverage * inlier_ratio * (line_count / 20.0))
-
-    if confidence < 0.4:
-        reason_codes.append("low_confidence")
-
-    calibration_points = {
-        "src_pts": src_pts.tolist(),
-        "dst_pts": dst_pts.tolist(),
-        "field_coverage": field_coverage,
-        "line_count": line_count,
-    }
-
-    return {
-        "line_count": line_count,
-        "homography": H.flatten().tolist(),
-        "confidence": confidence,
-        "calibration_points": calibration_points,
-        "reason_codes": reason_codes,
-    }
-
-
-def _write_calibration(
+def _calibrate(
     video_id: str,
-    homography: list[float] | None,
-    confidence: float,
-    analytics_safe: bool,
-    reason_codes: list[str],
-    calibration_points: dict[str, Any] | None,
+    video_path: Path,
     job_id: str,
-) -> None:
+    regime: str,
+    variant: str,
+) -> dict[str, Any]:
+    n_frames = N_SAMPLE_FRAMES_FIXED if regime == FIXED_SIDELINE else N_SAMPLE_FRAMES_DRONE
+    frames = _sample_frames(video_path, n_frames)
+    if not frames:
+        return _persist_and_return(
+            video_id, job_id,
+            homography=None, breakdown=None, regime=regime,
+            inlier_ratio=0.0, line_count=0, parallel_variance=None,
+            temporal_drift=None, kalman_state=None, is_game_anchor=False,
+            reason_codes=["no_frames"],
+        )
+
+    if regime == FIXED_SIDELINE:
+        return _calibrate_fixed_sideline(video_id, job_id, frames, regime)
+    return _calibrate_drone(video_id, job_id, frames, regime, variant)
+
+
+# ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
+
+
+def _calibrate_fixed_sideline(
+    video_id: str, job_id: str, frames: list[np.ndarray], regime: str
+) -> dict[str, Any]:
+    """Fit a single homography on the cleanest frame and flag it as the anchor."""
+    best = _best_frame_fit(frames)
+    if best is None:
+        return _persist_and_return(
+            video_id, job_id,
+            homography=None, breakdown=None, regime=regime,
+            inlier_ratio=0.0, line_count=0, parallel_variance=None,
+            temporal_drift=None, kalman_state=None, is_game_anchor=False,
+            reason_codes=["no_calibration"],
+        )
+    H, kp, inlier_ratio, reason_codes = best
+    parallel = cs.parallel_line_score(kp.yardline_angles)
+    # A single bolted-down anchor has no temporal drift by construction.
+    breakdown = cs.compute_confidence(
+        inlier_ratio=inlier_ratio,
+        line_count=kp.line_count,
+        parallel_line_score=parallel,
+        temporal_stability=cs.temporal_stability_from_drift(0.0),
+        field_coverage=kp.field_coverage,
+    )
+    return _persist_and_return(
+        video_id, job_id,
+        homography=H, breakdown=breakdown, regime=regime,
+        inlier_ratio=inlier_ratio, line_count=kp.line_count,
+        parallel_variance=_variance(kp.yardline_angles),
+        temporal_drift=0.0, kalman_state=None, is_game_anchor=True,
+        reason_codes=reason_codes,
+    )
+
+
+# ── DRONE_FOLLOW / unknown: per-window series + optional Kalman ────────────────
+
+
+def _calibrate_drone(
+    video_id: str, job_id: str, frames: list[np.ndarray], regime: str, variant: str
+) -> dict[str, Any]:
+    """Per-window calibration; nightly variant adds Kalman temporal smoothing."""
+    fits: list[tuple[np.ndarray, yk.KeypointResult, float] | None] = []
+    for frame in frames:
+        best = _best_frame_fit([frame])
+        if best is None:
+            fits.append(None)
+            continue
+        H, kp, inlier_ratio, _ = best
+        fits.append((H, kp, inlier_ratio))
+
+    valid = [f for f in fits if f is not None]
+    if not valid:
+        return _persist_and_return(
+            video_id, job_id,
+            homography=None, breakdown=None, regime=regime,
+            inlier_ratio=0.0, line_count=0, parallel_variance=None,
+            temporal_drift=None, kalman_state=None, is_game_anchor=False,
+            reason_codes=["no_calibration"],
+        )
+
+    homographies = [f[0] for f in valid]
+    confidences = [f[2] for f in valid]
+    # Temporal drift = mean pairwise re-projection gap between consecutive
+    # per-window homographies over the frame corners. Low drift ⇒ stable.
+    temporal_drift = _series_drift(homographies, frames[0].shape[:2])
+    temporal_stability = cs.temporal_stability_from_drift(temporal_drift)
+
+    kalman_state: list[float] | None = None
+    chosen_H = homographies[len(homographies) // 2]  # median-index window
+    use_kalman = variant == VARIANT_KALMAN
+    if use_kalman and len(homographies) >= 2:
+        kf = kalman_smoother.HomographyKalman(
+            sigma_q=kalman_smoother.process_noise_for_regime(regime)
+        )
+        smoothed = None
+        for H, conf in zip(homographies, confidences):
+            smoothed = kf.update(H, conf)
+        if smoothed is not None:
+            chosen_H = smoothed
+        kalman_state = kf.state_vector()
+
+    # Representative diagnostics from the strongest window.
+    best_idx = int(np.argmax(confidences))
+    best_kp = valid[best_idx][1]
+    best_inlier = valid[best_idx][2]
+    parallel = cs.parallel_line_score(best_kp.yardline_angles)
+    breakdown = cs.compute_confidence(
+        inlier_ratio=best_inlier,
+        line_count=best_kp.line_count,
+        parallel_line_score=parallel,
+        temporal_stability=temporal_stability,
+        field_coverage=best_kp.field_coverage,
+    )
+    return _persist_and_return(
+        video_id, job_id,
+        homography=chosen_H, breakdown=breakdown, regime=regime,
+        inlier_ratio=best_inlier, line_count=best_kp.line_count,
+        parallel_variance=_variance(best_kp.yardline_angles),
+        temporal_drift=temporal_drift, kalman_state=kalman_state,
+        is_game_anchor=False, reason_codes=list(best_kp.reason_codes),
+    )
+
+
+# ── Shared single-frame fit ────────────────────────────────────────────────────
+
+
+def _best_frame_fit(
+    frames: list[np.ndarray],
+) -> tuple[np.ndarray, yk.KeypointResult, float, list[str]] | None:
+    """Detect keypoints + fit a RANSAC homography on the best of ``frames``.
+
+    Returns ``(H, KeypointResult, inlier_ratio, reason_codes)`` for the frame
+    that yields the most inliers, or ``None`` if no frame produces a fit.
+    """
+    best: tuple[np.ndarray, yk.KeypointResult, float, list[str]] | None = None
+    best_inliers = -1
+    for frame in frames:
+        kp = yk.detect_keypoints(frame)
+        if not kp.has_enough():
+            continue
+        H, mask = dlt_ransac.ransac_homography(
+            kp.src_pts, kp.dst_pts, threshold=RANSAC_THRESHOLD_PX
+        )
+        if H is None:
+            continue
+        n_in = int(np.count_nonzero(mask))
+        inlier_ratio = n_in / max(len(mask), 1)
+        if n_in > best_inliers:
+            best_inliers = n_in
+            reason_codes = list(kp.reason_codes)
+            if inlier_ratio < 0.5:
+                reason_codes.append("low_inlier_ratio")
+            best = (H, kp, inlier_ratio, reason_codes)
+    return best
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _series_drift(homographies: list[np.ndarray], shape: tuple[int, int]) -> float:
+    """Mean re-projection gap (yards) between consecutive window homographies."""
+    if len(homographies) < 2:
+        return 0.0
+    h, w = shape
+    corners = np.array(
+        [[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float64
+    )
+    gaps: list[float] = []
+    for a, b in zip(homographies[:-1], homographies[1:]):
+        gaps.append(_reproj_gap(a, b, corners))
+    return float(np.mean(gaps)) if gaps else 0.0
+
+
+def _reproj_gap(H_a: np.ndarray, H_b: np.ndarray, pts: np.ndarray) -> float:
+    homog = np.hstack([pts, np.ones((len(pts), 1))])
+    pa = (H_a @ homog.T).T
+    pb = (H_b @ homog.T).T
+    pa = pa[:, :2] / np.where(np.abs(pa[:, 2:3]) < 1e-12, 1e-12, pa[:, 2:3])
+    pb = pb[:, :2] / np.where(np.abs(pb[:, 2:3]) < 1e-12, 1e-12, pb[:, 2:3])
+    return float(np.sqrt(((pa - pb) ** 2).sum(axis=1)).mean())
+
+
+def _variance(angles: list[float]) -> float | None:
+    if len(angles) < 2:
+        return None
+    return float(np.var([float(a) for a in angles]))
+
+
+def _sample_frames(video_path: Path, n: int) -> list[np.ndarray]:
+    """Extract up to ``n`` evenly spaced BGR frames; empty list on failure."""
+    try:
+        import cv2
+    except Exception:
+        return []
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return []
+    try:
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        duration = total / fps if fps > 0 else 0.0
+        if total <= 0 or duration <= 0:
+            return []
+        times = np.linspace(
+            0.05 * duration, 0.95 * duration, num=max(1, n), endpoint=True
+        )
+        frames: list[np.ndarray] = []
+        for t in times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                frames.append(frame)
+        return frames
+    finally:
+        cap.release()
+
+
+def _persist_and_return(
+    video_id: str,
+    job_id: str,
+    *,
+    homography: np.ndarray | None,
+    breakdown: cs.ConfidenceBreakdown | None,
+    regime: str,
+    inlier_ratio: float,
+    line_count: int,
+    parallel_variance: float | None,
+    temporal_drift: float | None,
+    kalman_state: list[float] | None,
+    is_game_anchor: bool,
+    reason_codes: list[str],
+) -> dict[str, Any]:
+    """Write the calibration record and return the stage output artifacts."""
+    confidence = breakdown.confidence if breakdown is not None else 0.0
+    components = breakdown.as_dict() if breakdown is not None else {}
+    # Disqualifying reason codes block analytics regardless of score.
+    blocking = {
+        "no_frames", "no_calibration", "cv2_unavailable",
+        "insufficient_lines", "insufficient_structured_lines",
+        "insufficient_yard_lines", "insufficient_intersections",
+    }
+    has_blocking = any(rc in blocking for rc in reason_codes)
+    analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and not has_blocking
+
+    homography_list = (
+        [float(v) for v in np.asarray(homography, dtype=np.float64).flatten()]
+        if homography is not None
+        else None
+    )
+    calibration_points: dict[str, Any] = {
+        "capture_regime": regime,
+        "confidence_components": components,
+    }
+
     try:
         backend.create_calibration(
             video_id,
-            homography=homography,
-            confidence=confidence,
+            homography=homography_list,
+            confidence=float(confidence),
+            confidence_threshold=CONFIDENCE_THRESHOLD,
             analytics_safe=analytics_safe,
             reason_codes=reason_codes or None,
             calibration_points=calibration_points,
+            inlier_ratio=float(inlier_ratio),
+            line_count=int(line_count),
+            parallel_variance=parallel_variance,
+            temporal_drift=temporal_drift,
+            kalman_state=kalman_state,
+            is_game_anchor=is_game_anchor,
             job_id=job_id,
         )
     except Exception as exc:
         log.error("write_calibration_failed", video_id=video_id, error=str(exc))
+
+    log.info(
+        "stage_calibrate_done",
+        video_id=video_id,
+        capture_regime=regime,
+        confidence=round(float(confidence), 4),
+        analytics_safe=analytics_safe,
+        is_game_anchor=is_game_anchor,
+    )
+    return {
+        "analytics_safe": analytics_safe,
+        "confidence": float(confidence),
+        "capture_regime": regime,
+        "confidence_components": components,
+        "is_game_anchor": is_game_anchor,
+        "reason_codes": reason_codes,
+    }
