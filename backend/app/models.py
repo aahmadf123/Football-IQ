@@ -538,7 +538,7 @@ class FieldCalibration(Base):
     line_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Angular variance of detected yard lines (lower = cleaner parallelism)
     parallel_variance: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # Mean inter-window re-projection drift (px/yd); 0.0 for a fixed anchor
+    # Mean inter-window re-projection drift (px); 0.0 for a fixed anchor
     temporal_drift: Mapped[float | None] = mapped_column(Float, nullable=True)
     # True for the once-per-game FIXED_SIDELINE anchor reused across plays
     is_game_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
