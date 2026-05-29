@@ -151,14 +151,22 @@ def live_server_url() -> str:
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
 
-    # Wait for server to start
-    time.sleep(0.5)
+    # Wait until uvicorn has actually started accepting connections rather than
+    # guessing with a fixed sleep — a fixed wait is too short on slow/loaded CI
+    # runners and makes the first streaming request flake with a connection error.
+    deadline = time.time() + 15.0
+    while not getattr(server, "started", False) and time.time() < deadline:
+        time.sleep(0.02)
+    if not getattr(server, "started", False):  # pragma: no cover - startup failure
+        server.should_exit = True
+        thread.join(timeout=5)
+        raise RuntimeError("uvicorn test server did not start within 15s")
 
     yield f"http://127.0.0.1:{port}"
 
     # Clean shutdown
     server.should_exit = True
-    thread.join(timeout=2)
+    thread.join(timeout=5)
 
 
 def _get_next_sse_line(lines_iterator) -> str:
@@ -262,8 +270,18 @@ def test_stream_delivers_published_alert(live_server_url: str) -> None:
             _connections[conn_id][0].put_nowait(
                 {"alert_type": "effort_anomaly", "position_group": "OL"}
             )
-        second = _get_next_sse_line(lines)
-        received.append(json.loads(second.replace("data: ", "")))
+        # Skip keepalive frames (the test fixture sets a 0.1s keepalive, so a
+        # keepalive can interleave before the injected alert) until the alert
+        # arrives, bounded so a genuine miss still terminates.
+        for _ in range(50):
+            line = _get_next_sse_line(lines)
+            if not line:
+                break
+            event = json.loads(line.replace("data: ", ""))
+            if event.get("type") == "keepalive":
+                continue
+            received.append(event)
+            break
 
     app.dependency_overrides.clear()
 
@@ -311,8 +329,10 @@ def test_disconnect_removes_connection_from_registry(live_server_url: str) -> No
 
     app.dependency_overrides.clear()
 
-    # Wait briefly for uvicorn connection closure to run the generator finally block
-    time.sleep(0.1)
-
+    # Poll for the generator's finally-block cleanup instead of a single fixed
+    # sleep, which is racy under CI load.
     if conn_id_seen:
+        deadline = time.time() + 5.0
+        while conn_id_seen[0] in _connections and time.time() < deadline:
+            time.sleep(0.02)
         assert conn_id_seen[0] not in _connections
