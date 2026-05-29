@@ -284,7 +284,8 @@ def _reproj_gap(H_a: np.ndarray, H_b: np.ndarray, pts: np.ndarray) -> float:
         inv_b = np.linalg.pinv(H_b)
     rel = inv_b @ H_a
     warped = (rel @ homog.T).T
-    warped_xy = warped[:, :2] / np.where(np.abs(warped[:, 2:3]) < 1e-12, 1e-12, warped[:, 2:3])
+    denom = np.where(np.abs(warped[:, 2:3]) < 1e-12, 1e-12, warped[:, 2:3])
+    warped_xy = warped[:, :2] / denom
     return float(np.sqrt(((warped_xy - pts) ** 2).sum(axis=1)).mean())
 
 

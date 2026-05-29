@@ -63,7 +63,7 @@ def parallel_line_score(angles_rad: list[float]) -> float:
 
 
 def temporal_stability_from_drift(drift_px: float, *, tolerance_px: float = 4.0) -> float:
-    """Map inter-anchor re-projection drift (px) to a ``[0, 1]`` stability score.
+    """Map pixel-space inter-anchor re-projection drift (px) to ``[0, 1]``.
 
     Zero drift ⇒ 1.0; drift ≥ ``tolerance_px`` ⇒ 0.0. For a single-frame
     (FIXED_SIDELINE anchor) calibration with no temporal evidence, pass
