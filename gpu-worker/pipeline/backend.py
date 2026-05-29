@@ -397,6 +397,58 @@ def create_play_embedding(
         return dict(resp.json())
 
 
+# ── Play predictions (Issues #135 / #136) ────────────────────────────────────
+
+
+def create_play_predictions_batch(
+    predictions: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """POST /api/v1/play-predictions/batch and return the response dict.
+
+    Each prediction dict must carry ``clip_id`` and ``signal_vector``; the
+    ensemble outputs (``predicted_class``, ``calibrated_prob``, ``confidence``,
+    ``uncertainty``, ``logit_score``, ``is_calibrated``) and optional
+    ``opponent_team`` / ``model_version_id`` ride alongside. Returns ``None``
+    when the backend is disabled (``BACKEND_API_URL`` unset) so the stage can
+    run in unit tests / offline without persisting.
+    """
+    if not BACKEND_API_URL:
+        return None
+    if not predictions:
+        return {"created": 0, "ids": []}
+    try:
+        with _client() as c:
+            resp = c.post(
+                "/api/v1/play-predictions/batch",
+                json={"predictions": predictions},
+            )
+            resp.raise_for_status()
+            return dict(resp.json())
+    except Exception as exc:
+        log.warning("play_predictions_batch_failed", count=len(predictions), error=str(exc))
+        return None
+
+
+def fetch_opponent_priors(opponent_team: str | None = None) -> list[dict[str, Any]]:
+    """GET stored per-opponent Dirichlet prior rows for ensemble base log-odds.
+
+    Returns an empty list when the backend is disabled or the call fails, so the
+    ensemble safely falls back to the documented neutral base rate.
+    """
+    if not BACKEND_API_URL:
+        return []
+    try:
+        params = {"opponent_team": opponent_team} if opponent_team else {}
+        with _client() as c:
+            resp = c.get("/api/v1/play-predictions/opponent-priors", params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            return list(data) if isinstance(data, list) else []
+    except Exception as exc:
+        log.warning("fetch_opponent_priors_failed", error=str(exc))
+        return []
+
+
 # ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
 
 

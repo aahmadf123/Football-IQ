@@ -56,6 +56,7 @@ class Resource(enum.StrEnum):
     HEALTH_WORKLOAD = "health_workload"
     HEAVY_WORKLOAD = "heavy_workload"
     CFBD_ANALYTICS = "cfbd_analytics"
+    PLAY_PREDICTION = "play_prediction"
 
 
 class Action(enum.StrEnum):
@@ -112,6 +113,21 @@ POLICY: dict[tuple[Resource, Action], frozenset[UserRole]] = {
             UserRole.coach,
             UserRole.sportsperformance,
         }
+    ),
+    # Pre-snap run/pass predictions (Issues #135/#136). Reading the calibrated
+    # tendency surface is coaching-staff only — never exposed to player/viewer
+    # accounts. Writing (the worker posting a batch of computed predictions, or
+    # a coach correcting one) is restricted to analyst-or-above.
+    (Resource.PLAY_PREDICTION, Action.READ): frozenset(
+        {
+            UserRole.admin,
+            UserRole.analyst,
+            UserRole.coach,
+            UserRole.sportsperformance,
+        }
+    ),
+    (Resource.PLAY_PREDICTION, Action.WRITE): frozenset(
+        {UserRole.admin, UserRole.analyst, UserRole.coach}
     ),
 }
 

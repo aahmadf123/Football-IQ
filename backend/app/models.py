@@ -34,6 +34,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -1247,6 +1248,88 @@ class ReportJob(Base):
     )
 
     requester: Mapped["User | None"] = relationship("User", foreign_keys=[requested_by])
+
+
+# ── Pre-snap prediction (Issues #135 / #136) ───────────────────────────────────
+
+
+class PlayPrediction(Base):
+    """A calibrated pre-snap run/pass prediction for a single snap.
+
+    The six pre-snap signals (Issue #135) are stored verbatim in
+    ``signal_vector``; the Bayesian ensemble outputs (Issue #136) — raw and
+    calibrated probability, the combined logit, predicted/true class,
+    confidence, and the calibrated uncertainty (Issue #146) — sit alongside so
+    the MLOps dashboard and clip-review overlay can read one row per play.
+    """
+
+    __tablename__ = "play_predictions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Plays are not their own table yet; ``play_id`` is an optional opaque key.
+    play_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Opponent identified by team name (matches the derived-opponent model).
+    opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    # The 6 pre-snap signals (Issue #135), each with its own confidence.
+    signal_vector: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    logit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    predicted_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Filled in by the coach-correction flywheel once the play is confirmed.
+    true_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    calibrated_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Calibrated uncertainty (binary entropy, bits) — Issue #146.
+    uncertainty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # False until a fitted Platt scaler produced ``calibrated_prob``.
+    is_calibrated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    clip: Mapped["Clip"] = relationship("Clip")
+
+
+class OpponentPrior(Base):
+    """Per-opponent situational Dirichlet (Beta) run/pass posterior.
+
+    One row per (opponent, down, distance-bucket, field-zone). The default
+    ``Beta(2,2)`` is uninformative (P(pass)=0.5); a cell only diverges once
+    coach-confirmed outcomes accumulate (``n_pass`` / ``n_run``), so every
+    non-default prior is data-backed — there are no hard-coded opponent priors.
+    """
+
+    __tablename__ = "opponent_priors"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    down: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    distance_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    field_zone: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    alpha_pass: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    alpha_run: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    n_pass: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    n_run: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "opponent_team",
+            "down",
+            "distance_bucket",
+            "field_zone",
+            name="opponent_priors_situation_uq",
+        ),
+    )
 
 
 # ── CFBD cache tables (Issues #160/#161/#162) ──────────────────────────────────
