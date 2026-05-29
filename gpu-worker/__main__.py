@@ -27,7 +27,6 @@ import logging
 import os
 import signal
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -207,7 +206,7 @@ def _dispatch(
         tracklets = input_artifacts.get("tracklets", [])
         events_list: list[dict[str, Any]] = input_artifacts.get("events", [])
         fps = float(input_artifacts.get("fps", 30))
-        return stage_labels.run(clip_id, tracklets, events_list, fps)
+        return stage_labels.run(clip_id, tracklets, events_list, fps, input_uri)
 
     elif job_type == "metrics":
         tracklets = input_artifacts.get("tracklets", [])
@@ -356,4 +355,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -173,6 +173,26 @@ def create_tracklet(
         return dict(resp.json())
 
 
+def patch_tracklet_team_label(
+    tracklet_id: str,
+    team_label: str,
+) -> dict[str, Any] | None:
+    """PATCH a tracklet's team label; return None when backend is disabled."""
+    if not BACKEND_API_URL:
+        return None
+    payload: dict[str, Any] = {"team_label": team_label}
+    try:
+        with _client() as c:
+            resp = c.patch(f"/api/v1/tracklets/{tracklet_id}", json=payload)
+            resp.raise_for_status()
+            return dict(resp.json())
+    except Exception as exc:
+        log.warning(
+            "tracklet_team_label_patch_failed", tracklet_id=tracklet_id, error=str(exc)
+        )
+        return None
+
+
 # ── Events ────────────────────────────────────────────────────────────────────
 
 

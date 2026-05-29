@@ -25,13 +25,21 @@ Output: `labels` rows written to the backend.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import cv2
 import structlog
 
-from pipeline import backend
+from pipeline import backend, r2
+from pipeline.team_classification import (
+    ClassificationResult,
+    classify_tracklet_frames,
+)
 
 log = structlog.get_logger(__name__)
+
+TEAM_CLASSIFICATION_MAX_FRAMES = 30
 
 
 def run(
@@ -39,6 +47,8 @@ def run(
     tracklets: list[dict[str, Any]],
     events: list[dict[str, Any]],
     fps: float,
+    input_uri: str | None = None,
+    frames_by_number: dict[int, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate formation and coverage labels for a clip."""
     log.info("stage_labels_start", clip_id=clip_id)
@@ -46,78 +56,120 @@ def run(
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
 
+    team_results = _classify_team_colors(
+        tracklets,
+        snap_frame=snap_frame,
+        input_uri=input_uri,
+        frames_by_number=frames_by_number,
+    )
+    team_by_tracklet = _aggregate_team_results(team_results)
+    official_tracklet_ids = {
+        tracklet_id
+        for tracklet_id, result in team_by_tracklet.items()
+        if result.label == "official"
+    }
+    analysis_tracklets = [
+        t
+        for t in tracklets
+        if str(t.get("id") or t.get("tracklet_id") or "") not in official_tracklet_ids
+    ]
+
     # Build snap-frame centroid list
-    snap_positions = _positions_at_frame(tracklets, snap_frame)
+    snap_positions = _positions_at_frame(analysis_tracklets, snap_frame)
 
     labels: list[dict[str, Any]] = []
 
     # ── Offensive formation (enhanced) ────────────────────────────────────
     off_formation, off_conf = _classify_offensive_formation(snap_positions)
-    labels.append({
-        "label_type": "offensive_formation",
-        "label_value": {"formation": off_formation, "confidence": off_conf},
-    })
+    labels.append(
+        {
+            "label_type": "offensive_formation",
+            "label_value": {"formation": off_formation, "confidence": off_conf},
+        }
+    )
 
     # ── Formation family (Phase 2) ────────────────────────────────────────
     family, family_conf = _classify_formation_family(snap_positions)
-    labels.append({
-        "label_type": "formation_family",
-        "label_value": {"family": family, "confidence": family_conf},
-    })
+    labels.append(
+        {
+            "label_type": "formation_family",
+            "label_value": {"family": family, "confidence": family_conf},
+        }
+    )
 
     # ── Formation strength (Phase 2) ──────────────────────────────────────
     strength = _classify_formation_strength(snap_positions)
-    labels.append({
-        "label_type": "formation_strength",
-        "label_value": {"strength": strength},
-    })
+    labels.append(
+        {
+            "label_type": "formation_strength",
+            "label_value": {"strength": strength},
+        }
+    )
 
     # ── Personnel grouping (Phase 2) ──────────────────────────────────────
-    personnel, pers_conf = _infer_personnel_grouping(snap_positions, tracklets)
-    labels.append({
-        "label_type": "personnel_grouping",
-        "label_value": {"grouping": personnel, "confidence": pers_conf},
-    })
+    personnel, pers_conf = _infer_personnel_grouping(snap_positions, analysis_tracklets)
+    labels.append(
+        {
+            "label_type": "personnel_grouping",
+            "label_value": {"grouping": personnel, "confidence": pers_conf},
+        }
+    )
 
     # ── Defensive front ───────────────────────────────────────────────────
     def_front, def_conf = _classify_defensive_front(snap_positions)
-    labels.append({
-        "label_type": "defensive_front",
-        "label_value": {"front": def_front, "confidence": def_conf},
-    })
+    labels.append(
+        {
+            "label_type": "defensive_front",
+            "label_value": {"front": def_front, "confidence": def_conf},
+        }
+    )
 
     # ── Motion detection (enhanced with type) ─────────────────────────────
     motion_events = [e for e in events if e.get("event_type") == "motion_start"]
-    motion_type = _classify_motion_type(motion_events, tracklets, snap_frame, fps)
-    labels.append({
-        "label_type": "motion_detected",
-        "label_value": {
-            "detected": len(motion_events) > 0,
-            "count": len(motion_events),
-            "motion_type": motion_type,
-        },
-    })
+    motion_type = _classify_motion_type(
+        motion_events, analysis_tracklets, snap_frame, fps
+    )
+    labels.append(
+        {
+            "label_type": "motion_detected",
+            "label_value": {
+                "detected": len(motion_events) > 0,
+                "count": len(motion_events),
+                "motion_type": motion_type,
+            },
+        }
+    )
 
     # ── Shift detection (Phase 2) ─────────────────────────────────────────
-    shift_detected, shift_conf = _detect_shift(tracklets, events, snap_frame, fps)
-    labels.append({
-        "label_type": "shift_detected",
-        "label_value": {"detected": shift_detected, "confidence": shift_conf},
-    })
+    shift_detected, shift_conf = _detect_shift(
+        analysis_tracklets, events, snap_frame, fps
+    )
+    labels.append(
+        {
+            "label_type": "shift_detected",
+            "label_value": {"detected": shift_detected, "confidence": shift_conf},
+        }
+    )
 
     # ── Blitz candidate ───────────────────────────────────────────────────
-    blitz, blitz_conf = _detect_blitz(snap_positions, tracklets, snap_frame, fps)
-    labels.append({
-        "label_type": "blitz_candidate",
-        "label_value": {"detected": blitz, "confidence": blitz_conf},
-    })
+    blitz, blitz_conf = _detect_blitz(
+        snap_positions, analysis_tracklets, snap_frame, fps
+    )
+    labels.append(
+        {
+            "label_type": "blitz_candidate",
+            "label_value": {"detected": blitz, "confidence": blitz_conf},
+        }
+    )
 
     # ── Play direction ────────────────────────────────────────────────────
-    direction = _infer_play_direction(tracklets, snap_frame)
-    labels.append({
-        "label_type": "play_direction",
-        "label_value": {"direction": direction},
-    })
+    direction = _infer_play_direction(analysis_tracklets, snap_frame)
+    labels.append(
+        {
+            "label_type": "play_direction",
+            "label_value": {"direction": direction},
+        }
+    )
 
     # Write labels to backend
     label_ids: list[str] = []
@@ -131,10 +183,183 @@ def run(
             )
             label_ids.append(resp["id"])
         except Exception as exc:
-            log.warning("label_write_failed", label_type=lbl.get("label_type"), error=str(exc))
+            log.warning(
+                "label_write_failed", label_type=lbl.get("label_type"), error=str(exc)
+            )
 
-    log.info("stage_labels_done", clip_id=clip_id, label_count=len(label_ids))
-    return {"label_count": len(label_ids), "label_ids": label_ids}
+    team_label_count = _write_team_labels(clip_id, team_by_tracklet)
+    total_label_count = len(label_ids) + team_label_count
+
+    log.info(
+        "stage_labels_done",
+        clip_id=clip_id,
+        label_count=total_label_count,
+        team_classified_count=len(team_by_tracklet),
+        official_tracklet_count=len(official_tracklet_ids),
+    )
+    return {
+        "label_count": total_label_count,
+        "label_ids": label_ids,
+        "team_classification": {
+            "classified_tracklets": len(team_by_tracklet),
+            "official_tracklets": len(official_tracklet_ids),
+            "fallback": "no_visual_samples" if not team_by_tracklet else None,
+            "limitations": [
+                "requires bbox track_points and readable source frames",
+                "labels are visual clusters, not roster-confirmed identities",
+            ],
+        },
+    }
+
+
+# ── Team color classification ─────────────────────────────────────────────────
+
+
+def _classify_team_colors(
+    tracklets: list[dict[str, Any]],
+    *,
+    snap_frame: int,
+    input_uri: str | None,
+    frames_by_number: dict[int, Any] | None,
+) -> list[ClassificationResult]:
+    """Run bounded k=3 CIELab classification when visual samples exist."""
+    frames = frames_by_number or _load_team_frames(input_uri, tracklets, snap_frame)
+    if not frames:
+        log.info("team_classification_skipped", reason="no_frames")
+        return []
+
+    frame_classifications = classify_tracklet_frames(
+        frames,
+        tracklets,
+        initial_frame=snap_frame,
+    )
+    return [
+        result
+        for frame_result in frame_classifications
+        for result in frame_result.results
+        if result.label != "unknown"
+    ]
+
+
+def _load_team_frames(
+    input_uri: str | None,
+    tracklets: list[dict[str, Any]],
+    snap_frame: int,
+) -> dict[int, Any]:
+    if not input_uri:
+        return {}
+
+    wanted_frames = _wanted_team_frames(tracklets, snap_frame)
+    if not wanted_frames:
+        return {}
+
+    video_path: Path | None = None
+    delete_after = False
+    try:
+        local_path = Path(input_uri) if "://" not in input_uri else None
+        if local_path is not None and local_path.exists():
+            video_path = local_path
+        else:
+            video_path = r2.download_to_temp(_uri_to_r2_key(input_uri))
+            delete_after = True
+
+        from pipeline.hwaccel import nvdec_video_capture
+
+        cap = nvdec_video_capture(video_path)
+        frames: dict[int, Any] = {}
+        for frame_number in wanted_frames:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            ok, frame = cap.read()
+            if ok:
+                frames[frame_number] = frame
+        cap.release()
+        return frames
+    except Exception as exc:
+        log.warning("team_classification_frame_load_failed", error=str(exc))
+        return {}
+    finally:
+        if delete_after and video_path is not None:
+            video_path.unlink(missing_ok=True)
+
+
+def _wanted_team_frames(tracklets: list[dict[str, Any]], snap_frame: int) -> list[int]:
+    frame_numbers: set[int] = set()
+    for tracklet in tracklets:
+        for point in tracklet.get("track_points", []):
+            bbox = point.get("bbox")
+            if isinstance(bbox, list) and len(bbox) == 4:
+                frame_numbers.add(int(point.get("frame_number", 0)))
+
+    ordered = sorted(frame_numbers)
+    if not ordered:
+        return []
+    if snap_frame in frame_numbers:
+        ordered = [snap_frame, *[f for f in ordered if f != snap_frame]]
+    else:
+        after_snap = [f for f in ordered if f >= snap_frame]
+        before_snap = [f for f in ordered if f < snap_frame]
+        ordered = [*after_snap, *before_snap]
+    return ordered[:TEAM_CLASSIFICATION_MAX_FRAMES]
+
+
+def _aggregate_team_results(
+    results: list[ClassificationResult],
+) -> dict[str, ClassificationResult]:
+    by_tracklet: dict[str, list[ClassificationResult]] = {}
+    for result in results:
+        by_tracklet.setdefault(result.tracklet_id, []).append(result)
+
+    aggregated: dict[str, ClassificationResult] = {}
+    for tracklet_id, tracklet_results in by_tracklet.items():
+        labels = sorted({r.label for r in tracklet_results})
+        best_label = max(
+            labels,
+            key=lambda label: (
+                sum(1 for r in tracklet_results if r.label == label),
+                sum(r.confidence for r in tracklet_results if r.label == label),
+            ),
+        )
+        best_candidates = [r for r in tracklet_results if r.label == best_label]
+        aggregated[tracklet_id] = max(best_candidates, key=lambda r: r.confidence)
+    return aggregated
+
+
+def _write_team_labels(
+    clip_id: str,
+    team_by_tracklet: dict[str, ClassificationResult],
+) -> int:
+    written = 0
+    for tracklet_id, result in team_by_tracklet.items():
+        backend.patch_tracklet_team_label(
+            tracklet_id,
+            result.label,
+        )
+        try:
+            backend.create_label(
+                "team_classification",
+                {
+                    "team": result.label,
+                    "confidence": result.confidence,
+                    "frame_number": result.frame_number,
+                    "reason": result.reason,
+                    "stripe_score": round(result.stripe_score, 4),
+                },
+                clip_id=clip_id,
+                tracklet_id=tracklet_id,
+                source="model",
+            )
+            written += 1
+        except Exception as exc:
+            log.warning(
+                "team_label_write_failed", tracklet_id=tracklet_id, error=str(exc)
+            )
+    return written
+
+
+def _uri_to_r2_key(uri: str) -> str:
+    if uri.startswith("r2://"):
+        return "/".join(uri.split("/")[3:])
+    return uri
 
 
 # ── Heuristic classifiers ─────────────────────────────────────────────────────
@@ -282,13 +507,17 @@ def _classify_motion_type(
         max_speed = 0.0
         for t in tracklets:
             pts = t.get("track_points", [])
-            motion_pts = [p for p in pts if abs(p.get("frame_number", 0) - frame) < fps * 0.5]
+            motion_pts = [
+                p for p in pts if abs(p.get("frame_number", 0) - frame) < fps * 0.5
+            ]
             if len(motion_pts) < 2:
                 continue
             y_start = motion_pts[0].get("field_y", 0)
             y_end = motion_pts[-1].get("field_y", 0)
             lateral = abs(float(y_end or 0) - float(y_start or 0))
-            dt = (motion_pts[-1].get("frame_number", 0) - motion_pts[0].get("frame_number", 0))
+            dt = motion_pts[-1].get("frame_number", 0) - motion_pts[0].get(
+                "frame_number", 0
+            )
             speed = lateral / max(dt / max(fps, 1), 0.01)
             if lateral > max_lateral:
                 max_lateral = lateral
@@ -325,8 +554,7 @@ def _detect_shift(
     for t in tracklets:
         pts = t.get("track_points", [])
         window_pts = [
-            p for p in pts
-            if window_start <= p.get("frame_number", 0) <= window_end
+            p for p in pts if window_start <= p.get("frame_number", 0) <= window_end
         ]
         if len(window_pts) < 2:
             continue
@@ -394,9 +622,7 @@ def _detect_blitz(
     return (crossings >= 2, min(0.9, 0.4 + crossings * 0.15))
 
 
-def _infer_play_direction(
-    tracklets: list[dict[str, Any]], snap_frame: int
-) -> str:
+def _infer_play_direction(tracklets: list[dict[str, Any]], snap_frame: int) -> str:
     """Infer whether the offensive team is moving left→right or right→left."""
     deltas: list[float] = []
     for t in tracklets:
