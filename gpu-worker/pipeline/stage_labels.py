@@ -187,18 +187,18 @@ def run(
                 "label_write_failed", label_type=lbl.get("label_type"), error=str(exc)
             )
 
-    team_label_count = _write_team_labels(clip_id, team_by_tracklet)
-    total_label_count = len(label_ids) + team_label_count
+    team_label_ids = _write_team_labels(clip_id, team_by_tracklet)
+    label_ids.extend(team_label_ids)
 
     log.info(
         "stage_labels_done",
         clip_id=clip_id,
-        label_count=total_label_count,
+        label_count=len(label_ids),
         team_classified_count=len(team_by_tracklet),
         official_tracklet_count=len(official_tracklet_ids),
     )
     return {
-        "label_count": total_label_count,
+        "label_count": len(label_ids),
         "label_ids": label_ids,
         "team_classification": {
             "classified_tracklets": len(team_by_tracklet),
@@ -327,15 +327,15 @@ def _aggregate_team_results(
 def _write_team_labels(
     clip_id: str,
     team_by_tracklet: dict[str, ClassificationResult],
-) -> int:
-    written = 0
+) -> list[str]:
+    written_ids: list[str] = []
     for tracklet_id, result in team_by_tracklet.items():
         backend.patch_tracklet_team_label(
             tracklet_id,
             result.label,
         )
         try:
-            backend.create_label(
+            resp = backend.create_label(
                 "team_classification",
                 {
                     "team": result.label,
@@ -348,12 +348,12 @@ def _write_team_labels(
                 tracklet_id=tracklet_id,
                 source="model",
             )
-            written += 1
+            written_ids.append(resp["id"])
         except Exception as exc:
             log.warning(
                 "team_label_write_failed", tracklet_id=tracklet_id, error=str(exc)
             )
-    return written
+    return written_ids
 
 
 def _uri_to_r2_key(uri: str) -> str:

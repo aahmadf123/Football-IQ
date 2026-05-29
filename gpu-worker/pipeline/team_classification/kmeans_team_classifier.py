@@ -234,11 +234,16 @@ def classify_tracklet_frames(
         return []
 
     frame_numbers = sorted(frames_by_number)
-    if initial_frame is not None and initial_frame in frames_by_number:
-        frame_numbers = [
-            initial_frame,
-            *[f for f in frame_numbers if f != initial_frame],
-        ]
+    if initial_frame is not None:
+        if initial_frame in frames_by_number:
+            frame_numbers = [
+                initial_frame,
+                *[f for f in frame_numbers if f != initial_frame],
+            ]
+        else:
+            after = [f for f in frame_numbers if f >= initial_frame]
+            before = [f for f in frame_numbers if f < initial_frame]
+            frame_numbers = [*after, *before]
 
     classifier = KMeansTeamClassifier()
     frame_results: list[FrameClassification] = []
