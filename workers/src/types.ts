@@ -11,6 +11,7 @@ export interface Env {
 
   // Queue producers
   VIDEO_PROCESSING_QUEUE: Queue;
+  SAME_SESSION_QUEUE: Queue;
   NIGHTLY_TRAINING_QUEUE: Queue;
 
   // Secrets (set with `wrangler secret put`)

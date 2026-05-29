@@ -6,8 +6,10 @@ The bucket name is read from the R2_BUCKET_NAME env var (default: football-iq).
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,16 @@ def _s3_client() -> Any:
     )
 
 
+def _record_r2(operation: str, outcome: str, duration: float) -> None:
+    """Best-effort metrics emission — never raises."""
+    try:
+        from worker.observability import record_r2_operation
+
+        record_r2_operation(operation, R2_BUCKET, outcome, duration)
+    except Exception:
+        pass
+
+
 def download_to_temp(r2_key: str) -> Path:
     """Download an R2 object to a local temporary file and return the path.
 
@@ -38,42 +50,72 @@ def download_to_temp(r2_key: str) -> Path:
     """
     suffix = Path(r2_key).suffix or ".bin"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    start = time.monotonic()
     try:
-        log.info("r2_download_start", key=r2_key)
+        log.info("r2_download_start", key=r2_key, bucket=R2_BUCKET)
         _s3_client().download_fileobj(R2_BUCKET, r2_key, tmp)
         tmp.flush()
-        log.info("r2_download_done", key=r2_key, path=tmp.name)
+        duration = time.monotonic() - start
+        _record_r2("download", "success", duration)
+        log.info("r2_download_done", key=r2_key, path=tmp.name,
+                 duration_seconds=round(duration, 3))
         return Path(tmp.name)
+    except Exception as exc:
+        duration = time.monotonic() - start
+        _record_r2("download", "error", duration)
+        log.error("r2_download_failed", key=r2_key, bucket=R2_BUCKET,
+                  error=str(exc), duration_seconds=round(duration, 3))
+        raise
     finally:
         tmp.close()
 
 
 def upload_file(local_path: Path, r2_key: str, content_type: str = "application/octet-stream") -> str:
     """Upload a local file to R2 and return the R2 URI (r2://<bucket>/<key>)."""
-    log.info("r2_upload_start", key=r2_key, path=str(local_path))
-    with local_path.open("rb") as fh:
-        _s3_client().upload_fileobj(
-            fh,
-            R2_BUCKET,
-            r2_key,
-            ExtraArgs={"ContentType": content_type},
-        )
-    uri = f"r2://{R2_BUCKET}/{r2_key}"
-    log.info("r2_upload_done", key=r2_key, uri=uri)
-    return uri
+    start = time.monotonic()
+    try:
+        log.info("r2_upload_start", key=r2_key, path=str(local_path), bucket=R2_BUCKET)
+        with local_path.open("rb") as fh:
+            _s3_client().upload_fileobj(
+                fh,
+                R2_BUCKET,
+                r2_key,
+                ExtraArgs={"ContentType": content_type},
+            )
+        uri = f"r2://{R2_BUCKET}/{r2_key}"
+        duration = time.monotonic() - start
+        _record_r2("upload", "success", duration)
+        log.info("r2_upload_done", key=r2_key, uri=uri,
+                 duration_seconds=round(duration, 3))
+        return uri
+    except Exception as exc:
+        duration = time.monotonic() - start
+        _record_r2("upload", "error", duration)
+        log.error("r2_upload_failed", key=r2_key, bucket=R2_BUCKET,
+                  error=str(exc), duration_seconds=round(duration, 3))
+        raise
 
 
 def upload_bytes(data: bytes, r2_key: str, content_type: str = "application/octet-stream") -> str:
     """Upload raw bytes to R2 and return the R2 URI."""
-    import io
-
-    log.info("r2_upload_bytes_start", key=r2_key, size=len(data))
-    _s3_client().upload_fileobj(
-        io.BytesIO(data),
-        R2_BUCKET,
-        r2_key,
-        ExtraArgs={"ContentType": content_type},
-    )
-    uri = f"r2://{R2_BUCKET}/{r2_key}"
-    log.info("r2_upload_bytes_done", key=r2_key, uri=uri)
-    return uri
+    start = time.monotonic()
+    try:
+        log.info("r2_upload_bytes_start", key=r2_key, size=len(data), bucket=R2_BUCKET)
+        _s3_client().upload_fileobj(
+            io.BytesIO(data),
+            R2_BUCKET,
+            r2_key,
+            ExtraArgs={"ContentType": content_type},
+        )
+        uri = f"r2://{R2_BUCKET}/{r2_key}"
+        duration = time.monotonic() - start
+        _record_r2("upload_bytes", "success", duration)
+        log.info("r2_upload_bytes_done", key=r2_key, uri=uri,
+                 duration_seconds=round(duration, 3))
+        return uri
+    except Exception as exc:
+        duration = time.monotonic() - start
+        _record_r2("upload_bytes", "error", duration)
+        log.error("r2_upload_bytes_failed", key=r2_key, bucket=R2_BUCKET,
+                  error=str(exc), duration_seconds=round(duration, 3))
+        raise

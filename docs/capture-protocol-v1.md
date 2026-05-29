@@ -21,7 +21,7 @@ Standardize drone film collection so clips are usable for field mapping, player 
 ## Naming Convention
 Use:
 
-`TOL_{YYYYMMDD}_{period}_{series}_{play}_{scenario}_{camera}.mp4`
+`TOL_{YYYYMMDD}_{period}_{series}_{play}_{scenario}_DRONEA.mp4`
 
 Example:
 
@@ -30,7 +30,7 @@ Example:
 Where:
 - `period`: P1, P2, OTK, RZ
 - `scenario`: RUN, PASS, MOTION, REDZONE, BADLIGHT, CROWDEDBOX, MIXED
-- `camera`: DRONEA (or DRONEB if secondary)
+- Source is fixed to `DRONEA` for the single-camera capture pipeline.
 
 ## Upload Process
 1. Offload all files immediately after session to encrypted field laptop.
@@ -46,3 +46,34 @@ Capture batch passes if:
 - At least 90% clips show usable field markings for mapping
 - Video quality supports player detection and spacing review
 - Required scenarios are represented in the evaluation set
+
+## Capture-Regime Detection (Issue #126)
+Every Phase-CV stage (homography, detection, tracking, events) branches on
+the source regime. Toledo film arrives without SRT/GPS/IMU, so the regime
+is inferred from pixels exactly once, at ingest.
+
+Supported regimes:
+- `drone_follow` — operator-flown drone with pans/zooms/tilts (practice film)
+- `fixed_sideline` — static elevated wide game camera
+- `unknown` — safe fallback when fusion confidence is below
+  `REGIME_MIN_CONFIDENCE` (default `0.55`) or feature extraction fails
+
+Where it runs:
+- `gpu-worker/pipeline/homography/regime_detector.py` (the detector
+  module, exposes `CaptureRegimeDetector` and the abstract
+  `RegimeDetectorAdapter`).
+- Invoked from `gpu-worker/pipeline/stage_ingest.py` immediately after the
+  ffprobe step. The result is persisted via
+  `PATCH /api/v1/videos/{id}/status` and denormalized onto every `clips`
+  row created later by `backend/app/routers/clips.py:create_clip`.
+
+`regime_confidence` is the fusion classifier's distance from the 0.5
+decision boundary, rescaled to `[0, 1]` — `1.0` means the four pixel
+features all agree strongly on a single regime, `0.0` means the detector
+is on the fence and the row is tagged `unknown`.
+
+Coaches can override the predicted regime via
+`PATCH /api/v1/clips/{id}` (manual overrides are recorded with
+`regime_confidence=1.0`). A separate frontend issue tracks surfacing this
+override as a clip-review UI control.
+

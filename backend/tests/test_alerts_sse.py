@@ -11,17 +11,41 @@ Covers:
 
 import asyncio
 import json
+import socket
+import threading
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+import pytest
+import uvicorn
 from app.main import app
 from app.models import User, UserRole
 from app.routers.alerts_sse import _connections, publish_alert
-from fastapi.testclient import TestClient
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def speed_up_sse_keepalive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Monkeypatch the keepalive interval and prevent request.is_disconnected() from blocking.
+
+    This prevents the TestClient background thread from deadlocking on request.is_disconnected()
+    and speeds up keepalive timeout during tests.
+    """
+    import app.routers.alerts_sse
+    import starlette.requests
+
+    monkeypatch.setattr(app.routers.alerts_sse, "_KEEPALIVE_SECONDS", 0.1)
+
+    async def mock_is_disconnected(self) -> bool:
+        return False
+
+    monkeypatch.setattr(starlette.requests.Request, "is_disconnected", mock_is_disconnected)
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 
 def _make_user(role: UserRole, position_group: str | None = None) -> User:
@@ -33,7 +57,7 @@ def _make_user(role: UserRole, position_group: str | None = None) -> User:
     return u
 
 
-# ── publish_alert unit tests ───────────────────────────────────────────────────
+# ── publish_alert unit tests ─────────────────────────────────────────────────
 
 
 def test_publish_alert_fans_to_matching_group() -> None:
@@ -99,7 +123,53 @@ def test_publish_alert_case_insensitive_group_match() -> None:
         _connections.pop(conn_id, None)
 
 
-# ── Endpoint access tests ─────────────────────────────────────────────────────
+# ── Live Uvicorn Server Fixture for Streaming ────────────────────────────────
+
+
+def _get_free_port() -> int:
+    s = socket.socket()
+    s.bind(("", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+@pytest.fixture(scope="module")
+def live_server_url() -> str:
+    """Start a real uvicorn server in a separate background thread.
+
+    This is necessary to test infinite streaming (SSE) without causing deadlocks or hangs,
+    which occur on synchronous TestClient/AsyncClient ASGI transport as they buffer/drain
+    the entire application response stream before returning control to the test function.
+    """
+    port = _get_free_port()
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    app.dependency_overrides.clear()
+
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Wait for server to start
+    time.sleep(0.5)
+
+    yield f"http://127.0.0.1:{port}"
+
+    # Clean shutdown
+    server.should_exit = True
+    thread.join(timeout=2)
+
+
+def _get_next_sse_line(lines_iterator) -> str:
+    """Helper to read the next non-empty line of the SSE stream."""
+    for line in lines_iterator:
+        if line.strip():
+            return line
+    return ""
+
+
+# ── Endpoint access tests ────────────────────────────────────────────────────
 
 
 def _mock_db_override():
@@ -110,7 +180,7 @@ def _mock_db_override():
     return _db
 
 
-def test_stream_player_role_blocked() -> None:
+def test_stream_player_role_blocked(live_server_url: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -118,13 +188,12 @@ def test_stream_player_role_blocked() -> None:
     app.dependency_overrides[get_current_user] = lambda: player
     app.dependency_overrides[get_db] = _mock_db_override()
 
-    with TestClient(app) as c:
-        resp = c.get("/api/v1/alerts/stream")
+    resp = httpx.get(f"{live_server_url}/api/v1/alerts/stream")
     app.dependency_overrides.clear()
     assert resp.status_code == 403
 
 
-def test_stream_viewer_role_blocked() -> None:
+def test_stream_viewer_role_blocked(live_server_url: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -132,13 +201,12 @@ def test_stream_viewer_role_blocked() -> None:
     app.dependency_overrides[get_current_user] = lambda: viewer
     app.dependency_overrides[get_db] = _mock_db_override()
 
-    with TestClient(app) as c:
-        resp = c.get("/api/v1/alerts/stream")
+    resp = httpx.get(f"{live_server_url}/api/v1/alerts/stream")
     app.dependency_overrides.clear()
     assert resp.status_code == 403
 
 
-def test_stream_coach_receives_connected_event() -> None:
+def test_stream_coach_receives_connected_event(live_server_url: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -146,9 +214,9 @@ def test_stream_coach_receives_connected_event() -> None:
     app.dependency_overrides[get_current_user] = lambda: coach
     app.dependency_overrides[get_db] = _mock_db_override()
 
-    with TestClient(app) as c:
-        with c.stream("GET", "/api/v1/alerts/stream") as stream:
-            first_chunk = next(stream.iter_lines())
+    with httpx.stream("GET", f"{live_server_url}/api/v1/alerts/stream") as stream:
+        lines = stream.iter_lines()
+        first_chunk = _get_next_sse_line(lines)
 
     app.dependency_overrides.clear()
 
@@ -158,7 +226,7 @@ def test_stream_coach_receives_connected_event() -> None:
     assert "connection_id" in payload
 
 
-def test_stream_coach_cannot_override_position_group() -> None:
+def test_stream_coach_cannot_override_position_group(live_server_url: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -166,14 +234,13 @@ def test_stream_coach_cannot_override_position_group() -> None:
     app.dependency_overrides[get_current_user] = lambda: coach
     app.dependency_overrides[get_db] = _mock_db_override()
 
-    with TestClient(app) as c:
-        resp = c.get("/api/v1/alerts/stream?position_group=WR")
+    resp = httpx.get(f"{live_server_url}/api/v1/alerts/stream?position_group=WR")
 
     app.dependency_overrides.clear()
     assert resp.status_code == 403
 
 
-def test_stream_delivers_published_alert() -> None:
+def test_stream_delivers_published_alert(live_server_url: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -183,21 +250,20 @@ def test_stream_delivers_published_alert() -> None:
 
     received: list[dict] = []
 
-    with TestClient(app) as c:
-        with c.stream("GET", "/api/v1/alerts/stream") as stream:
-            lines = stream.iter_lines()
-            first = next(lines)
-            # Parse connection event to get conn_id
-            conn_payload = json.loads(first.replace("data: ", ""))
-            conn_id = conn_payload["connection_id"]
+    with httpx.stream("GET", f"{live_server_url}/api/v1/alerts/stream") as stream:
+        lines = stream.iter_lines()
+        first = _get_next_sse_line(lines)
+        # Parse connection event to get conn_id
+        conn_payload = json.loads(first.replace("data: ", ""))
+        conn_id = conn_payload["connection_id"]
 
-            # Publish an OL alert — should match the coach's filter
-            if conn_id in _connections:
-                _connections[conn_id][0].put_nowait(
-                    {"alert_type": "effort_anomaly", "position_group": "OL"}
-                )
-            second = next(lines)
-            received.append(json.loads(second.replace("data: ", "")))
+        # Publish an OL alert — should match the coach's filter
+        if conn_id in _connections:
+            _connections[conn_id][0].put_nowait(
+                {"alert_type": "effort_anomaly", "position_group": "OL"}
+            )
+        second = _get_next_sse_line(lines)
+        received.append(json.loads(second.replace("data: ", "")))
 
     app.dependency_overrides.clear()
 
@@ -205,10 +271,10 @@ def test_stream_delivers_published_alert() -> None:
         assert received[0].get("alert_type") == "effort_anomaly"
 
 
-# ── SSE event format ──────────────────────────────────────────────────────────
+# ── SSE event format ─────────────────────────────────────────────────────────
 
 
-def test_sse_event_format_has_data_prefix() -> None:
+def test_sse_event_format_has_data_prefix(live_server_url: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -216,16 +282,16 @@ def test_sse_event_format_has_data_prefix() -> None:
     app.dependency_overrides[get_current_user] = lambda: coach
     app.dependency_overrides[get_db] = _mock_db_override()
 
-    with TestClient(app) as c:
-        with c.stream("GET", "/api/v1/alerts/stream") as stream:
-            first_line = next(stream.iter_lines())
+    with httpx.stream("GET", f"{live_server_url}/api/v1/alerts/stream") as stream:
+        lines = stream.iter_lines()
+        first_line = _get_next_sse_line(lines)
 
     app.dependency_overrides.clear()
 
     assert first_line.startswith("data: "), f"Expected SSE format, got: {first_line!r}"
 
 
-def test_disconnect_removes_connection_from_registry() -> None:
+def test_disconnect_removes_connection_from_registry(live_server_url: str) -> None:
     """After the client disconnects, its queue should be removed from _connections."""
     from app.database import get_db
     from app.deps import get_current_user
@@ -236,14 +302,17 @@ def test_disconnect_removes_connection_from_registry() -> None:
 
     conn_id_seen: list[str] = []
 
-    with TestClient(app) as c:
-        with c.stream("GET", "/api/v1/alerts/stream") as stream:
-            first = next(stream.iter_lines())
-            payload = json.loads(first.replace("data: ", ""))
-            conn_id_seen.append(payload["connection_id"])
+    with httpx.stream("GET", f"{live_server_url}/api/v1/alerts/stream") as stream:
+        lines = stream.iter_lines()
+        first = _get_next_sse_line(lines)
+        payload = json.loads(first.replace("data: ", ""))
+        conn_id_seen.append(payload["connection_id"])
         # Connection is now closed
 
     app.dependency_overrides.clear()
+
+    # Wait briefly for uvicorn connection closure to run the generator finally block
+    time.sleep(0.1)
 
     if conn_id_seen:
         assert conn_id_seen[0] not in _connections

@@ -1,932 +1,340 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FootballShell } from "@/components/football-shell";
+import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
+import { useAppState } from "@/lib/app-state";
+import {
+  fetchSelfScoutTendencies,
+  fetchVideos,
+  type VideoFilters,
+} from "@/lib/api";
+import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+type ScoutDataState =
+  | { kind: "loading" }
+  | { kind: "offline" }
+  | { kind: "empty" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; data: SelfScoutResponse };
 
-interface TendencyEntry {
-  grouping_key: string;
-  total_plays: number;
-  run_count: number;
-  pass_count: number;
-  run_rate: number;
-  pass_rate: number;
-  evidence_clip_ids: string[];
-  low_sample: boolean;
-}
+const ALL_VIDEOS = "__all__";
 
-interface MotionTendency {
-  total: number;
-  run_count: number;
-  pass_count: number;
-  run_rate: number;
-  pass_rate: number;
-}
-
-interface DownDistanceTendency {
-  down: number;
-  distance_bucket: string;
-  total_plays: number;
-  run_count: number;
-  pass_count: number;
-  run_rate: number;
-  pass_rate: number;
-  evidence_clip_ids: string[];
-  low_sample: boolean;
-}
-
-interface ConceptFamilyEntry {
-  formation: string;
-  concept_family: string;
-  total_plays: number;
-  rate: number;
-  evidence_clip_ids: string[];
-  low_sample: boolean;
-}
-
-interface ExposureAlert {
-  grouping_key: string;
-  formation: string;
-  motion_state: string;
-  total_plays: number;
-  lean: string;
-  severity: string;
-  run_rate: number;
-  pass_rate: number;
-  evidence_clip_ids: string[];
-  low_sample: boolean;
-  message: string;
-}
-
-interface TendencyAlert {
-  alert_type: string;
-  message: string;
-  severity: string;
-  grouping_key: string;
-  run_rate: number;
-  pass_rate: number;
-}
-
-// ── Sample Data ──────────────────────────────────────────────────────────────
-
-const sampleFormationTendencies: TendencyEntry[] = [
-  {
-    grouping_key: "shotgun",
-    total_plays: 48,
-    run_count: 14,
-    pass_count: 34,
-    run_rate: 0.292,
-    pass_rate: 0.708,
-    evidence_clip_ids: ["c1", "c2", "c3"],
-    low_sample: false,
-  },
-  {
-    grouping_key: "pistol",
-    total_plays: 32,
-    run_count: 26,
-    pass_count: 6,
-    run_rate: 0.813,
-    pass_rate: 0.188,
-    evidence_clip_ids: ["c4", "c5", "c6"],
-    low_sample: false,
-  },
-  {
-    grouping_key: "trips",
-    total_plays: 21,
-    run_count: 4,
-    pass_count: 17,
-    run_rate: 0.19,
-    pass_rate: 0.81,
-    evidence_clip_ids: ["c7", "c8"],
-    low_sample: false,
-  },
-  {
-    grouping_key: "empty",
-    total_plays: 12,
-    run_count: 1,
-    pass_count: 11,
-    run_rate: 0.083,
-    pass_rate: 0.917,
-    evidence_clip_ids: ["c9"],
-    low_sample: false,
-  },
-  {
-    grouping_key: "under_center",
-    total_plays: 8,
-    run_count: 7,
-    pass_count: 1,
-    run_rate: 0.875,
-    pass_rate: 0.125,
-    evidence_clip_ids: ["c10"],
-    low_sample: true,
-  },
-];
-
-const sampleMotionTendencies = {
-  with_motion: {
-    total: 34,
-    run_count: 22,
-    pass_count: 12,
-    run_rate: 0.647,
-    pass_rate: 0.353,
-  } as MotionTendency,
-  without_motion: {
-    total: 87,
-    run_count: 30,
-    pass_count: 57,
-    run_rate: 0.345,
-    pass_rate: 0.655,
-  } as MotionTendency,
-};
-
-const sampleFieldZoneTendencies: TendencyEntry[] = [
-  {
-    grouping_key: "mid_field",
-    total_plays: 61,
-    run_count: 27,
-    pass_count: 34,
-    run_rate: 0.443,
-    pass_rate: 0.557,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    grouping_key: "red_zone",
-    total_plays: 28,
-    run_count: 20,
-    pass_count: 8,
-    run_rate: 0.714,
-    pass_rate: 0.286,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    grouping_key: "backed_up",
-    total_plays: 14,
-    run_count: 10,
-    pass_count: 4,
-    run_rate: 0.714,
-    pass_rate: 0.286,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-];
-
-const samplePersonnelTendencies: TendencyEntry[] = [
-  {
-    grouping_key: "11",
-    total_plays: 55,
-    run_count: 18,
-    pass_count: 37,
-    run_rate: 0.327,
-    pass_rate: 0.673,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    grouping_key: "12",
-    total_plays: 28,
-    run_count: 21,
-    pass_count: 7,
-    run_rate: 0.75,
-    pass_rate: 0.25,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    grouping_key: "21",
-    total_plays: 16,
-    run_count: 13,
-    pass_count: 3,
-    run_rate: 0.813,
-    pass_rate: 0.188,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-];
-
-const sampleDownDistanceTendencies: DownDistanceTendency[] = [
-  {
-    down: 1,
-    distance_bucket: "long",
-    total_plays: 38,
-    run_count: 22,
-    pass_count: 16,
-    run_rate: 0.579,
-    pass_rate: 0.421,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    down: 2,
-    distance_bucket: "medium",
-    total_plays: 22,
-    run_count: 8,
-    pass_count: 14,
-    run_rate: 0.364,
-    pass_rate: 0.636,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    down: 2,
-    distance_bucket: "long",
-    total_plays: 14,
-    run_count: 3,
-    pass_count: 11,
-    run_rate: 0.214,
-    pass_rate: 0.786,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    down: 3,
-    distance_bucket: "short",
-    total_plays: 12,
-    run_count: 6,
-    pass_count: 6,
-    run_rate: 0.5,
-    pass_rate: 0.5,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-  {
-    down: 3,
-    distance_bucket: "long",
-    total_plays: 18,
-    run_count: 2,
-    pass_count: 16,
-    run_rate: 0.111,
-    pass_rate: 0.889,
-    evidence_clip_ids: [],
-    low_sample: false,
-  },
-];
-
-const sampleConceptFamilies: Record<string, ConceptFamilyEntry[]> = {
-  shotgun: [
-    {
-      formation: "shotgun",
-      concept_family: "pass_concept",
-      total_plays: 28,
-      rate: 0.583,
-      evidence_clip_ids: [],
-      low_sample: false,
-    },
-    {
-      formation: "shotgun",
-      concept_family: "inside_zone",
-      total_plays: 10,
-      rate: 0.208,
-      evidence_clip_ids: [],
-      low_sample: false,
-    },
-    {
-      formation: "shotgun",
-      concept_family: "outside_zone",
-      total_plays: 6,
-      rate: 0.125,
-      evidence_clip_ids: [],
-      low_sample: true,
-    },
-    {
-      formation: "shotgun",
-      concept_family: "gap",
-      total_plays: 4,
-      rate: 0.083,
-      evidence_clip_ids: [],
-      low_sample: true,
-    },
-  ],
-  pistol: [
-    {
-      formation: "pistol",
-      concept_family: "inside_zone",
-      total_plays: 14,
-      rate: 0.438,
-      evidence_clip_ids: [],
-      low_sample: false,
-    },
-    {
-      formation: "pistol",
-      concept_family: "gap",
-      total_plays: 10,
-      rate: 0.313,
-      evidence_clip_ids: [],
-      low_sample: false,
-    },
-    {
-      formation: "pistol",
-      concept_family: "pass_concept",
-      total_plays: 5,
-      rate: 0.156,
-      evidence_clip_ids: [],
-      low_sample: true,
-    },
-    {
-      formation: "pistol",
-      concept_family: "outside_zone",
-      total_plays: 3,
-      rate: 0.094,
-      evidence_clip_ids: [],
-      low_sample: true,
-    },
-  ],
-};
-
-const samplePreSnapTells: ExposureAlert[] = [
-  {
-    grouping_key: "pistol|without_motion",
-    formation: "pistol",
-    motion_state: "without_motion",
-    total_plays: 24,
-    lean: "run",
-    severity: "high",
-    run_rate: 0.917,
-    pass_rate: 0.083,
-    evidence_clip_ids: ["c4", "c5"],
-    low_sample: false,
-    message: "Pre-snap tell from pistol without motion: 92% run (24 plays)",
-  },
-  {
-    grouping_key: "empty|without_motion",
-    formation: "empty",
-    motion_state: "without_motion",
-    total_plays: 12,
-    lean: "pass",
-    severity: "high",
-    run_rate: 0.083,
-    pass_rate: 0.917,
-    evidence_clip_ids: ["c9"],
-    low_sample: false,
-    message: "Pre-snap tell from empty without motion: 92% pass (12 plays)",
-  },
-  {
-    grouping_key: "trips|with_motion",
-    formation: "trips",
-    motion_state: "with_motion",
-    total_plays: 8,
-    lean: "pass",
-    severity: "medium",
-    run_rate: 0.125,
-    pass_rate: 0.875,
-    evidence_clip_ids: [],
-    low_sample: true,
-    message: "Pre-snap tell from trips with motion: 88% pass (8 plays)",
-  },
-];
-
-const sampleAlerts: TendencyAlert[] = [
-  {
-    alert_type: "formation_tendency",
-    message: "High run tendency from pistol: 81% (32 plays)",
-    severity: "medium",
-    grouping_key: "pistol",
-    run_rate: 0.813,
-    pass_rate: 0.188,
-  },
-  {
-    alert_type: "formation_tendency",
-    message: "High pass tendency from empty: 92% (12 plays)",
-    severity: "high",
-    grouping_key: "empty",
-    run_rate: 0.083,
-    pass_rate: 0.917,
-  },
-  {
-    alert_type: "formation_tendency",
-    message: "High pass tendency from trips: 81% (21 plays)",
-    severity: "medium",
-    grouping_key: "trips",
-    run_rate: 0.19,
-    pass_rate: 0.81,
-  },
-  {
-    alert_type: "personnel_tendency",
-    message: "High run tendency from 21: 81%",
-    severity: "medium",
-    grouping_key: "21",
-    run_rate: 0.813,
-    pass_rate: 0.188,
-  },
-  {
-    alert_type: "field_zone_tendency",
-    message: "High run tendency in red_zone: 71%",
-    severity: "medium",
-    grouping_key: "red_zone",
-    run_rate: 0.714,
-    pass_rate: 0.286,
-  },
-];
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function pct(value: number): string {
-  return `${(value * 100).toFixed(0)}%`;
-}
-
-function severityColor(severity: string): string {
-  if (severity === "high") return "#dc2626";
-  if (severity === "medium") return "#f59e0b";
-  return "#6b7280";
-}
-
-function barStyle(rate: number, color: string): React.CSSProperties {
-  return {
-    width: `${rate * 100}%`,
-    backgroundColor: color,
-    height: "14px",
-    borderRadius: "3px",
-    transition: "width 0.3s ease",
-  };
-}
-
-type TabKey =
-  | "formation"
-  | "motion"
-  | "field_zone"
-  | "personnel"
-  | "down_distance"
-  | "concept_family"
-  | "exposure";
-
-const TAB_LABELS: Record<TabKey, string> = {
-  formation: "Formation",
-  motion: "Motion",
-  field_zone: "Field Zone",
-  personnel: "Personnel",
-  down_distance: "Down & Distance",
-  concept_family: "Concept Family",
-  exposure: "Exposure Alerts",
-};
-
-// ── Components ───────────────────────────────────────────────────────────────
-
-function RunPassBar({ runRate, passRate }: { runRate: number; passRate: number }) {
+export default function SelfScoutPage() {
   return (
-    <div style={{ display: "flex", gap: "2px", width: "100%" }}>
-      <div style={barStyle(runRate, "#3b82f6")} title={`Run: ${pct(runRate)}`} />
-      <div style={barStyle(passRate, "#f97316")} title={`Pass: ${pct(passRate)}`} />
-    </div>
+    <FootballShell activePage="self-scout">
+      <SelfScoutView />
+    </FootballShell>
   );
 }
 
-function LowSampleBadge() {
-  return (
-    <span
-      style={{
-        fontSize: "10px",
-        color: "#f59e0b",
-        border: "1px solid #f59e0b",
-        borderRadius: "3px",
-        padding: "1px 4px",
-        marginLeft: "6px",
-      }}
-    >
-      low-N
-    </span>
-  );
-}
+function SelfScoutView() {
+  const { selectedDate, sessionType, authToken, mockMode } = useAppState();
+  const [videos, setVideos] = useState<ApiVideo[]>([]);
+  const [videosError, setVideosError] = useState<string | null>(null);
+  const [selectedVideoId, setSelectedVideoId] = useState<string>(ALL_VIDEOS);
+  const [state, setState] = useState<ScoutDataState>({ kind: "loading" });
 
-function FormationTable({ data, label = "Formation" }: { data: TendencyEntry[]; label?: string }) {
-  return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-      <thead>
-        <tr style={{ borderBottom: "2px solid #374151", textAlign: "left" }}>
-          <th style={{ padding: "8px" }}>{label}</th>
-          <th style={{ padding: "8px", textAlign: "center" }}>Plays</th>
-          <th style={{ padding: "8px", textAlign: "center" }}>Run</th>
-          <th style={{ padding: "8px", textAlign: "center" }}>Pass</th>
-          <th style={{ padding: "8px", width: "30%" }}>Run / Pass Split</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((entry) => (
-          <tr key={entry.grouping_key} style={{ borderBottom: "1px solid #1f2937" }}>
-            <td style={{ padding: "8px", fontWeight: 600 }}>
-              {entry.grouping_key}
-              {entry.low_sample && <LowSampleBadge />}
-            </td>
-            <td style={{ padding: "8px", textAlign: "center" }}>{entry.total_plays}</td>
-            <td style={{ padding: "8px", textAlign: "center", color: "#3b82f6" }}>
-              {pct(entry.run_rate)}
-            </td>
-            <td style={{ padding: "8px", textAlign: "center", color: "#f97316" }}>
-              {pct(entry.pass_rate)}
-            </td>
-            <td style={{ padding: "8px" }}>
-              <RunPassBar runRate={entry.run_rate} passRate={entry.pass_rate} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
+  // Build the source film picker. Self-scout sources are our own film:
+  // practice and scrimmage (game film with our possession is also valid, but
+  // most coaches scout opponent-facing tendencies on practice). We expose any
+  // video that isn't tagged with an opponent — `opponent_team is null` is the
+  // closest server-side proxy for "Toledo film" today.
+  useEffect(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      setVideos([]);
+      setVideosError(null);
+      return;
+    }
+    let cancelled = false;
+    const filters: VideoFilters = { limit: 200 };
+    if (selectedDate) {
+      filters.recorded_after = `${selectedDate}T00:00:00Z`;
+      filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
+    }
+    if (sessionType !== "all") {
+      filters.session_kind = sessionType;
+    }
+    fetchVideos(filters, authToken)
+      .then((all) => {
+        if (cancelled) return;
+        // Self-scout = our film. Drop entries that are tagged with an
+        // opponent (those belong on the Opponent Scout page).
+        const ourFilm = all.filter((v) => !v.opponent_team);
+        setVideos(ourFilm);
+        setVideosError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setVideos([]);
+        setVideosError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, sessionType, authToken]);
 
-function MotionPanel({
-  data,
-}: {
-  data: { with_motion: MotionTendency; without_motion: MotionTendency };
-}) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-      {(["with_motion", "without_motion"] as const).map((key) => {
-        const m = data[key];
-        const label = key === "with_motion" ? "With Motion" : "Without Motion";
-        return (
-          <div
-            key={key}
-            style={{
-              border: "1px solid #374151",
-              borderRadius: "8px",
-              padding: "16px",
-            }}
-          >
-            <h4 style={{ margin: "0 0 8px 0", fontWeight: 600 }}>{label}</h4>
-            <p style={{ margin: "4px 0", fontSize: "13px", color: "#9ca3af" }}>
-              {m.total} plays
-            </p>
-            <div style={{ display: "flex", gap: "24px", margin: "8px 0" }}>
-              <span style={{ color: "#3b82f6" }}>Run: {pct(m.run_rate)}</span>
-              <span style={{ color: "#f97316" }}>Pass: {pct(m.pass_rate)}</span>
-            </div>
-            <RunPassBar runRate={m.run_rate} passRate={m.pass_rate} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+  useEffect(() => {
+    if (selectedVideoId !== ALL_VIDEOS && !videos.some((v) => v.id === selectedVideoId)) {
+      setSelectedVideoId(ALL_VIDEOS);
+    }
+  }, [selectedVideoId, videos]);
 
-function DownDistanceTable({ data }: { data: DownDistanceTendency[] }) {
-  return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-      <thead>
-        <tr style={{ borderBottom: "2px solid #374151", textAlign: "left" }}>
-          <th style={{ padding: "8px" }}>Down</th>
-          <th style={{ padding: "8px" }}>Distance</th>
-          <th style={{ padding: "8px", textAlign: "center" }}>Plays</th>
-          <th style={{ padding: "8px", textAlign: "center" }}>Run</th>
-          <th style={{ padding: "8px", textAlign: "center" }}>Pass</th>
-          <th style={{ padding: "8px", width: "30%" }}>Run / Pass Split</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((entry) => (
-          <tr
-            key={`${entry.down}-${entry.distance_bucket}`}
-            style={{ borderBottom: "1px solid #1f2937" }}
-          >
-            <td style={{ padding: "8px", fontWeight: 600 }}>{entry.down}</td>
-            <td style={{ padding: "8px", textTransform: "capitalize" }}>
-              {entry.distance_bucket}
-              {entry.low_sample && <LowSampleBadge />}
-            </td>
-            <td style={{ padding: "8px", textAlign: "center" }}>{entry.total_plays}</td>
-            <td style={{ padding: "8px", textAlign: "center", color: "#3b82f6" }}>
-              {pct(entry.run_rate)}
-            </td>
-            <td style={{ padding: "8px", textAlign: "center", color: "#f97316" }}>
-              {pct(entry.pass_rate)}
-            </td>
-            <td style={{ padding: "8px" }}>
-              <RunPassBar runRate={entry.run_rate} passRate={entry.pass_rate} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
+  const loadTendencies = useCallback(async () => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      setState({ kind: "offline" });
+      return;
+    }
+    setState({ kind: "loading" });
+    try {
+      const videoId = selectedVideoId === ALL_VIDEOS ? null : selectedVideoId;
+      const data = await fetchSelfScoutTendencies(videoId, authToken);
+      if (data.clip_count === 0) {
+        setState({ kind: "empty" });
+      } else {
+        setState({ kind: "ready", data });
+      }
+    } catch (err) {
+      setState({
+        kind: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [selectedVideoId, authToken]);
 
-function ConceptFamilyPanel({
-  data,
-}: {
-  data: Record<string, ConceptFamilyEntry[]>;
-}) {
-  const formations = Object.keys(data);
+  useEffect(() => {
+    loadTendencies();
+  }, [loadTendencies]);
+
+  const cardState = useMemo<AnalyticsCardState>(() => {
+    switch (state.kind) {
+      case "loading":
+        return { kind: "loading", label: "Computing Self-Scout tendencies…" };
+      case "offline":
+        return {
+          kind: "unavailable",
+          reason:
+            "Self-Scout needs the FastAPI backend. Set NEXT_PUBLIC_API_URL to enable.",
+        };
+      case "empty":
+        return {
+          kind: "empty",
+          reason:
+            "No labeled plays match the selected film yet. Upload practice film or wait for the labeling pipeline to finish.",
+        };
+      case "error":
+        return { kind: "error", message: state.message, onRetry: loadTendencies };
+      case "ready":
+        return { kind: "live" };
+    }
+  }, [state, loadTendencies]);
+
+  const data = state.kind === "ready" ? state.data : null;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      {formations.map((formation) => (
+    <div className="content-grid">
+      <section className="panel panel-pad span-12">
         <div
-          key={formation}
-          style={{
-            border: "1px solid #374151",
-            borderRadius: "8px",
-            padding: "16px",
-          }}
-        >
-          <h4 style={{ margin: "0 0 8px 0", fontWeight: 600, textTransform: "capitalize" }}>
-            {formation}
-          </h4>
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            {data[formation].map((entry) => (
-              <div
-                key={entry.concept_family}
-                style={{
-                  flex: "1 1 140px",
-                  backgroundColor: "#1f2937",
-                  borderRadius: "6px",
-                  padding: "10px",
-                  textAlign: "center",
-                  minWidth: "120px",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "#9ca3af",
-                    marginBottom: "4px",
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {entry.concept_family.replace("_", " ")}
-                </div>
-                <div style={{ fontSize: "22px", fontWeight: 700 }}>{pct(entry.rate)}</div>
-                <div style={{ fontSize: "11px", color: "#6b7280" }}>
-                  {entry.total_plays} plays
-                  {entry.low_sample && <LowSampleBadge />}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ExposurePanel({ data }: { data: ExposureAlert[] }) {
-  if (data.length === 0)
-    return <p style={{ color: "#6b7280" }}>No pre-snap tells detected.</p>;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {data.map((alert) => (
-        <div
-          key={alert.grouping_key}
-          style={{
-            border: `1px solid ${severityColor(alert.severity)}`,
-            borderLeft: `4px solid ${severityColor(alert.severity)}`,
-            borderRadius: "6px",
-            padding: "12px 16px",
-            backgroundColor: "#111827",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontWeight: 600 }}>{alert.message}</span>
-            <span
-              style={{
-                fontSize: "11px",
-                textTransform: "uppercase",
-                color: severityColor(alert.severity),
-                fontWeight: 700,
-              }}
-            >
-              {alert.severity}
-              {alert.low_sample && <LowSampleBadge />}
-            </span>
-          </div>
-          <div style={{ marginTop: "6px", fontSize: "12px", color: "#9ca3af" }}>
-            {alert.total_plays} plays — {pct(alert.run_rate)} run / {pct(alert.pass_rate)} pass
-          </div>
-          <RunPassBar runRate={alert.run_rate} passRate={alert.pass_rate} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AlertsPanel({ data }: { data: TendencyAlert[] }) {
-  if (data.length === 0) return <p style={{ color: "#6b7280" }}>No tendency alerts.</p>;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      {data.map((alert, idx) => (
-        <div
-          key={`${alert.grouping_key}-${alert.alert_type}-${idx}`}
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            padding: "8px 12px",
-            borderRadius: "6px",
-            backgroundColor: "#1f2937",
-            borderLeft: `3px solid ${severityColor(alert.severity)}`,
+            gap: 12,
+            flexWrap: "wrap",
           }}
         >
-          <span style={{ fontSize: "13px" }}>{alert.message}</span>
-          <span
-            style={{
-              fontSize: "11px",
-              textTransform: "uppercase",
-              color: severityColor(alert.severity),
-              fontWeight: 700,
-            }}
+          <div>
+            <h2 className="panel-title">Self-Scout filter</h2>
+            <p className="kicker">
+              Pick a single piece of our film to scout, or scout across every
+              uploaded session. Top-bar Date and Session Type also narrow the
+              picker.
+              {mockMode ? " Mock mode shows whatever the backend returns when configured." : ""}
+            </p>
+          </div>
+          <label className="form-control" style={{ minWidth: 280 }}>
+            <span className="small-label">Source film</span>
+            <select
+              value={selectedVideoId}
+              onChange={(e) => setSelectedVideoId(e.target.value)}
+              aria-label="Self-Scout source video"
+              data-testid="self-scout-video-picker"
+            >
+              <option value={ALL_VIDEOS}>All my film</option>
+              {videos.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {videoLabel(v)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {videosError && (
+          <p
+            className="kicker"
+            style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}
+            data-testid="self-scout-videos-error"
           >
-            {alert.severity}
-          </span>
+            Could not load source film list: {videosError}
+          </p>
+        )}
+      </section>
+
+      <AnalyticsCard
+        title="Run / Pass by Formation"
+        state={cardState}
+        className="span-6"
+      >
+        {data && <TendencyTable entries={data.formation_tendencies} />}
+      </AnalyticsCard>
+
+      <AnalyticsCard
+        title="Personnel Tendencies"
+        state={cardState}
+        className="span-6"
+      >
+        {data && <TendencyTable entries={data.personnel_tendencies} />}
+      </AnalyticsCard>
+
+      <AnalyticsCard
+        title="Motion Split"
+        state={cardState}
+        className="span-6"
+      >
+        {data && (
+          <div className="list-stack" style={{ gap: 6 }}>
+            <MotionRow label="With motion" split={data.motion_tendencies.with_motion} />
+            <MotionRow label="Without motion" split={data.motion_tendencies.without_motion} />
+          </div>
+        )}
+      </AnalyticsCard>
+
+      <AnalyticsCard
+        title="Down & Distance"
+        state={cardState}
+        className="span-6"
+      >
+        {data && (
+          <TendencyTable
+            entries={data.down_distance_tendencies.map((e) => ({
+              ...e,
+              grouping_key: `${ordinalDown(e.down)} · ${distanceLabel(e.distance_bucket)}`,
+            }))}
+          />
+        )}
+      </AnalyticsCard>
+
+      <AnalyticsCard
+        title="Pre-Snap Tells"
+        state={cardState}
+        className="span-12"
+      >
+        {data &&
+          (data.pre_snap_tells.length === 0 ? (
+            <p className="kicker">
+              No exposure leans crossed the alert threshold for this film.
+            </p>
+          ) : (
+            <div className="list-stack" style={{ gap: 6 }}>
+              {data.pre_snap_tells.map((tell) => (
+                <div
+                  key={tell.grouping_key}
+                  className="status-row"
+                  style={{ gridTemplateColumns: "1fr auto" }}
+                  data-testid={`pre-snap-tell-${tell.grouping_key}`}
+                >
+                  <div>
+                    <strong>{tell.formation}</strong>
+                    <div className="kicker">{tell.message}</div>
+                  </div>
+                  <span
+                    className={`status-pill ${tell.severity === "high" ? "danger" : "warning"}`}
+                  >
+                    {tell.severity}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+      </AnalyticsCard>
+    </div>
+  );
+}
+
+function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
+    );
+  }
+  return (
+    <div className="list-stack" style={{ gap: 4 }}>
+      {entries.map((e) => (
+        <div
+          key={e.grouping_key}
+          className="status-row"
+          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
+        >
+          <strong>{e.grouping_key}</strong>
+          <span>{e.total_plays}</span>
+          <div className="progress">
+            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-export default function SelfScoutDashboard() {
-  const [activeTab, setActiveTab] = useState<TabKey>("formation");
-  const [viewMode, setViewMode] = useState<"self" | "opponent">("self");
-
-  const tabKeys = useMemo(() => Object.keys(TAB_LABELS) as TabKey[], []);
-
+function MotionRow({
+  label,
+  split,
+}: {
+  label: string;
+  split: { total: number; run_rate: number; pass_rate: number };
+}) {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        backgroundColor: "#0a0a0a",
-        color: "#e5e7eb",
-        padding: "32px 48px",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
-    >
-      {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 700 }}>
-          🏈 Self-Scout Exposure Dashboard
-        </h1>
-        <p style={{ margin: "6px 0 0", color: "#9ca3af", fontSize: "14px" }}>
-          Identify what opponents would see in Toledo&apos;s pre-snap tendencies. Break
-          predictable patterns before they&apos;re exploited.
-        </p>
-      </div>
-
-      {/* Toggle: Self-Scout vs. Opponent */}
-      <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
-        {(["self", "opponent"] as const).map((mode) => (
-          <button
-            key={mode}
-            onClick={() => setViewMode(mode)}
-            style={{
-              padding: "6px 16px",
-              borderRadius: "6px",
-              border: viewMode === mode ? "2px solid #3b82f6" : "1px solid #374151",
-              backgroundColor: viewMode === mode ? "#1e3a5f" : "transparent",
-              color: viewMode === mode ? "#93c5fd" : "#9ca3af",
-              cursor: "pointer",
-              fontWeight: 600,
-              fontSize: "13px",
-              textTransform: "capitalize",
-            }}
-          >
-            {mode === "self" ? "Self-Scout" : "Opponent Scout"}
-          </button>
-        ))}
-      </div>
-
-      {/* Alerts Summary */}
-      {sampleAlerts.length > 0 && (
-        <div
-          style={{
-            marginBottom: "24px",
-            padding: "16px",
-            border: "1px solid #374151",
-            borderRadius: "8px",
-            backgroundColor: "#111827",
-          }}
-        >
-          <h3 style={{ margin: "0 0 10px 0", fontSize: "16px", fontWeight: 600 }}>
-            ⚠️ Tendency Alerts ({sampleAlerts.length})
-          </h3>
-          <AlertsPanel data={sampleAlerts} />
-        </div>
-      )}
-
-      {/* Tab Navigation */}
-      <div
-        style={{
-          display: "flex",
-          gap: "4px",
-          borderBottom: "1px solid #374151",
-          marginBottom: "20px",
-        }}
-      >
-        {tabKeys.map((key) => (
-          <button
-            key={key}
-            onClick={() => setActiveTab(key)}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "6px 6px 0 0",
-              border: "none",
-              backgroundColor: activeTab === key ? "#1f2937" : "transparent",
-              color: activeTab === key ? "#f9fafb" : "#6b7280",
-              cursor: "pointer",
-              fontWeight: activeTab === key ? 600 : 400,
-              fontSize: "13px",
-              borderBottom: activeTab === key ? "2px solid #3b82f6" : "2px solid transparent",
-            }}
-          >
-            {TAB_LABELS[key]}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      <div
-        style={{
-          border: "1px solid #374151",
-          borderRadius: "8px",
-          padding: "20px",
-          backgroundColor: "#111827",
-        }}
-      >
-        {activeTab === "formation" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>Formation → Run / Pass Tendencies</h3>
-            <div
-              style={{
-                display: "flex",
-                gap: "16px",
-                marginBottom: "12px",
-                fontSize: "12px",
-                color: "#9ca3af",
-              }}
-            >
-              <span>
-                <span style={{ color: "#3b82f6" }}>■</span> Run
-              </span>
-              <span>
-                <span style={{ color: "#f97316" }}>■</span> Pass
-              </span>
-            </div>
-            <FormationTable data={sampleFormationTendencies} />
-          </>
-        )}
-
-        {activeTab === "motion" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>Motion → Run / Pass Split</h3>
-            <MotionPanel data={sampleMotionTendencies} />
-          </>
-        )}
-
-        {activeTab === "field_zone" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>Field Zone Tendencies</h3>
-            <FormationTable data={sampleFieldZoneTendencies} label="Field Zone" />
-          </>
-        )}
-
-        {activeTab === "personnel" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>Personnel Grouping Tendencies</h3>
-            <FormationTable data={samplePersonnelTendencies} label="Personnel" />
-          </>
-        )}
-
-        {activeTab === "down_distance" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>Down & Distance Breakdown</h3>
-            <DownDistanceTable data={sampleDownDistanceTendencies} />
-          </>
-        )}
-
-        {activeTab === "concept_family" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>Concept Family Distribution by Formation</h3>
-            <ConceptFamilyPanel data={sampleConceptFamilies} />
-          </>
-        )}
-
-        {activeTab === "exposure" && (
-          <>
-            <h3 style={{ margin: "0 0 12px 0" }}>
-              Pre-Snap Tell Exposure View (≥80% lean)
-            </h3>
-            <p style={{ fontSize: "13px", color: "#9ca3af", marginBottom: "12px" }}>
-              Formation + motion combos that telegraph play calls. These are what a prepared
-              opponent would exploit.
-            </p>
-            <ExposurePanel data={samplePreSnapTells} />
-          </>
-        )}
-      </div>
-
-      {/* Clip count / meta */}
-      <div
-        style={{
-          marginTop: "16px",
-          fontSize: "12px",
-          color: "#6b7280",
-          display: "flex",
-          justifyContent: "space-between",
-        }}
-      >
-        <span>121 clips analyzed · {viewMode === "self" ? "Self-Scout" : "Opponent Scout"}</span>
-        <span>
-          Data: sample · Season filter and live API integration coming soon
-        </span>
-      </div>
+    <div className="status-row" style={{ gridTemplateColumns: "1fr auto auto auto" }}>
+      <strong>{label}</strong>
+      <span className="kicker">{split.total} plays</span>
+      <span className="kicker">{(split.run_rate * 100).toFixed(0)}% run</span>
+      <span className="kicker">{(split.pass_rate * 100).toFixed(0)}% pass</span>
     </div>
   );
+}
+
+function videoLabel(v: ApiVideo): string {
+  const date = v.recorded_at ? v.recorded_at.slice(0, 10) : v.created_at.slice(0, 10);
+  const kind = v.session_kind ?? "session";
+  return `${date} · ${kind} · ${v.filename}`;
+}
+
+function ordinalDown(down: number): string {
+  switch (down) {
+    case 1:
+      return "1st";
+    case 2:
+      return "2nd";
+    case 3:
+      return "3rd";
+    case 4:
+      return "4th";
+    default:
+      return `${down}th`;
+  }
+}
+
+function distanceLabel(bucket: string): string {
+  switch (bucket) {
+    case "short":
+      return "Short (1-3)";
+    case "medium":
+      return "Medium (4-6)";
+    case "long":
+      return "Long (7+)";
+    default:
+      return bucket;
+  }
 }

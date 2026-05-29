@@ -36,10 +36,11 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.types import Vector
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
 
@@ -71,10 +72,17 @@ class JobType(enum.StrEnum):
     labels = "labels"
     metrics = "metrics"
     render = "render"
+    render_hls = "render_hls"
     routes = "routes"
     coverage = "coverage"
     oline = "oline"
     self_scout = "self_scout"
+    embeddings = "embeddings"
+
+
+class PipelineMode(enum.StrEnum):
+    same_session = "same_session"
+    nightly = "nightly"
 
 
 class ModelStage(enum.StrEnum):
@@ -89,6 +97,33 @@ class VideoStatus(enum.StrEnum):
     processing = "processing"
     ready = "ready"
     failed = "failed"
+
+
+class SessionKind(enum.StrEnum):
+    """Operating mode of the capture session. See ADR 0001."""
+
+    practice = "practice"
+    scrimmage = "scrimmage"
+    game = "game"
+
+
+class SourceType(enum.StrEnum):
+    """How the video reached Football-IQ. ``drone`` is the default capture path
+    (single overhead camera per the ADR); ``uploaded_clip`` covers manual
+    coach uploads of pre-segmented clips."""
+
+    drone = "drone"
+    uploaded_clip = "uploaded_clip"
+
+
+class SideOfBall(enum.StrEnum):
+    """Shared vocabulary for ``Video.our_possession``, ``Clip.our_possession``,
+    and ``Clip.side_of_ball``. ``Tracklet.side_of_ball`` accepts the same
+    values but remains a ``String`` for now (see ADR 0001 §4)."""
+
+    offense = "offense"
+    defense = "defense"
+    special_teams = "special_teams"
 
 
 class CorrectionType(enum.StrEnum):
@@ -129,6 +164,44 @@ class AlertSeverity(enum.StrEnum):
     high = "high"
 
 
+class CaptureRegime(enum.StrEnum):
+    """Source-capture regime inferred from pixels at ingest (Issue #126).
+
+    Toledo film arrives without SRT/GPS/IMU, so every Phase-CV stage routes on
+    whichever of these the ingest-time detector picked. ``unknown`` is the safe
+    fallback for low-confidence or feature-extraction failures and is also the
+    backfill value for rows that existed before this column was added.
+    """
+
+    drone_follow = "drone_follow"
+    fixed_sideline = "fixed_sideline"
+    unknown = "unknown"
+
+
+class PlayerVisibilityState(enum.StrEnum):
+    """Outward-facing visibility lifecycle for a player profile (Issue #114).
+
+    Default is ``staff_only`` — content stays internal until a coach or analyst
+    explicitly approves it for player-facing or recruiting consumption.  See
+    ``app.governance.VisibilityState`` for the runtime enum used by the
+    governance helpers; this duplicates the values at the schema layer so the
+    database enum is independently versioned by migrations.
+    """
+
+    staff_only = "staff_only"
+    player_approved = "player_approved"
+    recruiting_approved = "recruiting_approved"
+    archived = "archived"
+
+
+class ReportFormat(enum.StrEnum):
+    """Output format for a generated coaching report (Issue #111)."""
+
+    pdf = "pdf"
+    csv = "csv"
+    json = "json"
+
+
 # ── Models ────────────────────────────────────────────────────────────────────
 
 
@@ -162,12 +235,30 @@ class Player(Base):
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     jersey_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Coaching position group (QB, Skill, OL, DL, LB, DB, ST). Indexed because
+    # position-coach views filter on this rather than the raw position string.
+    position_group: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     # Link to platform account (optional — players may not have login)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Outward-facing visibility state (Issue #114).  Defaults to staff_only —
+    # nothing leaks to player or recruiting projections until explicitly
+    # approved by an authorized staff member.
+    visibility_state: Mapped[PlayerVisibilityState] = mapped_column(
+        Enum(PlayerVisibilityState, name="player_visibility_state"),
+        nullable=False,
+        default=PlayerVisibilityState.staff_only,
+        server_default=PlayerVisibilityState.staff_only.value,
+    )
+    visibility_updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    visibility_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -195,7 +286,32 @@ class Video(Base):
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    # ── Session metadata (ADR 0001 / #97) ─────────────────────────────────
+    session_kind: Mapped[SessionKind | None] = mapped_column(
+        Enum(SessionKind, name="session_kind"), nullable=True, index=True
+    )
+    source_type: Mapped[SourceType | None] = mapped_column(
+        Enum(SourceType, name="source_type"), nullable=True
+    )
+    opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    practice_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    our_possession: Mapped[SideOfBall | None] = mapped_column(
+        Enum(SideOfBall, name="side_of_ball"), nullable=True
+    )
+    # ── Capture regime (Issue #126) ───────────────────────────────────────
+    # Inferred from pixels at ingest. Denormalized onto clip rows when
+    # clips are created so downstream stages don't need to JOIN videos.
+    capture_regime: Mapped[CaptureRegime | None] = mapped_column(
+        Enum(CaptureRegime, name="capture_regime", create_type=False),
+        nullable=True,
+        index=True,
+    )
+    regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -247,6 +363,33 @@ class Clip(Base):
     down: Mapped[int | None] = mapped_column(Integer, nullable=True)
     distance: Mapped[float | None] = mapped_column(Float, nullable=True)
     field_zone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # ── Session / possession metadata (ADR 0001 / #98) ────────────────────
+    # ``session_kind`` is denormalized from the parent video at write time so
+    # clip-level queries don't have to JOIN videos.
+    session_kind: Mapped[SessionKind | None] = mapped_column(
+        Enum(SessionKind, name="session_kind", create_type=False), nullable=True, index=True
+    )
+    # ``our_possession`` is the Toledo side on this play (required for game
+    # clips, inherited from the parent session otherwise).
+    our_possession: Mapped[SideOfBall | None] = mapped_column(
+        Enum(SideOfBall, name="side_of_ball", create_type=False), nullable=True
+    )
+    # ``side_of_ball`` is the per-clip side promoted from ``label_data``.
+    # Same vocabulary as ``our_possession``; see ADR 0001 §3.
+    side_of_ball: Mapped[SideOfBall | None] = mapped_column(
+        Enum(SideOfBall, name="side_of_ball", create_type=False), nullable=True, index=True
+    )
+
+    # ── Capture regime (Issue #126) ───────────────────────────────────────
+    # Denormalized from the parent video at clip-create time. ``unknown``
+    # is the safe fallback when the detector can't classify confidently.
+    capture_regime: Mapped[CaptureRegime | None] = mapped_column(
+        Enum(CaptureRegime, name="capture_regime", create_type=False),
+        nullable=True,
+        index=True,
+    )
+    regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -300,10 +443,16 @@ class ProcessingJob(Base):
         Enum(JobStatus, name="job_status"), nullable=False, default=JobStatus.queued
     )
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pipeline_mode: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None, index=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_stage: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nightly_followup_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     input_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     output_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -380,6 +529,19 @@ class FieldCalibration(Base):
     reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # Key pixel-to-field point pairs used for calibration
     calibration_points: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # ── Regime-aware calibration diagnostics (Issue #127 / #138) ──────────────
+    # 9-vector Kalman state vec(H) for DRONE_FOLLOW nightly smoothing
+    kalman_state: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    # RANSAC inlier ratio of the chosen homography fit
+    inlier_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Count of field lines detected on the calibration frame
+    line_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Angular variance of detected yard lines (lower = cleaner parallelism)
+    parallel_variance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Mean inter-window re-projection drift (px); 0.0 for a fixed anchor
+    temporal_drift: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # True for the once-per-game FIXED_SIDELINE anchor reused across plays
+    is_game_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="SET NULL"),
@@ -815,3 +977,300 @@ class ActiveLearningQueueItem(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ── Phase 3: learned play embeddings (Issue #8, design in #77) ────────────────
+
+
+# Embedding-vector dimensions are pinned to the design doc shape so the
+# pgvector column DDL, the fusion arithmetic in ``stage_embed`` and the
+# similarity search router all agree on the same numbers without having to
+# read schema metadata at runtime.
+PLAY_EMBEDDING_DIM: int = 256
+PLAY_EMBEDDING_VISUAL_DIM: int = 192
+PLAY_EMBEDDING_STRUCTURED_DIM: int = 64
+
+
+class PlayEmbedding(Base):
+    """A learned 256-d embedding describing one play (or play sub-chunk).
+
+    The primary retrievable vector is the fused ``vector`` column; the
+    sub-embeddings are retained so the retrieval router can re-weight
+    structured vs. visual contribution at query time without re-running
+    the encoder. ``UNIQUE (clip_id, chunk_kind, model_version_id)`` is the
+    upsert key.
+
+    ``is_experimental`` defaults to True — embeddings only flip to False
+    when a derived concept cluster has been reviewed and accepted by a
+    coach via ``EmbeddingClusterProposal``.
+    """
+
+    __tablename__ = "playembeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chunk_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="play")
+    snap_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Retrievable fused vector + retained sub-embeddings.
+    vector: Mapped[list[float]] = mapped_column(Vector(PLAY_EMBEDDING_DIM), nullable=False)
+    visual_vector: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_VISUAL_DIM), nullable=True
+    )
+    structured_vector: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_STRUCTURED_DIM), nullable=True
+    )
+
+    # Lineage
+    model_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    calibration_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("field_calibrations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # IDs of ``labels`` rows that fed the structured encoder; lets us
+    # target-re-embed only clips whose labels have since been corrected.
+    source_label_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+    used_sam_masks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Quality / governance
+    embedding_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_experimental: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("processing_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    clip: Mapped["Clip"] = relationship("Clip")
+    model_version: Mapped["ModelVersion"] = relationship("ModelVersion")
+
+
+class EmbeddingClusterProposal(Base):
+    """An experimental concept cluster surfaced from playembeddings.
+
+    Produced by an offline clustering job over ``playembeddings.vector``
+    (HDBSCAN in v1). Each row is one cluster; ``member_clip_ids`` lists
+    the clips that fell into it.  Proposals are coach-reviewed: an
+    ``accept`` flips affiliated embeddings to ``is_experimental=False``
+    and is expected to be followed by ``coach_corrections`` rows for the
+    member clips.  A ``reject`` hides the proposal from further review.
+
+    All proposals carry ``status='pending'`` until reviewed, and nothing
+    in this table is ever surfaced on production dashboards — it lives
+    behind the coach review surface only.
+    """
+
+    __tablename__ = "embedding_cluster_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    model_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    # Cluster discriminator — usually the HDBSCAN cluster label as a string,
+    # so a single batch produces ``"0"``, ``"1"``, ... unique within the run.
+    cluster_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Working name the discovery job assigned (e.g. "embedding_cluster_3");
+    # coach renames it on accept.
+    proposed_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    member_clip_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+    # Cluster centroid in the same 256-d space as PlayEmbedding.vector.
+    centroid: Mapped[list[float] | None] = mapped_column(Vector(PLAY_EMBEDDING_DIM), nullable=True)
+    member_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cohesion_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Review workflow
+    # status: "pending" | "accepted" | "rejected"
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    # is_experimental stays True until an accept also exports it as a
+    # coach correction; the search router relies on this flag to keep
+    # cluster output out of production results.
+    is_experimental: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # On accept, the name the coach chose for the concept (e.g. "mesh-like
+    # RPO read"). Null while pending.
+    accepted_label_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    model_version: Mapped["ModelVersion"] = relationship("ModelVersion")
+    reviewer: Mapped["User | None"] = relationship("User", foreign_keys=[reviewed_by])
+
+
+class PlayerVisibilityAudit(Base):
+    """Append-only audit log for player visibility state changes (Issue #114).
+
+    Recorded on every transition by the visibility router so we can later show
+    a coach who approved a player profile for recruiting and when.  Only state
+    transitions and the actor are stored — never sensitive content.
+    """
+
+    __tablename__ = "player_visibility_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    previous_state: Mapped[PlayerVisibilityState | None] = mapped_column(
+        Enum(PlayerVisibilityState, name="player_visibility_state"), nullable=True
+    )
+    next_state: Mapped[PlayerVisibilityState] = mapped_column(
+        Enum(PlayerVisibilityState, name="player_visibility_state"), nullable=False
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# ── Settings (Issue #112) ─────────────────────────────────────────────────────
+
+
+class SystemSetting(Base):
+    """System-wide configuration as flexible KV rows.
+
+    One row per logical key (e.g. ``"system_config"``, ``"model_sensitivity"``).
+    ``value`` is a JSON blob whose shape is validated by the Pydantic schemas
+    in ``app.schemas.settings``. Reads always merge persisted values over the
+    schema defaults so absent rows still produce a populated config response.
+    """
+
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class UserSetting(Base):
+    """Per-user preference rows.
+
+    Composite PK on ``(user_id, key)`` so a user can store any number of
+    independent preference blobs. Schemas in ``app.schemas.settings`` define
+    the known keys and their shapes.
+    """
+
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+# ── Reports (Issue #111) ──────────────────────────────────────────────────────
+
+
+class ReportJob(Base):
+    """Async report export tracking.
+
+    Deliberately separate from :class:`ProcessingJob` (which is wired to the
+    GPU pipeline + Cloudflare Queues): report generation runs in-process via
+    FastAPI ``BackgroundTasks`` and produces lightweight artifacts (PDF/CSV/
+    JSON) uploaded to R2. Status reuses :class:`JobStatus` so the frontend can
+    share status pill rendering across both job kinds.
+    """
+
+    __tablename__ = "report_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    format: Mapped[ReportFormat] = mapped_column(
+        Enum(ReportFormat, name="report_format"), nullable=False
+    )
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(JobStatus, name="job_status", create_type=False),
+        nullable=False,
+        default=JobStatus.queued,
+    )
+    # Section selections + filters (date range, session kind, etc.)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # R2 URI of the generated artifact, populated on success.
+    output_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    requester: Mapped["User | None"] = relationship("User", foreign_keys=[requested_by])
+
+
+# ── CFBD cache tables (Issues #160/#161/#162) ──────────────────────────────────
+# Imported here so the College Football Data cache tables register with
+# ``Base.metadata`` (Alembic autogenerate + the test suite see them) without
+# bloating this module. The models themselves live in ``app.cfbd.models``.
+from app.cfbd.models import (  # noqa: E402,F401
+    CFBDDrive,
+    CFBDGame,
+    CFBDPlay,
+    CFBDSyncRun,
+    CFBDSyncStatus,
+    CFBDTeam,
+    CFBDTeamGameStat,
+    CFBDWinProbability,
+)
+
+# Backward-compatible aliases used by the read-only analytics router/tests from
+# Issue #163. The canonical ORM classes now live in ``app.cfbd.models``.
+CfbdSyncStatus = CFBDSyncStatus
+CfbdSyncRun = CFBDSyncRun
+CfbdTeamRow = CFBDTeam
+CfbdGame = CFBDGame
+CfbdDrive = CFBDDrive
+CfbdPlay = CFBDPlay
+CfbdTeamGameStat = CFBDTeamGameStat
+CfbdWinProbability = CFBDWinProbability

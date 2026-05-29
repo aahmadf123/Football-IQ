@@ -1118,14 +1118,9 @@ Do not purchase major hardware until the evaluation clips prove that capture is 
 - External SSD or NAS for local staging.
 - Cloud object storage for durable archive.
 
-### When to add second camera
+### Single-camera scope boundary
 
-Add a second camera only if it solves a measured problem:
-
-- Jersey numbers are unreadable from overhead.
-- Line play occlusion is too severe.
-- Ball tracking is too unreliable.
-- Field calibration fails from one angle.
+Football-IQ is explicitly scoped to one elevated capture source (`DRONEA`) for this phase. Multi-camera capture and camera switching are out of scope until a future product decision changes the core pipeline.
 
 ## Immediate build checklist
 

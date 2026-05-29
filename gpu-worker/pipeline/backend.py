@@ -57,6 +57,8 @@ def patch_video_status(
     width: int | None = None,
     height: int | None = None,
     codec: str | None = None,
+    capture_regime: str | None = None,
+    regime_confidence: float | None = None,
 ) -> None:
     """PATCH /api/v1/videos/{video_id}/status with probed metadata."""
     payload: dict[str, Any] = {"status": status}
@@ -70,6 +72,10 @@ def patch_video_status(
         payload["height"] = height
     if codec is not None:
         payload["codec"] = codec
+    if capture_regime is not None:
+        payload["capture_regime"] = capture_regime
+    if regime_confidence is not None:
+        payload["regime_confidence"] = regime_confidence
     try:
         with _client() as c:
             c.patch(f"/api/v1/videos/{video_id}/status", json=payload)
@@ -116,9 +122,16 @@ def create_calibration(
     homography: list[float] | None,
     confidence: float,
     *,
+    confidence_threshold: float | None = None,
     analytics_safe: bool = False,
     reason_codes: list[str] | None = None,
     calibration_points: dict[str, Any] | None = None,
+    inlier_ratio: float | None = None,
+    line_count: int | None = None,
+    parallel_variance: float | None = None,
+    temporal_drift: float | None = None,
+    kalman_state: list[float] | None = None,
+    is_game_anchor: bool = False,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/calibrations and return the created calibration dict."""
@@ -126,13 +139,26 @@ def create_calibration(
         "video_id": video_id,
         "confidence": confidence,
         "analytics_safe": analytics_safe,
+        "is_game_anchor": is_game_anchor,
     }
     if homography is not None:
         payload["homography"] = homography
+    if confidence_threshold is not None:
+        payload["confidence_threshold"] = confidence_threshold
     if reason_codes is not None:
         payload["reason_codes"] = reason_codes
     if calibration_points is not None:
         payload["calibration_points"] = calibration_points
+    if inlier_ratio is not None:
+        payload["inlier_ratio"] = inlier_ratio
+    if line_count is not None:
+        payload["line_count"] = line_count
+    if parallel_variance is not None:
+        payload["parallel_variance"] = parallel_variance
+    if temporal_drift is not None:
+        payload["temporal_drift"] = temporal_drift
+    if kalman_state is not None:
+        payload["kalman_state"] = kalman_state
     if job_id is not None:
         payload["job_id"] = job_id
     with _client() as c:
@@ -324,6 +350,53 @@ def create_pose_keypoints(
         return dict(resp.json())
 
 
+# ── Play embeddings (Phase 3 / Issue #8) ─────────────────────────────────────
+
+
+def create_play_embedding(
+    clip_id: str,
+    model_version_id: str,
+    vector: list[float],
+    *,
+    visual_vector: list[float] | None = None,
+    structured_vector: list[float] | None = None,
+    chunk_kind: str = "play",
+    snap_anchor: bool = True,
+    used_sam_masks: bool = False,
+    embedding_confidence: float | None = None,
+    source_label_ids: list[str] | None = None,
+    calibration_version_id: str | None = None,
+    is_experimental: bool = True,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """POST /api/v1/embeddings/play and return the created embedding dict."""
+    payload: dict[str, Any] = {
+        "clip_id": clip_id,
+        "model_version_id": model_version_id,
+        "vector": vector,
+        "chunk_kind": chunk_kind,
+        "snap_anchor": snap_anchor,
+        "used_sam_masks": used_sam_masks,
+        "is_experimental": is_experimental,
+    }
+    if visual_vector is not None:
+        payload["visual_vector"] = visual_vector
+    if structured_vector is not None:
+        payload["structured_vector"] = structured_vector
+    if embedding_confidence is not None:
+        payload["embedding_confidence"] = embedding_confidence
+    if source_label_ids:
+        payload["source_label_ids"] = source_label_ids
+    if calibration_version_id is not None:
+        payload["calibration_version_id"] = calibration_version_id
+    if job_id is not None:
+        payload["job_id"] = job_id
+    with _client() as c:
+        resp = c.post("/api/v1/embeddings/play", json=payload)
+        resp.raise_for_status()
+        return dict(resp.json())
+
+
 # ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
 
 
@@ -332,13 +405,59 @@ def fetch_clips_with_labels(
     limit: int = 500,
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """Fetch clips and their labels for self-scout analysis."""
-    params: dict[str, Any] = {"limit": limit}
-    if video_id:
-        params["video_id"] = video_id
+    if limit <= 0:
+        return [], {}
+
+    clips: list[dict[str, Any]] = []
     with _client() as c:
-        clips_resp = c.get("/api/v1/clips", params=params)
-        clips_resp.raise_for_status()
-        clips: list[dict[str, Any]] = clips_resp.json()
+        if video_id:
+            clip_offset = 0
+            while len(clips) < limit:
+                remaining = limit - len(clips)
+                clips_resp = c.get(
+                    f"/api/v1/videos/{video_id}/clips",
+                    params={"limit": min(500, remaining), "offset": clip_offset},
+                )
+                clips_resp.raise_for_status()
+                batch: list[dict[str, Any]] = clips_resp.json()
+                if not batch:
+                    break
+                clips.extend(batch[:remaining])
+                if len(batch) < min(500, remaining):
+                    break
+                clip_offset += len(batch)
+        else:
+            video_offset = 0
+            video_page_limit = 200
+            while len(clips) < limit:
+                videos_resp = c.get(
+                    "/api/v1/videos",
+                    params={"limit": video_page_limit, "offset": video_offset},
+                )
+                videos_resp.raise_for_status()
+                videos: list[dict[str, Any]] = videos_resp.json()
+                if not videos:
+                    break
+
+                for video in videos:
+                    vid = video.get("id")
+                    if not vid:
+                        continue
+                    remaining = limit - len(clips)
+                    clips_resp = c.get(
+                        f"/api/v1/videos/{vid}/clips",
+                        params={"limit": min(500, remaining), "offset": 0},
+                    )
+                    clips_resp.raise_for_status()
+                    batch = clips_resp.json()
+                    if batch:
+                        clips.extend(batch[:remaining])
+                    if len(clips) >= limit:
+                        break
+
+                if len(videos) < video_page_limit:
+                    break
+                video_offset += len(videos)
 
         labels_by_clip: dict[str, list[dict[str, Any]]] = {}
         for clip in clips:

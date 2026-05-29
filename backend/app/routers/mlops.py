@@ -175,7 +175,7 @@ async def promote_model_version(
 
     if body.stage in {ModelStage.staging, ModelStage.production} and not model.metrics:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Validation metrics are required before promoting to staging or production",
         )
     model.promoted_stage = body.stage

@@ -109,9 +109,112 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## College Football Data (CFBD)
+
+| Field | Detail |
+|---|---|
+| **Resource** | College Football Data (CFBD) API |
+| **Sport coverage** | College football ✅ (American football — Toledo Rockets / MAC). Not soccer. |
+| **Toledo / MAC relevance** | Direct — Toledo + MAC schedules, games, drives, plays, team game stats, win probability. |
+| **Source URL** | https://collegefootballdata.com — API https://api.collegefootballdata.com (org: https://github.com/CFBD; ecosystem: https://cfbfastr.sportsdataverse.org) |
+| **License / access terms** | Free tier / API-key access; review CFBD terms and rate limits before any external or commercial deployment. Attribution to CollegeFootballData.com is surfaced in the UI. |
+| **Runtime category** | Production API (backend-only) → cached ingestion into Postgres → read-only backend API. No live vendor call in the request path. |
+| **Secret / key requirement** | `CFBD_API_KEY` (+ `CFBD_BASE_URL`) — backend env / Fly.io / GitHub Actions secret. Never exposed to frontend, browser bundles, Workers, logs, or coach-visible errors, and never stored in the database. |
+| **Data privacy risk** | None expected — public team/game statistics. No PII, medical, or recruiting data ingested in v1. |
+| **Model-router / registry path** | N/A — data integration, not an inference model. |
+| **Overlap with closed decisions** | None. Single-camera (#101), pgvector (#8/#77), SAM (#74) decisions are untouched. |
+| **Calibrated-tracking dependency** | None. |
+| **Football-IQ usage** | Issues #160/#161/#162/#163 — backend `app/cfbd/` client + `cfbd_*` Postgres cache tables (migration 0016), plus read-only `/api/cfbd/*` and College Data frontend surfaces. Synced via `python -m app.cfbd --season <year>`. |
+| **Notes** | No vendor key is committed, logged, returned to clients, or written to the database. Cached rows remain available when CFBD is unavailable. |
+
+---
+
+## Sportradar NCAAFB API v7 — evaluated, not adopted (Issue #165)
+
+| Field | Detail |
+|---|---|
+| **Resource** | Sportradar NCAAFB (NCAA Football) API v7 |
+| **Sport coverage** | American / college football ✅ (NCAA FB). Not soccer. |
+| **Toledo / MAC relevance** | Broad college football incl. MAC; no Toledo-specific advantage over CFBD established. |
+| **Source URL** | https://developer.sportradar.com/football/docs/ncaafb-ig-api-basics |
+| **License / access terms** | Commercial B2B contract. Trial: 30 days / 1,000 calls / 1 QPS. Production QPS per signed package. Not redistributable; respect documented TTLs (2 s live PBP, 120 s seasonal stats). |
+| **Runtime category** | Documentation only — **evaluated, not adopted** (spike #165). Would be backend-only production API if adopted. |
+| **Secret / key requirement** | If adopted: proposed `SPORTRADAR_API_KEY` (+ `SPORTRADAR_BASE_URL`, `SPORTRADAR_ACCESS_LEVEL`, `SPORTRADAR_NCAAFB_VERSION`). Backend-only; `x-api-key` header; never exposed to frontend, browser bundles, Workers, logs, PR/issue text, R2 artifacts, coach-visible errors, or the database. **No value committed.** |
+| **Data privacy risk** | Public team/game statistics and game-day player availability statuses. No medical/wellness data; treat statuses as not-for-logging. |
+| **Model-router / registry path** | N/A — data integration, not an inference model. |
+| **Overlap with closed decisions** | None. CFBD (#160–#163) remains the authoritative college-data source; this spike does **not** replace it. Single-camera (#101), pgvector (#8/#77), SAM (#74) untouched. |
+| **Calibrated-tracking dependency** | None (#127/#128/#129 not implicated). |
+| **Decision** | **Not adopted now — defer** behind a scoped live in-game feature. CFBD stays authoritative. See [`reports/spike-issue165-sportradar-ncaafb-v7.md`](reports/spike-issue165-sportradar-ncaafb-v7.md). |
+
+---
+
+## Field visualization evaluation — sportypy / sportyR / cfbplotR (Issue #169)
+
+| Field | Detail |
+|---|---|
+| **Resources evaluated** | `sportypy` (Python, MIT, https://sportypy.sportsdataverse.org); `sportyR` (R, MIT, https://github.com/sportsdataverse/sportyR); `cfbplotR` (R, MIT, https://github.com/sportsdataverse/cfbplotR) |
+| **Sport coverage** | American / college football ✅ |
+| **Decision** | **Not adopted as runtime dependencies.** Interactive overlays use frontend-native SVG (`frontend/src/components/field-diagram.tsx`). `sportypy` is **deferred** for possible future *offline* Python report plots; R packages (`sportyR`, `cfbplotR`) are **rejected** as a production dependency (no R runtime). See [`docs/adr/0002-field-visualization.md`](docs/adr/0002-field-visualization.md). |
+| **Secret / key requirement** | None for any of them. |
+| **License impact** | All MIT; none are currently installed/redistributed. A `LICENSES.md` row + dependency add is required *if* `sportypy` is later adopted. |
+
+---
+
+## BoT-SORT (tracker)
+
+| Field | Detail |
+|---|---|
+| **Component** | BoT-SORT multi-object tracker (ECC camera-motion compensation + ReID) |
+| **Source** | https://github.com/NirAharon/BoT-SORT · paper https://arxiv.org/abs/2206.14651 |
+| **Sport coverage** | Sport-agnostic tracking algorithm; applied to American-football player tracking only |
+| **License** | MIT (reference implementation) |
+| **Access / key** | None — Football-IQ ships its **own pure-NumPy adapter** (`gpu-worker/pipeline/tracking/botsort_adapter.py`), not the upstream package; no install, no key |
+| **Weights** | None committed. Appearance ReID is optional and rides on detection embeddings; camera-motion warps come from `pipeline.homography.camera_motion_ecc` (Issue #138) |
+| **Runtime category** | Nightly-only tracker variant (`botsort`); ~2 GB when paired with a ReID model |
+| **Router path** | `pipeline.model_router` → nightly `track` via `ENABLE_BOTSORT_NIGHTLY`; on `NIGHTLY_ONLY_VARIANTS` so same-session is hard-blocked |
+| **Privacy risk** | None beyond existing player-tracking data; single-camera only (Issue #101) |
+| **Football-IQ usage** | Phase CV — Issue #129. Selectable through the router; never bypasses it. |
+
+---
+
+## StrongSORT (tracker)
+
+| Field | Detail |
+|---|---|
+| **Component** | StrongSORT multi-object tracker (matching cascade + appearance EMA), offline IDF1-optimised |
+| **Source** | https://github.com/dyhBUPT/StrongSORT · paper https://arxiv.org/abs/2202.13514 |
+| **Sport coverage** | Sport-agnostic tracking algorithm; applied to American-football player tracking only |
+| **License** | GPL-3.0 (reference implementation) — **not vendored**; Football-IQ ships an independent pure-NumPy adapter so the GPL code is neither imported nor redistributed |
+| **Access / key** | None — `gpu-worker/pipeline/tracking/strongsort_adapter.py`; no install, no key |
+| **Weights** | None committed; appearance embeddings optional (detection-supplied) |
+| **Runtime category** | Nightly-only tracker variant (`strongsort`); ~3 GB with a ReID model |
+| **Router path** | `pipeline.model_router` → nightly `track` via `MODEL_ROUTING_CONFIG`; on `NIGHTLY_ONLY_VARIANTS` so same-session is hard-blocked |
+| **Privacy risk** | None beyond existing player-tracking data; single-camera only |
+| **Football-IQ usage** | Phase CV — Issue #129. Selectable through the router; never bypasses it. |
+
+---
+
+## PARSeq (jersey-number OCR)
+
+| Field | Detail |
+|---|---|
+| **Component** | PARSeq scene-text recognition for jersey-number OCR |
+| **Source** | https://github.com/baudm/parseq · paper https://arxiv.org/abs/2207.06966 |
+| **Sport coverage** | General scene-text OCR; applied to American-football jersey numbers only |
+| **License** | Apache-2.0 (code). Model checkpoints are user-provided/trained; none committed |
+| **Access / key** | None at build time. Runtime checkpoint via `REID_OCR_MODEL=parseq:/path/to/parseq.pt`; loaded lazily with a Tesseract fallback when absent |
+| **Weights** | **Never committed** (`.pt`/`.pth` are git-ignored). Mounted/downloaded at runtime |
+| **Runtime category** | Nightly-only `reid` variant (`parseq-ocr`); torch-backed |
+| **Router path** | `pipeline.model_router` → nightly `reid`; on `NIGHTLY_ONLY_VARIANTS`. Same-session `reid` stays Tesseract `jersey-ocr` |
+| **Privacy risk** | Reads jersey numbers (no PII/medical); single-camera only |
+| **Football-IQ usage** | Phase CV — Issue #131: `gpu-worker/pipeline/tracking/parseq_ocr_adapter.py`, wired into `stage_reid` ahead of Tesseract on the nightly path. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.
+- New external resources (datasets, models, APIs, libraries) must clear the rubric, soccer/association-football denylist, and license gate in [`docs/external-resource-rubric.md`](docs/external-resource-rubric.md). Football-IQ is an American football platform — soccer resources are rejected.
 - CI includes a license-allowlist check (see `.github/workflows/ci.yml`) that fails if a new package is missing from `LICENSES.md`.
 - Model weights (`.pt`, `.pth`, `.onnx`, `.engine`) must never be committed to the repository. Download at runtime using `HF_TOKEN` (Hugging Face) or `NGC_API_KEY` (NVIDIA NGC).
 - For any model with a gated or non-commercial license, Football-IQ's use case (university-internal, non-commercial coaching analytics) must be re-verified before any external or commercial deployment.

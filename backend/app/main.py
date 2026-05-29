@@ -6,28 +6,40 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from app.config import get_settings
 from app.logging import configure_logging
+from app.observability import PrometheusMiddleware, metrics_response
 from app.routers import health
 from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
 from app.routers.auth import router as auth_router
 from app.routers.calibrations import router as calibrations_router
+from app.routers.cfbd import router as cfbd_router
 from app.routers.clips import router as clips_router
+from app.routers.concept_proposals import router as concept_proposals_router
 from app.routers.correction_analytics import (
     router as correction_analytics_router,
 )
 from app.routers.correction_sync import router as correction_sync_router
 from app.routers.corrections import router as corrections_router
+from app.routers.embeddings import router as embeddings_router
 from app.routers.events import router as events_router
 from app.routers.inbox_integration import router as inbox_router
 from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
+from app.routers.opponents import router as opponents_router
+from app.routers.overlays import router as overlays_router
+from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
+from app.routers.practice_sessions import router as practice_sessions_router
+from app.routers.reports import router as reports_router
+from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
+from app.routers.settings import router as settings_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.videos import router as videos_router
 
@@ -53,6 +65,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.environment != "production" else None,
 )
 
+# ── Observability middleware ──────────────────────────────────────────────────
+app.add_middleware(PrometheusMiddleware)
+
 # ── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -62,11 +77,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── Prometheus metrics endpoint ──────────────────────────────────────────────
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics() -> Response:
+    """Expose Prometheus metrics for scraping."""
+    return metrics_response()
+
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(auth_router)
 app.include_router(videos_router)
 app.include_router(clips_router)
+app.include_router(practice_sessions_router)
+app.include_router(players_router)
 app.include_router(jobs_router)
 app.include_router(calibrations_router)
 app.include_router(tracklets_router)
@@ -74,11 +99,19 @@ app.include_router(corrections_router)
 app.include_router(events_router)
 app.include_router(labels_router)
 app.include_router(metrics_router)
+app.include_router(overlays_router)
 app.include_router(mlops_router)
 app.include_router(self_scout_router)
+app.include_router(opponents_router)
 app.include_router(correction_analytics_router)
 app.include_router(alerts_sse_router)
 app.include_router(alerts_router)
 app.include_router(inbox_router)
 app.include_router(correction_sync_router)
 app.include_router(pose_router)
+app.include_router(embeddings_router)
+app.include_router(search_router)
+app.include_router(concept_proposals_router)
+app.include_router(settings_router)
+app.include_router(reports_router)
+app.include_router(cfbd_router)

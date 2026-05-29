@@ -1,14 +1,21 @@
 """Stage 6 — Identity Association (Re-ID).
 
-Phase 1 MVP approach:
-  1. For each tracklet without a player_id, sample representative frames.
-  2. Try jersey OCR (Tesseract) on the bounding box region.
-  3. Match the OCR result against the roster (jersey_number field).
-  4. If no OCR match, leave player_id null (manual assignment via coach UI).
+Layered approach, applied in priority order (Issue #131):
+  1. **OCR** — jersey-number OCR on the bbox region. Same-session uses
+     Tesseract (``jersey-ocr``); nightly uses PARSeq (``parseq-ocr``) with an
+     automatic Tesseract fallback when the PARSeq checkpoint is unavailable.
+  2. **Appearance gallery** — cosine match against an embedding gallery of
+     already-identified tracklets (optional ReID adapter).
+  3. **Trajectory prior** — for tracklets OCR/gallery could not resolve,
+     constant-velocity prediction + roster-position + team priors assign the
+     remaining tracklets to known players (``tracking.trajectory_prior_reid``).
+  4. **Min-cost-flow stitching (nightly only)** — stitch fragmented tracklets
+     of the same identity within the clip and propagate the ``player_id``
+     across each stitched group (``tracking.min_cost_flow_stitcher``).
 
-Future: Add biometric ratio matching and gait/appearance embeddings.
-
-Output: Tracklets updated with player_id via PATCH /api/v1/tracklets/{id}.
+The variant is chosen by ``pipeline.model_router`` and passed in by the
+dispatcher. Every layer only ever fills the existing ``player_id`` via
+PATCH /api/v1/tracklets/{id} — no tracklet schema changes, single-camera only.
 """
 
 from __future__ import annotations
@@ -23,6 +30,17 @@ import numpy as np
 import structlog
 
 from pipeline import r2
+from pipeline.model_router import PARSEQ_OCR
+from pipeline.tracking.min_cost_flow_stitcher import (
+    MinCostFlowStitcher,
+    TrackletNode,
+)
+from pipeline.tracking.trajectory_prior_reid import (
+    KnownPlayer,
+    TrajectoryPriorReID,
+    UnknownTrack,
+)
+from queue.same_session_queue import SAME_SESSION_PRIORITY
 
 log = structlog.get_logger(__name__)
 
@@ -36,9 +54,27 @@ def run(
     tracklets: list[dict[str, Any]],
     roster: list[dict[str, Any]],
     backend_api_url: str,
+    *,
+    variant: str | None = None,
+    priority: int | None = None,
 ) -> dict[str, Any]:
-    """Attempt to associate player identities with tracklets."""
-    log.info("stage_reid_start", clip_id=clip_id, tracklet_count=len(tracklets))
+    """Attempt to associate player identities with tracklets.
+
+    Args:
+        variant: routing variant from ``model_router`` (``jersey-ocr`` |
+            ``parseq-ocr``). ``parseq-ocr`` upgrades OCR to PARSeq with a
+            Tesseract fallback. ``None`` keeps the legacy Tesseract path.
+        priority: ``processing_jobs.priority``. Nightly priority unlocks the
+            min-cost-flow stitching layer; ``None`` is treated as nightly.
+    """
+    nightly = priority is None or priority < SAME_SESSION_PRIORITY
+    log.info(
+        "stage_reid_start",
+        clip_id=clip_id,
+        tracklet_count=len(tracklets),
+        variant=variant,
+        nightly=nightly,
+    )
 
     jersey_map: dict[int, str] = {
         p["jersey_number"]: p["id"]
@@ -47,24 +83,32 @@ def run(
     }
 
     adapter = _get_reid_adapter()
+    ocr_adapter = _get_ocr_adapter(variant)
     cap = cv2.VideoCapture(str(video_path))
+
+    # tracklet_id -> player_id, covering both pre-identified and newly assigned.
+    assigned_ids: dict[str, str] = {}
     assigned = 0
 
     # Gallery of (embedding, player_id) built from already-identified tracklets.
     gallery: list[tuple[np.ndarray, str]] = []
 
+    # ── Layers 1+2: OCR (PARSeq/Tesseract) and appearance gallery ──────────
     for tracklet in tracklets:
         if tracklet.get("player_id"):
-            # Seed the gallery so later tracklets can match against known players.
+            assigned_ids[tracklet["id"]] = tracklet["player_id"]
             if adapter is not None:
                 emb = _extract_tracklet_embedding(tracklet, cap, adapter)
                 if emb is not None:
                     gallery.append((emb, tracklet["player_id"]))
             continue
 
-        player_id = _identify_tracklet(tracklet, cap, jersey_map, adapter, gallery)
+        player_id = _identify_tracklet(
+            tracklet, cap, jersey_map, adapter, gallery, ocr_adapter
+        )
         if player_id:
             _patch_tracklet(tracklet["id"], player_id, backend_api_url)
+            assigned_ids[tracklet["id"]] = player_id
             assigned += 1
             if adapter is not None:
                 emb = _extract_tracklet_embedding(tracklet, cap, adapter)
@@ -72,8 +116,169 @@ def run(
                     gallery.append((emb, player_id))
 
     cap.release()
-    log.info("stage_reid_done", clip_id=clip_id, assigned=assigned)
-    return {"assigned": assigned, "total": len(tracklets)}
+
+    # ── Layer 3: trajectory-prior re-ID for the still-unidentified ─────────
+    trajectory_assigned = _assign_by_trajectory(
+        tracklets, assigned_ids, backend_api_url
+    )
+    assigned += trajectory_assigned
+
+    # ── Layer 4: min-cost-flow stitching (nightly only) ────────────────────
+    stitched_assigned = 0
+    if nightly:
+        stitched_assigned = _stitch_and_propagate(
+            tracklets, assigned_ids, backend_api_url
+        )
+        assigned += stitched_assigned
+
+    log.info(
+        "stage_reid_done",
+        clip_id=clip_id,
+        assigned=assigned,
+        trajectory_assigned=trajectory_assigned,
+        stitched_assigned=stitched_assigned,
+    )
+    return {
+        "assigned": assigned,
+        "total": len(tracklets),
+        "reid_strategy": {
+            "ocr": PARSEQ_OCR if ocr_adapter is not None else "jersey-ocr",
+            "trajectory_prior_assigned": trajectory_assigned,
+            "min_cost_flow_stitched": stitched_assigned,
+            "stitching_enabled": nightly,
+        },
+    }
+
+
+# ── Geometry / trajectory helpers ──────────────────────────────────────────
+
+
+def _point_center(point: dict[str, Any]) -> tuple[float, float] | None:
+    bbox = point.get("bbox")
+    if not bbox or len(bbox) < 4:
+        return None
+    return (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
+
+
+def _tracklet_velocity(points: list[dict[str, Any]]) -> tuple[float, float]:
+    """Average per-frame velocity of the bbox center over the tracklet."""
+    if len(points) < 2:
+        return 0.0, 0.0
+    first, last = _point_center(points[0]), _point_center(points[-1])
+    f0 = points[0].get("frame_number", 0)
+    f1 = points[-1].get("frame_number", 0)
+    if first is None or last is None or f1 <= f0:
+        return 0.0, 0.0
+    dt = f1 - f0
+    return (last[0] - first[0]) / dt, (last[1] - first[1]) / dt
+
+
+def _assign_by_trajectory(
+    tracklets: list[dict[str, Any]],
+    assigned_ids: dict[str, str],
+    backend_api_url: str,
+) -> int:
+    """Resolve OCR/gallery-missing tracklets via constant-velocity + priors."""
+    known: list[KnownPlayer] = []
+    unknown: list[UnknownTrack] = []
+    index_to_tracklet: dict[int, dict[str, Any]] = {}
+
+    for i, tracklet in enumerate(tracklets):
+        points = tracklet.get("track_points", [])
+        if not points:
+            continue
+        pid = assigned_ids.get(tracklet["id"])
+        if pid:
+            last_center = _point_center(points[-1])
+            if last_center is None:
+                continue
+            known.append(
+                KnownPlayer(
+                    player_id=pid,
+                    position=last_center,
+                    velocity=_tracklet_velocity(points),
+                    last_frame=points[-1].get("frame_number", 0),
+                    team=tracklet.get("team_label")
+                    if tracklet.get("team_label") not in (None, "unknown")
+                    else None,
+                    position_group=tracklet.get("position_group"),
+                )
+            )
+        else:
+            start_center = _point_center(points[0])
+            if start_center is None:
+                continue
+            index_to_tracklet[i] = tracklet
+            unknown.append(
+                UnknownTrack(
+                    index=i,
+                    position=start_center,
+                    frame=points[0].get("frame_number", 0),
+                    team=tracklet.get("team_label")
+                    if tracklet.get("team_label") not in (None, "unknown")
+                    else None,
+                    position_group=tracklet.get("position_group"),
+                )
+            )
+
+    if not known or not unknown:
+        return 0
+
+    assignments = TrajectoryPriorReID().assign(unknown, known)
+    count = 0
+    for index, player_id in assignments.items():
+        tracklet = index_to_tracklet[index]
+        _patch_tracklet(tracklet["id"], player_id, backend_api_url)
+        assigned_ids[tracklet["id"]] = player_id
+        count += 1
+    return count
+
+
+def _stitch_and_propagate(
+    tracklets: list[dict[str, Any]],
+    assigned_ids: dict[str, str],
+    backend_api_url: str,
+) -> int:
+    """Stitch fragmented tracklets and propagate player_id across each group."""
+    nodes: list[TrackletNode] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    for tracklet in tracklets:
+        points = tracklet.get("track_points", [])
+        if not points:
+            continue
+        start_center = _point_center(points[0])
+        end_center = _point_center(points[-1])
+        if start_center is None or end_center is None:
+            continue
+        by_id[tracklet["id"]] = tracklet
+        nodes.append(
+            TrackletNode(
+                tracklet_id=tracklet["id"],
+                start_frame=points[0].get("frame_number", 0),
+                end_frame=points[-1].get("frame_number", 0),
+                start_position=start_center,
+                end_position=end_center,
+                end_velocity=_tracklet_velocity(points),
+            )
+        )
+
+    if len(nodes) < 2:
+        return 0
+
+    result = MinCostFlowStitcher().stitch(nodes)
+    count = 0
+    for group in result.groups:
+        # If any tracklet in a stitched group already has an identity, share it
+        # with the rest of the group. Never overwrite an existing player_id.
+        known_pid = next((assigned_ids.get(tid) for tid in group if assigned_ids.get(tid)), None)
+        if known_pid is None:
+            continue
+        for tid in group:
+            if not assigned_ids.get(tid):
+                _patch_tracklet(tid, known_pid, backend_api_url)
+                assigned_ids[tid] = known_pid
+                count += 1
+    return count
 
 
 def _extract_tracklet_embedding(
@@ -121,6 +326,7 @@ def _identify_tracklet(
     jersey_map: dict[int, str],
     adapter: "NvidiaReIDAdapter | None" = None,
     gallery: "list[tuple[np.ndarray, str]] | None" = None,
+    ocr_adapter: "Any | None" = None,
 ) -> str | None:
     """Return a player_id UUID string if we can identify this tracklet, else None."""
     points = tracklet.get("track_points", [])
@@ -141,7 +347,7 @@ def _identify_tracklet(
         if not ret:
             continue
 
-        number = _ocr_jersey(frame, bbox)
+        number = _read_jersey(frame, bbox, ocr_adapter)
         if number is not None and number in jersey_map:
             return jersey_map[number]
 
@@ -163,6 +369,33 @@ def _identify_tracklet(
             log.warning("reid_gallery_match_failed", error=str(exc))
 
     return None
+
+
+def _get_ocr_adapter(variant: str | None) -> Any | None:
+    """Return a PARSeq OCR adapter when routed to ``parseq-ocr``, else None.
+
+    Imported lazily so the heavy PARSeq/torch import never enters module import
+    or ``pytest`` collection. Returns ``None`` (Tesseract fallback) when the
+    variant is not ``parseq-ocr`` or PARSeq is unavailable at runtime.
+    """
+    if variant != PARSEQ_OCR:
+        return None
+    from pipeline.tracking.parseq_ocr_adapter import get_parseq_adapter
+
+    return get_parseq_adapter()
+
+
+def _read_jersey(frame: Any, bbox: list[float], ocr_adapter: Any | None) -> int | None:
+    """Read a jersey number, preferring PARSeq when available, else Tesseract."""
+    if ocr_adapter is not None:
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        h, w = frame.shape[:2]
+        crop = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+        if crop.size > 0:
+            number, _conf = ocr_adapter.recognize(crop)
+            if number is not None:
+                return number
+    return _ocr_jersey(frame, bbox)
 
 
 def _ocr_jersey(frame: Any, bbox: list[float]) -> int | None:

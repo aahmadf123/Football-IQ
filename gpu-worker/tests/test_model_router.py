@@ -35,10 +35,12 @@ def _reset_routing(monkeypatch: pytest.MonkeyPatch):
     """Each test starts with the default routing table and no env override."""
     monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
     monkeypatch.delenv("ENABLE_SAM3_NIGHTLY", raising=False)
+    monkeypatch.delenv("ENABLE_BOTSORT_NIGHTLY", raising=False)
     model_router.reload_routing()
     yield
     monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
     monkeypatch.delenv("ENABLE_SAM3_NIGHTLY", raising=False)
+    monkeypatch.delenv("ENABLE_BOTSORT_NIGHTLY", raising=False)
     model_router.reload_routing()
 
 
@@ -70,7 +72,7 @@ def test_select_model_pose_negative_priority_returns_medium() -> None:
 
 @pytest.mark.parametrize(
     "stage",
-    ["segment", "detect", "track", "reid", "pose", "render", "embeddings"],
+    ["segment", "calibrate", "detect", "ball", "track", "reid", "pose", "render", "embeddings"],
 )
 def test_select_model_returns_non_empty_string_for_known_stages(stage: str) -> None:
     fast = select_model(stage, SAME_SESSION_PRIORITY)
@@ -283,6 +285,120 @@ def test_is_nightly_only_variant_flags_sam3() -> None:
     assert model_router.is_nightly_only_variant("iou-tracker") is False
 
 
+# ── Calibrate routing (Issue #127) ───────────────────────────────────────────
+
+
+def test_calibrate_same_session_is_lite_variant() -> None:
+    assert select_model("calibrate", SAME_SESSION_PRIORITY) == model_router.CALIB_HOUGH_DLT
+
+
+def test_calibrate_nightly_is_kalman_variant() -> None:
+    assert select_model("calibrate", NIGHTLY_PRIORITY) == model_router.CALIB_HOUGH_DLT_KALMAN
+
+
+def test_calibrate_variants_are_not_nightly_only_guardrail() -> None:
+    # Both calibrate variants are pixel-only OpenCV paths — neither is on the
+    # SAM/embeddings hard guardrail.
+    assert not model_router.is_nightly_only_variant(model_router.CALIB_HOUGH_DLT)
+    assert not model_router.is_nightly_only_variant(model_router.CALIB_HOUGH_DLT_KALMAN)
+
+
+def test_build_routing_artifact_for_calibrate() -> None:
+    assert build_routing_artifact("calibrate", SAME_SESSION_PRIORITY) == {
+        "calibrate": model_router.CALIB_HOUGH_DLT
+    }
+    assert build_routing_artifact("calibrate", NIGHTLY_PRIORITY) == {
+        "calibrate": model_router.CALIB_HOUGH_DLT_KALMAN
+    }
+
+
+# ── Ball routing (Issue #133) ────────────────────────────────────────────────
+
+
+def test_ball_same_session_is_dedicated_nano_model() -> None:
+    assert select_model("ball", SAME_SESSION_PRIORITY) == model_router.YOLO_BALL
+
+
+def test_ball_nightly_is_dedicated_nano_model() -> None:
+    # Same nano model in both buckets — SAHI is gated by regime, not priority.
+    assert select_model("ball", NIGHTLY_PRIORITY) == model_router.YOLO_BALL
+
+
+def test_ball_variant_is_not_nightly_only_guardrail() -> None:
+    # The dedicated ball model is lightweight and same-session safe — it must
+    # not be on the SAM/embeddings hard guardrail.
+    assert not model_router.is_nightly_only_variant(model_router.YOLO_BALL)
+
+
+def test_build_routing_artifact_for_ball() -> None:
+    assert build_routing_artifact("ball", SAME_SESSION_PRIORITY) == {
+        "ball": model_router.YOLO_BALL
+    }
+    assert build_routing_artifact("ball", NIGHTLY_PRIORITY) == {
+        "ball": model_router.YOLO_BALL
+    }
+
+
+def test_ball_cannot_be_forced_off_guardrail_into_sam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An override that points ball at a nightly-only SAM variant in the
+    same-session bucket must be rejected at load time."""
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {"ball": {"same_session": "sam3.1", "nightly": model_router.YOLO_BALL}}
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    ball_same = select_model("ball", SAME_SESSION_PRIORITY)
+    assert ball_same not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert ball_same == DEFAULT_ROUTING["ball"]["same_session"]
+
+
+# ── Embeddings nightly routing (Issue #8) ────────────────────────────────────
+
+
+def test_embeddings_nightly_routes_to_baseline_variant() -> None:
+    assert (
+        select_model("embeddings", NIGHTLY_PRIORITY)
+        == model_router.PLAY_EMBED_BASELINE
+    )
+
+
+def test_embeddings_same_session_returns_none_by_default() -> None:
+    """Embeddings are nightly-only; same-session must remain inert."""
+    assert select_model("embeddings", SAME_SESSION_PRIORITY) == "none"
+
+
+def test_play_embed_baseline_is_nightly_only() -> None:
+    assert model_router.is_nightly_only_variant(model_router.PLAY_EMBED_BASELINE)
+
+
+def test_routing_config_cannot_force_embeddings_to_same_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malicious / accidental override that pins the heavy embedding
+    encoder to the same-session bucket must be rejected at load time."""
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {
+                "embeddings": {
+                    "same_session": model_router.PLAY_EMBED_BASELINE,
+                    "nightly": model_router.PLAY_EMBED_BASELINE,
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    fast = select_model("embeddings", SAME_SESSION_PRIORITY)
+    assert fast not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert fast == DEFAULT_ROUTING["embeddings"]["same_session"]
+
+
 def test_build_routing_artifact_sam3_nightly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -291,4 +407,131 @@ def test_build_routing_artifact_sam3_nightly(
     assert build_routing_artifact("detect", NIGHTLY_PRIORITY) == {"detect": "sam3.1"}
     assert build_routing_artifact("track", NIGHTLY_PRIORITY) == {
         "track": "sam3-mask-tracker",
+    }
+
+
+# ── Tracker adapters: BoT-SORT / StrongSORT routing (Issue #129) ──────────────
+
+
+def test_track_same_session_stays_iou_tracker_by_default() -> None:
+    # The lightweight IoU tracker remains the same-session path (period-break).
+    assert select_model("track", SAME_SESSION_PRIORITY) == model_router.IOU_TRACKER
+
+
+def test_botsort_and_strongsort_are_nightly_only_guardrail() -> None:
+    assert model_router.is_nightly_only_variant(model_router.BOTSORT)
+    assert model_router.is_nightly_only_variant(model_router.STRONGSORT)
+
+
+@pytest.mark.parametrize("flag_value", ["1", "true", "yes", "on", "TRUE"])
+def test_enable_botsort_nightly_routes_nightly_track(
+    flag_value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENABLE_BOTSORT_NIGHTLY", flag_value)
+    model_router.reload_routing()
+    assert select_model("track", NIGHTLY_PRIORITY) == model_router.BOTSORT
+    # Same-session is never upgraded — period-break window stays predictable.
+    assert select_model("track", SAME_SESSION_PRIORITY) == model_router.IOU_TRACKER
+
+
+def test_botsort_disabled_value_keeps_iou_nightly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_BOTSORT_NIGHTLY", "0")
+    model_router.reload_routing()
+    assert select_model("track", NIGHTLY_PRIORITY) == model_router.IOU_TRACKER
+
+
+def test_sam3_takes_precedence_over_botsort_for_nightly_track(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When both flags are on, the SAM 3.1 mask tracker (tied to SAM 3.1 mask
+    # detections) wins the nightly track slot.
+    monkeypatch.setenv("ENABLE_BOTSORT_NIGHTLY", "1")
+    monkeypatch.setenv("ENABLE_SAM3_NIGHTLY", "1")
+    model_router.reload_routing()
+    assert select_model("track", NIGHTLY_PRIORITY) == model_router.SAM3_MASK_TRACKER
+
+
+def test_botsort_cannot_be_forced_into_same_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {"track": {"same_session": model_router.BOTSORT, "nightly": "iou-tracker"}}
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    same = select_model("track", SAME_SESSION_PRIORITY)
+    assert same not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert same == DEFAULT_ROUTING["track"]["same_session"]
+
+
+def test_strongsort_selectable_for_nightly_via_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {"track": {"same_session": "iou-tracker", "nightly": model_router.STRONGSORT}}
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    assert select_model("track", NIGHTLY_PRIORITY) == model_router.STRONGSORT
+    # ...but it can never leak into same-session.
+    assert select_model("track", SAME_SESSION_PRIORITY) == model_router.IOU_TRACKER
+
+
+def test_build_routing_artifact_botsort_nightly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_BOTSORT_NIGHTLY", "1")
+    model_router.reload_routing()
+    assert build_routing_artifact("track", NIGHTLY_PRIORITY) == {"track": "botsort"}
+    assert build_routing_artifact("track", SAME_SESSION_PRIORITY) == {
+        "track": "iou-tracker"
+    }
+
+
+# ── Re-ID upgrade: PARSeq nightly / Tesseract same-session (Issue #131) ───────
+
+
+def test_reid_same_session_is_tesseract_jersey_ocr() -> None:
+    assert select_model("reid", SAME_SESSION_PRIORITY) == model_router.JERSEY_OCR
+
+
+def test_reid_nightly_is_parseq_ocr() -> None:
+    assert select_model("reid", NIGHTLY_PRIORITY) == model_router.PARSEQ_OCR
+
+
+def test_parseq_ocr_is_nightly_only_guardrail() -> None:
+    assert model_router.is_nightly_only_variant(model_router.PARSEQ_OCR)
+    assert not model_router.is_nightly_only_variant(model_router.JERSEY_OCR)
+
+
+def test_reid_cannot_force_parseq_into_same_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {"reid": {"same_session": model_router.PARSEQ_OCR, "nightly": model_router.PARSEQ_OCR}}
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    same = select_model("reid", SAME_SESSION_PRIORITY)
+    assert same not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert same == DEFAULT_ROUTING["reid"]["same_session"]
+
+
+def test_build_routing_artifact_for_reid() -> None:
+    assert build_routing_artifact("reid", SAME_SESSION_PRIORITY) == {
+        "reid": model_router.JERSEY_OCR
+    }
+    assert build_routing_artifact("reid", NIGHTLY_PRIORITY) == {
+        "reid": model_router.PARSEQ_OCR
     }
