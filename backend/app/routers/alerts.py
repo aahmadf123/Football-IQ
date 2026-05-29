@@ -278,7 +278,8 @@ async def action_alert(
         user_pg: str | None = getattr(current_user, "position_group", None)
         if not user_pg or alert.position_group.upper() != user_pg.upper():
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Alert not found",
             )
 
     alert.is_actioned = True
