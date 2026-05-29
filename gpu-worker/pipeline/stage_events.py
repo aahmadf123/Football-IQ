@@ -1,32 +1,50 @@
-"""Stage 7 — Event Detection.
+"""Stage 7 — Event Detection (Issues #132, #134).
 
-Detects key play events by analysing frame-level detection signals:
-  - snap: first frame with high-density player cluster movement after huddle
-  - motion_start/end: pre-snap receiver/back motion
-  - throw: sudden ball-separation from backfield region
-  - contact/tackle: high-overlap bounding boxes in the skill-player zone
-  - end_of_play: post-tackle cluster stillness
+Detects play events from the upstream pipeline artifacts. Two paths:
 
-Phase 1: heuristic rule-based detectors on top of tracking data.
-Manual correction is expected — coaches can PATCH events via the API.
+* **Multi-signal path (preferred).** When player ``tracklets`` (with field
+  coordinates) are available, run the Bayesian snap detector + LOS estimator
+  (Issue #132) and, when ball detections are present, the ball Kalman tracker
+  + state machine + throw/catch attribution (Issue #134). Every event carries
+  rich, *honestly-labelled* attributes — calibrated ``p_snap``, per-signal
+  strengths, ``los_x`` / ``los_confidence``, ``throw_distance_yd``,
+  ``hang_time_s``, ``qb_id`` / ``receiver_id`` — so downstream stages and
+  coaches can consume and audit them.
 
-Output: `events` rows written to the backend.
+* **Legacy heuristic path (fallback).** When no tracklets are supplied (older
+  job payloads) the original bbox-displacement heuristic runs unchanged so the
+  stage stays backward compatible.
+
+Rich outputs are persisted in the existing ``events.attributes`` JSON column
+(no schema migration); see ``docs/snap-los-ball-events.md``. Manual correction
+is still expected — coaches can PATCH events via the API.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import structlog
 
 from pipeline import backend
+from pipeline.ball import attribution as attrib
+from pipeline.ball import trajectory_fitter as traj
+from pipeline.ball.ball_state_machine import BallStateMachine
+from pipeline.ball.ball_tracker import observations_from_detections, track_ball
+from pipeline.events.los_estimator import LOSEstimate, LOSEstimator
+from pipeline.events.snap_detector import BayesianSnapDetector, SnapInputs
 
 log = structlog.get_logger(__name__)
 
-# Heuristic tuning
+# Legacy heuristic tuning (fallback path only).
 SNAP_MOTION_THRESHOLD = 15.0    # pixels of mean bbox displacement in one frame step
 TACKLE_OVERLAP_THRESHOLD = 0.4  # IoU between two player bboxes → contact
 STILLNESS_FRAMES = 10           # consecutive low-motion frames → end_of_play
+
+# Minimum fused probability below which we do NOT emit a snap (avoid asserting
+# a snap we cannot defend — see "no mock events as real" guardrail).
+MIN_SNAP_CONFIDENCE = 0.2
 
 
 def run(
@@ -34,16 +52,276 @@ def run(
     detections: dict[str, list[dict[str, Any]]],
     fps: float,
     job_id: str,
+    *,
+    tracklets: list[dict[str, Any]] | None = None,
+    ball_detections: dict[str, list[dict[str, Any]]] | None = None,
+    pose_by_frame: dict[int, dict[str, dict[str, tuple[float, float]]]] | None = None,
+    ol_track_ids: list[str] | None = None,
+    qb_track_id: str | None = None,
+    center_track_id: str | None = None,
+    defender_ids: list[str] | None = None,
+    homography: list[list[float]] | None = None,
+    los_band_px: tuple[int, int] | None = None,
+    los_prior: dict[str, Any] | None = None,
+    end_of_play_frame: int | None = None,
+    goal_line_x: float | None = None,
 ) -> dict[str, Any]:
-    """Detect events in a clip from frame-level detections."""
-    log.info("stage_events_start", clip_id=clip_id)
+    """Detect events in a clip and persist them.
 
+    All keyword arguments are optional: with only ``detections`` the legacy
+    heuristic runs; supplying ``tracklets`` (and optionally ``ball_detections``,
+    ``pose_by_frame``, ``homography``) activates the multi-signal path.
+    """
+    log.info("stage_events_start", clip_id=clip_id, multisignal=bool(tracklets))
+
+    if tracklets:
+        events, summary = _detect_multisignal(
+            tracklets=tracklets,
+            detections=detections,
+            ball_detections=ball_detections,
+            pose_by_frame=pose_by_frame,
+            ol_track_ids=ol_track_ids,
+            qb_track_id=qb_track_id,
+            center_track_id=center_track_id,
+            defender_ids=set(defender_ids) if defender_ids else None,
+            homography=np.asarray(homography, dtype=np.float64) if homography else None,
+            los_band_px=los_band_px,
+            los_prior=los_prior,
+            end_of_play_frame=end_of_play_frame,
+            goal_line_x=goal_line_x,
+            fps=fps,
+        )
+    else:
+        events = _detect_heuristic(detections, fps)
+        summary = {}
+
+    event_ids = _persist(clip_id, events)
+    log.info(
+        "stage_events_done",
+        clip_id=clip_id,
+        event_count=len(event_ids),
+        **{k: v for k, v in summary.items() if k in ("snap_frame", "los_x")},
+    )
+    return {
+        "event_count": len(event_ids),
+        "event_ids": event_ids,
+        "events": events,
+        **summary,
+    }
+
+
+# ── Multi-signal path (Issues #132 + #134) ──────────────────────────────────
+
+
+def _detect_multisignal(
+    *,
+    tracklets: list[dict[str, Any]],
+    detections: dict[str, list[dict[str, Any]]],
+    ball_detections: dict[str, list[dict[str, Any]]] | None,
+    pose_by_frame: dict[int, dict[str, dict[str, tuple[float, float]]]] | None,
+    ol_track_ids: list[str] | None,
+    qb_track_id: str | None,
+    center_track_id: str | None,
+    defender_ids: set[str] | None,
+    homography: np.ndarray | None,
+    los_band_px: tuple[int, int] | None,
+    los_prior: dict[str, Any] | None,
+    end_of_play_frame: int | None,
+    goal_line_x: float | None,
+    fps: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    player_positions = attrib.positions_by_frame(tracklets)
+
+    # Ball field/pixel tracks (shared by the snap signal and the FSM).
+    px_obs = observations_from_detections(ball_detections) if ball_detections else {}
+    field_obs = _project_obs(px_obs, homography) if (px_obs and homography is not None) else {}
+    ball_track_field = track_ball(field_obs, fps) if field_obs else []
+    ball_track_px = track_ball(px_obs, fps) if px_obs else []
+
+    # ── Snap detection ─────────────────────────────────────────────────────
+    snap_inputs = SnapInputs(
+        tracklets=tracklets,
+        fps=fps,
+        pose_by_frame=pose_by_frame,
+        ol_track_ids=ol_track_ids,
+        qb_track_id=qb_track_id,
+        los_band_px=los_band_px,
+    )
+    if center_track_id and field_obs:
+        snap_inputs.ball_track = {p.frame: (p.x, p.y) for p in ball_track_field}
+        snap_inputs.center_track = _field_track_for(tracklets, center_track_id)
+
+    snap_result = BayesianSnapDetector().detect(snap_inputs)
+    snap_frame = snap_result.snap_frame
+    low_confidence = False
+    if snap_frame is None:
+        if snap_result.confidence >= MIN_SNAP_CONFIDENCE and snap_result.frame_probabilities:
+            snap_frame = max(
+                snap_result.frame_probabilities,
+                key=lambda f: snap_result.frame_probabilities[f],
+            )
+            low_confidence = True
+        else:
+            log.warning("snap_not_detected", confidence=round(snap_result.confidence, 3))
+            return events, {"snap_detected": False}
+
+    # ── LOS estimation ─────────────────────────────────────────────────────
+    ball_field_x = None
+    if ball_track_field:
+        at_snap = next((p for p in ball_track_field if p.frame == snap_frame), None)
+        ball_field_x = at_snap.x if at_snap else None
+    los = LOSEstimator().estimate(tracklets, snap_frame, ball_field_x=ball_field_x)
+    if los_prior:
+        prior = LOSEstimate(
+            float(los_prior.get("los_x", 50.0)),
+            float(los_prior.get("confidence", 0.0)),
+            "bayesian",
+        )
+        los = LOSEstimator().propagate(prior, los, gain_yards=float(los_prior.get("gain_yards", 0.0)))
+
+    events.append({
+        "event_type": "snap",
+        "frame_number": snap_frame,
+        "timestamp_seconds": snap_frame / fps,
+        "attributes": {
+            "p_snap": snap_result.confidence,
+            "low_confidence": low_confidence,
+            "signals_present": snap_result.signals_present,
+            "signal_strengths": snap_result.explain(snap_frame),
+            "los_x": round(los.los_x, 3),
+            "los_confidence": round(los.confidence, 3),
+            "los_method": los.method,
+            "los_support": los.support,
+            "source": "model",
+        },
+    })
+    summary: dict[str, Any] = {
+        "snap_detected": True,
+        "snap_frame": snap_frame,
+        "snap_confidence": snap_result.confidence,
+        "los_x": round(los.los_x, 3),
+        "los_confidence": round(los.confidence, 3),
+    }
+
+    # ── Ball state machine + attribution (Issue #134) ───────────────────────
+    if ball_track_field:
+        sm = BallStateMachine().run(
+            snap_frame,
+            ball_track_field,
+            player_positions,
+            qb_id=qb_track_id,
+            defender_ids=defender_ids,
+            end_of_play_frame=end_of_play_frame,
+            goal_line_x=goal_line_x,
+        )
+        qb_id = (
+            attrib.attribute_throw(ball_track_field, player_positions, sm.first_airborne_frame)
+            if sm.first_airborne_frame is not None
+            else None
+        )
+        receiver_id = (
+            attrib.attribute_catch(ball_track_field, player_positions, sm.catch_frame)
+            if sm.catch_frame is not None
+            else None
+        )
+        traj_metrics = _trajectory_metrics(
+            sm.throw_frame, sm.catch_frame, ball_track_px, ball_track_field, homography, fps
+        )
+        for ev in sm.events():
+            if ev["event_type"] == "snap":
+                continue  # already emitted with LOS attributes
+            attrs: dict[str, Any] = {"ball_state": ev.get("state"), "source": "model"}
+            if ev["event_type"] == "throw":
+                attrs["qb_id"] = qb_id
+                attrs.update(traj_metrics)
+            if ev["event_type"] in ("catch", "interception"):
+                attrs["receiver_id"] = receiver_id
+                attrs.update(traj_metrics)
+            events.append({
+                "event_type": ev["event_type"],
+                "frame_number": ev["frame_number"],
+                "timestamp_seconds": int(ev["frame_number"]) / fps,
+                "attributes": attrs,
+            })
+        summary["ball_states"] = [s.value for s in sm.states]
+        summary["ball_state_valid"] = _validate_states(sm.states)
+        if qb_id is not None:
+            summary["qb_id"] = qb_id
+        if receiver_id is not None:
+            summary["receiver_id"] = receiver_id
+
+    return events, summary
+
+
+def _trajectory_metrics(
+    throw_frame: int | None,
+    catch_frame: int | None,
+    ball_track_px: list[Any],
+    ball_track_field: list[Any],
+    homography: np.ndarray | None,
+    fps: float,
+) -> dict[str, Any]:
+    """Throw distance, hang time, and apex for a completed/airborne pass."""
+    metrics: dict[str, Any] = {}
+    if throw_frame is None or catch_frame is None:
+        return metrics
+    metrics["hang_time_s"] = round(traj.hang_time_seconds(throw_frame, catch_frame, fps), 3)
+
+    px_by_frame = {p.frame: (p.x, p.y) for p in ball_track_px}
+    if homography is not None and throw_frame in px_by_frame and catch_frame in px_by_frame:
+        metrics["throw_distance_yd"] = round(
+            traj.field_plane_distance(homography, px_by_frame[throw_frame], px_by_frame[catch_frame]),
+            2,
+        )
+
+    times, ys = [], []
+    for p in ball_track_px:
+        if throw_frame <= p.frame <= catch_frame:
+            times.append(p.frame / fps)
+            ys.append(p.y)
+    fit = traj.fit_parabola(times, ys) if len(times) >= 3 else None
+    if fit is not None:
+        metrics["apex_y_image"] = round(fit.apex_y, 2)
+        metrics["trajectory_rms_px"] = round(fit.rms_residual, 2)
+    return metrics
+
+
+def _project_obs(
+    px_obs: dict[int, tuple[float, float]], homography: np.ndarray
+) -> dict[int, tuple[float, float]]:
+    return {f: traj.apply_homography(homography, pt) for f, pt in px_obs.items()}
+
+
+def _field_track_for(
+    tracklets: list[dict[str, Any]], track_id: str
+) -> dict[int, tuple[float, float]]:
+    for t in tracklets:
+        if str(t.get("id")) == str(track_id):
+            return {
+                int(pt["frame_number"]): (float(pt["field_x"]), float(pt["field_y"]))
+                for pt in t.get("track_points", [])
+                if pt.get("field_x") is not None and pt.get("field_y") is not None
+            }
+    return {}
+
+
+def _validate_states(states: list[Any]) -> bool:
+    from pipeline.ball.ball_state_machine import validate
+
+    return validate(states)
+
+
+# ── Legacy heuristic path (unchanged behaviour) ─────────────────────────────
+
+
+def _detect_heuristic(
+    detections: dict[str, list[dict[str, Any]]], fps: float
+) -> list[dict[str, Any]]:
     sorted_frames = sorted(int(f) for f in detections)
     events: list[dict[str, Any]] = []
 
-    # Track centroid history for motion detection
     prev_centroids: list[tuple[float, float]] = []
-    motion_history: list[float] = []
     in_motion = False
     motion_start_frame = 0
     low_motion_streak = 0
@@ -56,19 +334,16 @@ def run(
 
         if prev_centroids and centroids:
             mean_disp = _mean_displacement(prev_centroids, centroids)
-            motion_history.append(mean_disp)
 
-            # ── Snap detection ────────────────────────────────────────────
             if not snap_detected and mean_disp > SNAP_MOTION_THRESHOLD:
                 snap_detected = True
                 events.append({
                     "event_type": "snap",
                     "frame_number": frame_idx,
                     "timestamp_seconds": frame_idx / fps,
-                    "attributes": {"mean_displacement": mean_disp},
+                    "attributes": {"mean_displacement": mean_disp, "source": "model"},
                 })
 
-            # ── Pre-snap motion detection ─────────────────────────────────
             if not snap_detected:
                 if not in_motion and mean_disp > SNAP_MOTION_THRESHOLD * 0.4:
                     in_motion = True
@@ -88,7 +363,6 @@ def run(
                         "attributes": {"duration_frames": frame_idx - motion_start_frame},
                     })
 
-            # ── Contact / tackle detection ────────────────────────────────
             if snap_detected:
                 bboxes = [d["bbox"] for d in frame_dets]
                 for i in range(len(bboxes)):
@@ -102,7 +376,6 @@ def run(
                                 "attributes": {"iou": iou},
                             })
 
-            # ── End-of-play detection ─────────────────────────────────────
             if snap_detected:
                 if mean_disp < SNAP_MOTION_THRESHOLD * 0.15:
                     low_motion_streak += 1
@@ -120,7 +393,10 @@ def run(
 
         prev_centroids = centroids
 
-    # Write events to backend
+    return events
+
+
+def _persist(clip_id: str, events: list[dict[str, Any]]) -> list[str]:
     event_ids: list[str] = []
     for ev in events:
         try:
@@ -134,9 +410,7 @@ def run(
             event_ids.append(resp["id"])
         except Exception as exc:
             log.warning("event_write_failed", event_type=ev.get("event_type"), error=str(exc))
-
-    log.info("stage_events_done", clip_id=clip_id, event_count=len(event_ids))
-    return {"event_count": len(event_ids), "event_ids": event_ids}
+    return event_ids
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -316,7 +316,26 @@ def _dispatch(
     elif job_type == "events":
         detections = input_artifacts.get("detections", {})
         fps = float(input_artifacts.get("fps", 30))
-        return stage_events.run(clip_id, detections, fps, job_id)
+        # Optional multi-signal inputs (Issues #132/#134). When absent the
+        # stage falls back to the legacy bbox-displacement heuristic.
+        return stage_events.run(
+            clip_id,
+            detections,
+            fps,
+            job_id,
+            tracklets=input_artifacts.get("tracklets"),
+            ball_detections=input_artifacts.get("ball_detections"),
+            pose_by_frame=input_artifacts.get("pose_by_frame"),
+            ol_track_ids=input_artifacts.get("ol_track_ids"),
+            qb_track_id=input_artifacts.get("qb_track_id"),
+            center_track_id=input_artifacts.get("center_track_id"),
+            defender_ids=input_artifacts.get("defender_ids"),
+            homography=input_artifacts.get("homography"),
+            los_band_px=input_artifacts.get("los_band_px"),
+            los_prior=input_artifacts.get("los_prior"),
+            end_of_play_frame=input_artifacts.get("end_of_play_frame"),
+            goal_line_x=input_artifacts.get("goal_line_x"),
+        )
 
     elif job_type == "labels":
         tracklets = input_artifacts.get("tracklets", [])
