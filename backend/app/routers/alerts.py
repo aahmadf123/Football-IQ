@@ -35,7 +35,7 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas ──────────────────────────────────────────────────────────────────
 
 
 class AlertCreate(BaseModel):
@@ -98,7 +98,7 @@ class AlertResponse(BaseModel):
         )
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────────────────────
 
 
 @router.post("", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
