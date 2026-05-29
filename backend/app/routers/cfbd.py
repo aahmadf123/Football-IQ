@@ -435,11 +435,11 @@ async def get_mac_benchmark(
     if season is not None:
         stmt = stmt.where(CfbdTeamGameStat.season == season)
     rows = list((await db.execute(stmt)).scalars().all())
-    points_by_game_team = {
-        (r.cfbd_game_id, r.team): r.points
-        for r in rows
-        if getattr(r, "cfbd_game_id", None) is not None and getattr(r, "points", None) is not None
-    }
+    points_by_game_team: dict[tuple[int, str], int] = {}
+    for r in rows:
+        if getattr(r, "cfbd_game_id", None) is None or r.points is None:
+            continue
+        points_by_game_team[(r.cfbd_game_id, r.team)] = r.points
 
     acc: dict[str, dict[str, float]] = {}
     for r in rows:
