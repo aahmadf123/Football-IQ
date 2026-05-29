@@ -197,9 +197,9 @@ and open an issue first instead of working around it.
 
 ## 7. Required test commands
 
-Before opening a PR, run the suites for every service you touched. Commands
-match the contracts in `.github/workflows/ci.yml` and
-`docs/runbook-local.md`.
+Before opening a PR, run the suites for every service you touched. Backend,
+frontend, Worker, and Alembic commands match `.github/workflows/ci.yml`;
+GPU-worker commands are local expectations until that service is added to CI.
 
 Backend (FastAPI, Python 3.12):
 
