@@ -263,7 +263,7 @@ def _best_frame_fit(
 
 
 def _series_drift(homographies: list[np.ndarray], shape: tuple[int, int]) -> float:
-    """Mean re-projection gap (px) between consecutive window homographies."""
+    """Mean pairwise re-projection gap (px) across consecutive homographies."""
     if len(homographies) < 2:
         return 0.0
     h, w = shape

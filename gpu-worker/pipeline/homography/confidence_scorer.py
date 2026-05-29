@@ -65,6 +65,8 @@ def parallel_line_score(angles_rad: list[float]) -> float:
 def temporal_stability_from_drift(drift_px: float, *, tolerance_px: float = 4.0) -> float:
     """Map pixel-space temporal re-projection drift (px) to ``[0, 1]``.
 
+    ``drift_px`` is the mean pixel-space drift across sampled points
+    (for example, frame corners between consecutive homographies).
     Zero drift ⇒ 1.0; drift ≥ ``tolerance_px`` ⇒ 0.0. For a single-frame
     (FIXED_SIDELINE anchor) calibration with no temporal evidence, pass
     ``drift_px=0.0`` to assert full stability.
