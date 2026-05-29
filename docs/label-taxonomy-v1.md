@@ -23,6 +23,13 @@ This v1 taxonomy maps Toledo football terminology to generic football analytics 
 - Coverage/front/pressure are defense labels from post-snap confirmation.
 - Event labels are timestamped and can have multiple tags per play.
 
+## Team Color Classification
+- Visual team labels use bounded k=3 CIELab clustering over existing tracklet bounding boxes: `offense`, `defense`, and `official`.
+- The first viable frame locks jersey-color centroids; later frames use nearest-centroid assignment and EMA updates with `alpha=0.95` to absorb lighting drift.
+- Officials have a stripe-pattern guard, and helmet color is used only as a tiebreaker when jersey CIELab distances are close.
+- Fallback: if no readable frames or bbox track points are available, the label stage leaves team classification empty and keeps the existing positional label behavior.
+- Limitation: these are visual clusters, not roster-confirmed identities; similar uniforms, occlusion, bad exposure, or too few visible tracklets can still require coach correction.
+
 ## JSON Shape (Reference)
 ```json
 {
