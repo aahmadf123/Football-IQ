@@ -22,7 +22,6 @@ cross-camera reasoning (single-camera, Issue #101).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import structlog

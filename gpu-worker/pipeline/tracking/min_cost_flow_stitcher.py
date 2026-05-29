@@ -19,8 +19,6 @@ outputs are untouched.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
 import numpy as np
 import structlog
 
@@ -87,6 +85,7 @@ class _MinCostFlow:
         dist = [INF] * self.n
         in_queue = [False] * self.n
         prev_edge = [-1] * self.n
+        prev_node = [-1] * self.n
         dist[s] = 0.0
         queue = [s]
         in_queue[s] = True
@@ -98,6 +97,7 @@ class _MinCostFlow:
                 if e.cap - e.flow > 0 and dist[u] + e.cost < dist[e.to] - 1e-12:
                     dist[e.to] = dist[u] + e.cost
                     prev_edge[e.to] = eid
+                    prev_node[e.to] = u
                     if not in_queue[e.to]:
                         queue.append(e.to)
                         in_queue[e.to] = True
@@ -111,7 +111,7 @@ class _MinCostFlow:
             if eid == -1:
                 return None
             path.append(eid)
-            v = self.edges[eid ^ 1].to
+            v = prev_node[v]
         path.reverse()
         return path
 

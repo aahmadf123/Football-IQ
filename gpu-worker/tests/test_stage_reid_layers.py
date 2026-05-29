@@ -136,6 +136,27 @@ def test_nightly_stitching_propagates_player_id(_stub_video_and_backend) -> None
     assert result["reid_strategy"]["stitching_enabled"] is True
 
 
+def test_intermediate_priority_still_enables_nightly_stitching(
+    _stub_video_and_backend,
+) -> None:
+    patched = _stub_video_and_backend
+    head = {
+        "id": "tk-head",
+        "player_id": "player-9",
+        "team_label": "unknown",
+        "track_points": _points(list(range(0, 10)), [i * 5 for i in range(10)]),
+    }
+    tail = {
+        "id": "tk-tail",
+        "player_id": None,
+        "team_label": "unknown",
+        "track_points": _points(list(range(12, 20)), [60 + (i - 12) * 5 for i in range(12, 20)]),
+    }
+    result = _run([head, tail], SAME_SESSION_PRIORITY - 1)
+    assert ("tk-tail", "player-9") in patched
+    assert result["reid_strategy"]["stitching_enabled"] is True
+
+
 def test_reid_strategy_reports_ocr_backend(_stub_video_and_backend) -> None:
     t = {
         "id": "tk", "player_id": None, "team_label": "unknown",

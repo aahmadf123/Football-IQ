@@ -153,5 +153,15 @@ def test_degrades_to_motion_only_without_embeddings() -> None:
     assert len(results) == 1
 
 
+def test_appearance_fn_seeds_track_embeddings() -> None:
+    detections = {"0": [_det(100, 100)], "1": [_det(101, 100)]}
+    tracker = BoTSORTTracker(
+        appearance_weight=0.8,
+        appearance_fn=lambda _det: np.array([1.0, 0.0]),
+    )
+    results = tracker.track(detections)
+    assert len(results) == 1
+
+
 def test_empty_input_returns_no_tracks() -> None:
     assert BoTSORTTracker().track({}) == []

@@ -30,7 +30,7 @@ import numpy as np
 import structlog
 
 from pipeline import r2
-from pipeline.model_router import PARSEQ_OCR, is_nightly
+from pipeline.model_router import PARSEQ_OCR
 from pipeline.tracking.min_cost_flow_stitcher import (
     MinCostFlowStitcher,
     TrackletNode,
@@ -40,6 +40,7 @@ from pipeline.tracking.trajectory_prior_reid import (
     TrajectoryPriorReID,
     UnknownTrack,
 )
+from queue.same_session_queue import SAME_SESSION_PRIORITY
 
 log = structlog.get_logger(__name__)
 
@@ -66,7 +67,7 @@ def run(
         priority: ``processing_jobs.priority``. Nightly priority unlocks the
             min-cost-flow stitching layer; ``None`` is treated as nightly.
     """
-    nightly = priority is None or is_nightly(priority)
+    nightly = priority is None or priority < SAME_SESSION_PRIORITY
     log.info(
         "stage_reid_start",
         clip_id=clip_id,

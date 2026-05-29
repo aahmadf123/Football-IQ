@@ -48,7 +48,7 @@ def _bbox_center(bbox: list[float]) -> tuple[float, float]:
     return (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
 
 
-def warp_bbox(bbox: list[float], warp: np.ndarray) -> list[float]:
+def warp_bbox(bbox: list[float], warp: np.ndarray | None) -> list[float]:
     """Apply a 2×3 affine ``warp`` to an axis-aligned ``bbox``.
 
     The four corners are transformed and re-bounded into a new axis-aligned
@@ -83,12 +83,20 @@ class _MotionTrack:
         "points",
     )
 
-    def __init__(self, track_id: int, det: dict[str, Any], frame: int) -> None:
+    def __init__(
+        self,
+        track_id: int,
+        det: dict[str, Any],
+        frame: int,
+        embedding: np.ndarray | None = None,
+    ) -> None:
         self.track_id = track_id
         self.bbox: list[float] = list(det["bbox"])
         self.velocity: tuple[float, float] = (0.0, 0.0)
         self.mask: dict[str, Any] | None = det.get("mask")
-        self.embedding: np.ndarray | None = _as_embedding(det.get("embedding"))
+        self.embedding: np.ndarray | None = (
+            embedding if embedding is not None else _as_embedding(det.get("embedding"))
+        )
         self.start_frame = frame
         self.last_frame = frame
         self.lost_count = 0
@@ -114,7 +122,13 @@ class _MotionTrack:
             compensated[3] + vy * dt,
         ]
 
-    def update(self, det: dict[str, Any], frame: int, warp: np.ndarray | None) -> None:
+    def update(
+        self,
+        det: dict[str, Any],
+        frame: int,
+        warp: np.ndarray | None,
+        embedding: np.ndarray | None = None,
+    ) -> None:
         new_bbox = list(det["bbox"])
         # Measure velocity as the residual after camera compensation, so a
         # world-static player under a panning camera converges to ~zero.
@@ -128,7 +142,7 @@ class _MotionTrack:
         self.velocity = (0.5 * ovx + 0.5 * nvx, 0.5 * ovy + 0.5 * nvy)
         self.bbox = new_bbox
         self.mask = det.get("mask", self.mask)
-        emb = _as_embedding(det.get("embedding"))
+        emb = embedding if embedding is not None else _as_embedding(det.get("embedding"))
         if emb is not None:
             self.embedding = emb if self.embedding is None else _ema(self.embedding, emb)
         self.last_frame = frame
@@ -231,14 +245,19 @@ class BoTSORTTracker(TrackerBase):
             return None
 
     def _score(
-        self, track: _MotionTrack, det: dict[str, Any], frame: int
+        self,
+        track: _MotionTrack,
+        det: dict[str, Any],
+        frame: int,
+        det_emb: np.ndarray | None = None,
     ) -> float:
         warp = self._chained_warp(track.last_frame, frame)
         predicted = track.predict(frame, warp)
         iou = bbox_iou(predicted, det["bbox"])
         if self.appearance_weight <= 0.0:
             return iou
-        det_emb = self._embedding_for(det)
+        if det_emb is None:
+            det_emb = self._embedding_for(det)
         if track.embedding is None or det_emb is None:
             return iou
         appearance = max(0.0, _cosine(track.embedding, det_emb))
@@ -258,10 +277,15 @@ class BoTSORTTracker(TrackerBase):
                 for d in detections_by_frame.get(str(frame_idx), [])
                 if d.get("class", "player") == "player"
             ]
+            frame_embeddings = [self._embedding_for(d) for d in frame_dets]
 
             if active and frame_dets:
                 cost = [
-                    [self._score(t, d, frame_idx) for d in frame_dets] for t in active
+                    [
+                        self._score(t, d, frame_idx, frame_embeddings[di])
+                        for di, d in enumerate(frame_dets)
+                    ]
+                    for t in active
                 ]
                 matches = _greedy_assign(cost, self.iou_threshold)
                 matched_tracks = {m[0] for m in matches}
@@ -269,11 +293,23 @@ class BoTSORTTracker(TrackerBase):
 
                 for ti, di in matches:
                     warp = self._chained_warp(active[ti].last_frame, frame_idx)
-                    active[ti].update(frame_dets[di], frame_idx, warp)
+                    active[ti].update(
+                        frame_dets[di],
+                        frame_idx,
+                        warp,
+                        embedding=frame_embeddings[di],
+                    )
 
                 for di, det in enumerate(frame_dets):
                     if di not in matched_dets:
-                        active.append(_MotionTrack(next_id, det, frame_idx))
+                        active.append(
+                            _MotionTrack(
+                                next_id,
+                                det,
+                                frame_idx,
+                                embedding=frame_embeddings[di],
+                            )
+                        )
                         next_id += 1
 
                 for ti, t in enumerate(active):
@@ -282,8 +318,15 @@ class BoTSORTTracker(TrackerBase):
             else:
                 for t in active:
                     t.lost_count += 1
-                for det in frame_dets:
-                    active.append(_MotionTrack(next_id, det, frame_idx))
+                for di, det in enumerate(frame_dets):
+                    active.append(
+                        _MotionTrack(
+                            next_id,
+                            det,
+                            frame_idx,
+                            embedding=frame_embeddings[di],
+                        )
+                    )
                     next_id += 1
 
             still_active: list[_MotionTrack] = []
