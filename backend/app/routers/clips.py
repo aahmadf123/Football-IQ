@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
 from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, User, Video
+from app.routers.metrics import FRONTIER_METRIC_NAMES, HEAD_ORIENTATION_METRIC_NAMES
 
 # Recognized clip-level possession values (must match SideOfBall enum).
 _VALID_SIDES: frozenset[str] = frozenset(s.value for s in SideOfBall)
@@ -117,6 +118,9 @@ class MetricCreate(BaseModel):
     unit: str | None = None
     is_suppressed: bool = False
     suppression_reason: str | None = None
+    experimental_flag: bool = False
+    analytics_safe: bool = False
+    confidence: float | None = None
     evidence_uri: str | None = None
     model_version_id: uuid.UUID | None = None
     calibration_version_id: uuid.UUID | None = None
@@ -132,6 +136,9 @@ class MetricResponse(BaseModel):
     unit: str | None
     is_suppressed: bool
     suppression_reason: str | None
+    experimental_flag: bool
+    analytics_safe: bool
+    confidence: float | None
     evidence_uri: str | None
     clip_id: uuid.UUID
     model_version_id: uuid.UUID | None
@@ -148,6 +155,9 @@ class MetricResponse(BaseModel):
             unit=m.unit,
             is_suppressed=m.is_suppressed,
             suppression_reason=m.suppression_reason,
+            experimental_flag=m.experimental_flag,
+            analytics_safe=m.analytics_safe,
+            confidence=m.confidence,
             evidence_uri=m.evidence_uri,
             clip_id=m.clip_id,
             model_version_id=m.model_version_id,
@@ -364,10 +374,23 @@ async def create_metric(
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> MetricResponse:
-    """Store a computed analytics metric for a clip (written by the GPU worker)."""
+    """Store a computed analytics metric for a clip (written by the GPU worker).
+
+    Head-orientation and frontier-analytics (xSep/xYards/xPressure, Issue #10)
+    metric names are forced experimental and never ``analytics_safe`` on ingest,
+    regardless of the payload — a coach must review them before they leave the
+    experimental surface. No unvalidated metric is ever stored as trusted.
+    """
     clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
     if clip_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+
+    name_lower = body.metric_name.lower()
+    is_always_experimental = (
+        body.metric_name in HEAD_ORIENTATION_METRIC_NAMES or name_lower in FRONTIER_METRIC_NAMES
+    )
+    effective_experimental = body.experimental_flag or is_always_experimental
+    effective_analytics_safe = body.analytics_safe and not is_always_experimental
 
     metric = Metric(
         id=uuid.uuid4(),
@@ -377,6 +400,9 @@ async def create_metric(
         unit=body.unit,
         is_suppressed=body.is_suppressed,
         suppression_reason=body.suppression_reason,
+        experimental_flag=effective_experimental,
+        analytics_safe=effective_analytics_safe,
+        confidence=body.confidence,
         evidence_uri=body.evidence_uri,
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
@@ -389,5 +415,6 @@ async def create_metric(
         metric_id=str(metric.id),
         clip_id=str(body.clip_id),
         metric_name=body.metric_name,
+        experimental=effective_experimental,
     )
     return MetricResponse.from_orm_metric(metric)

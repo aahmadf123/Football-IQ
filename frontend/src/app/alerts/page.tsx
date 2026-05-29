@@ -5,11 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FootballShell } from "@/components/football-shell";
 import { useAppState } from "@/lib/app-state";
 import {
+  actionAlert,
   fetchAlerts,
   subscribeAlerts,
   type AlertStreamHandle,
   type ApiAlert,
 } from "@/lib/api";
+import { ExperimentalBadge } from "@/components/experimental-badge";
 
 type AlertsState =
   | { kind: "loading" }
@@ -59,6 +61,24 @@ function AlertsView() {
       });
     }
   }, [authToken]);
+
+  const handleAction = useCallback(
+    async (alertId: string) => {
+      try {
+        const updated = await actionAlert(alertId, authToken);
+        setState((cur) => {
+          if (cur.kind !== "ready") return cur;
+          return {
+            kind: "ready",
+            alerts: cur.alerts.map((a) => (a.id === alertId ? updated : a)),
+          };
+        });
+      } catch {
+        // Surface nothing destructive on failure — the alert simply stays open.
+      }
+    },
+    [authToken],
+  );
 
   useEffect(() => {
     loadAlerts();
@@ -185,7 +205,7 @@ function AlertsView() {
         <section className="panel panel-pad span-12">
           <div className="list-stack" style={{ gap: 8 }}>
             {state.alerts.map((a) => (
-              <AlertRow key={a.id} alert={a} />
+              <AlertRow key={a.id} alert={a} onAction={handleAction} />
             ))}
           </div>
         </section>
@@ -228,10 +248,26 @@ function StreamBadge({ state }: { state: StreamState }) {
   );
 }
 
-function AlertRow({ alert }: { alert: ApiAlert }) {
+function AlertRow({
+  alert,
+  onAction,
+}: {
+  alert: ApiAlert;
+  onAction?: (alertId: string) => void;
+}) {
   const color = SEVERITY_COLOR[alert.severity.toLowerCase()] ?? SEVERITY_COLOR.info;
+  const isTendency = alert.alert_type === "formation_tendency";
+  const mv = alert.metric_value ?? {};
+  const tendencyKind = typeof mv.tendency_kind === "string" ? mv.tendency_kind : null;
+  const message = typeof mv.message === "string" ? mv.message : null;
+  const evidence = Array.isArray(mv.evidence_clip_ids)
+    ? (mv.evidence_clip_ids as unknown[]).filter((c): c is string => typeof c === "string")
+    : [];
+  const title = isTendency ? "Tendency break" : alert.alert_type;
+
   return (
     <div
+      data-testid={`alert-${alert.id}`}
       style={{
         display: "flex",
         gap: 12,
@@ -254,28 +290,61 @@ function AlertRow({ alert }: { alert: ApiAlert }) {
       />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-          <strong>{alert.alert_type}</strong>
+          <strong>{title}</strong>
           <span className="kicker" style={{ textTransform: "uppercase" }}>
             {alert.position_group} · {alert.severity}
           </span>
+          {tendencyKind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
         </div>
-        <p className="kicker" style={{ marginTop: 4 }}>
-          {alert.metric_name} · confidence {Math.round(alert.confidence * 100)}%
-          {alert.session_id ? ` · session ${alert.session_id}` : ""}
-        </p>
+        {isTendency && message ? (
+          <p className="kicker" style={{ marginTop: 4 }}>
+            {message}
+          </p>
+        ) : (
+          <p className="kicker" style={{ marginTop: 4 }}>
+            {alert.metric_name} · confidence {Math.round(alert.confidence * 100)}%
+            {alert.session_id ? ` · session ${alert.session_id}` : ""}
+          </p>
+        )}
+        {isTendency && evidence.length > 0 && (
+          <p className="kicker" style={{ marginTop: 4 }}>
+            Examples:{" "}
+            {evidence.map((clipId, i) => (
+              <span key={clipId}>
+                {i > 0 ? " · " : ""}
+                <Link href={`/clip-review/?clipId=${encodeURIComponent(clipId)}`}>
+                  clip {i + 1}
+                </Link>
+              </span>
+            ))}
+          </p>
+        )}
         <p className="kicker" style={{ marginTop: 4 }}>
           {new Date(alert.created_at).toLocaleString()}
           {alert.is_acknowledged ? " · acknowledged" : ""}
+          {alert.is_actioned ? " · actioned" : ""}
         </p>
       </div>
-      {alert.clip_id && (
-        <Link
-          href={`/clip-review/?clipId=${encodeURIComponent(alert.clip_id)}`}
-          className="control-button"
-        >
-          Open clip →
-        </Link>
-      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {onAction && !alert.is_actioned && (
+          <button
+            type="button"
+            className="control-button"
+            data-testid={`action-${alert.id}`}
+            onClick={() => onAction(alert.id)}
+          >
+            Mark actioned
+          </button>
+        )}
+        {alert.clip_id && (
+          <Link
+            href={`/clip-review/?clipId=${encodeURIComponent(alert.clip_id)}`}
+            className="control-button"
+          >
+            Open clip →
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

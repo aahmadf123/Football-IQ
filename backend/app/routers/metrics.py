@@ -49,6 +49,13 @@ HEAD_ORIENTATION_METRIC_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# Frontier analytics (Issue #10): xSep / xYards / xPressure. These are
+# experimental scaffolds — derived from tracking/pose/SAM outputs that are not
+# yet validated for Toledo — so they are forced experimental and never
+# analytics_safe on ingest. A coach must review them before they leave the
+# experimental surface, exactly like head-orientation metrics.
+FRONTIER_METRIC_NAMES: frozenset[str] = frozenset({"xsep", "xyards", "xpressure"})
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
@@ -172,11 +179,15 @@ async def create_metric(
         if t_result.scalar_one_or_none() is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
-    # Head-orientation metrics are always experimental until coach-approved
-    is_head_orientation = body.metric_name in HEAD_ORIENTATION_METRIC_NAMES
-    effective_experimental = body.experimental_flag or is_head_orientation
-    # analytics_safe must not be pre-set true for head-orientation metrics without review
-    effective_analytics_safe = body.analytics_safe and not is_head_orientation
+    # Head-orientation and frontier-analytics metrics are always experimental
+    # until coach-approved, regardless of the payload.
+    name_lower = body.metric_name.lower()
+    is_always_experimental = (
+        body.metric_name in HEAD_ORIENTATION_METRIC_NAMES or name_lower in FRONTIER_METRIC_NAMES
+    )
+    effective_experimental = body.experimental_flag or is_always_experimental
+    # analytics_safe must not be pre-set true for these metrics without review
+    effective_analytics_safe = body.analytics_safe and not is_always_experimental
 
     metric = Metric(
         id=uuid.uuid4(),

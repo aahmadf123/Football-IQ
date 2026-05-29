@@ -122,6 +122,9 @@ retry strategies.  Every decision (allowed or rejected) is emitted as
 * `POST /api/v1/jobs`
 * `POST /api/v1/jobs/{id}/retry`
 * `GET /api/cfbd/mac/benchmark` (Issue #163 — cross-conference aggregation)
+* `POST /api/v1/self-scout/tendency-break` (Issue #137 — scans the whole
+  labeled corpus to (re)generate tendency-break alerts; `require_coach_or_above`
+  + `require_workload_capacity("self_scout.tendency_break")`)
 
 `POST /api/v1/jobs` and `POST /api/v1/jobs/{id}/retry` authorize via
 `require_any_staff` and apply workload gating independently.
@@ -180,6 +183,24 @@ When adding a new sensitive surface:
 5. Add tests in `backend/tests/test_governance.py` /
    `test_workload_gating.py` covering the role matrix and the gating
    behaviour.
+
+## 6b. Self-scout tendency breaks & frontier analytics (Issues #137 / #10)
+
+Two coaching-staff-only surfaces build on the layers above:
+
+* **Tendency-break alerts (#137)** are persisted as ordinary `alerts` rows with
+  `alert_type=formation_tendency` and `position_group="OFFENSE"` (they are
+  offense-wide, not position-specific). They are surfaced via
+  `GET /api/v1/self-scout/tendency-break`, which blocks `player`/`viewer` and is
+  **not** position-scoped (the generic position filter does not apply to
+  team-level scouting). A coach marks one addressed with
+  `PATCH /api/v1/alerts/{id}/action` — "actioned" is tracked separately from
+  "acknowledged" so staff can see which breaks have been worked.
+* **Frontier analytics (#10)** — xSep / xYards / xPressure — are stored as
+  `metrics` rows that are **forced experimental and never `analytics_safe`** on
+  ingest. `GET /api/v1/analytics/frontier` blocks `player`/`viewer`, returns the
+  coach-readable definitions, and labels every value EXPERIMENTAL. See
+  [`docs/frontier-analytics.md`](frontier-analytics.md).
 
 ## 7. Integration placeholders
 

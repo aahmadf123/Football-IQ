@@ -316,6 +316,38 @@ def create_metric(
         return dict(resp.json())
 
 
+# ── Alerts (Issue #16 / tendency-break #137) ─────────────────────────────────
+
+
+def create_alert(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """POST /api/v1/alerts and return the created alert dict.
+
+    ``payload`` is a fully-formed AlertCreate body (e.g. from
+    ``tendency_break_engine.to_alert_payload``). Returns ``None`` when the
+    backend is disabled (``BACKEND_API_URL`` unset) so stages can run offline /
+    in unit tests without persisting.
+    """
+    if not BACKEND_API_URL:
+        return None
+    try:
+        with _client() as c:
+            resp = c.post("/api/v1/alerts", json=payload)
+            resp.raise_for_status()
+            return dict(resp.json())
+    except Exception as exc:
+        log.warning("create_alert_failed", error=str(exc))
+        return None
+
+
+def create_alerts(payloads: list[dict[str, Any]]) -> int:
+    """POST a batch of alerts one-by-one; return the number persisted."""
+    created = 0
+    for payload in payloads:
+        if create_alert(payload) is not None:
+            created += 1
+    return created
+
+
 # ── Pose Keypoints (Phase 2 / Issue #6) ──────────────────────────────────────
 
 

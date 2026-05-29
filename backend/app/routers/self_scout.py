@@ -6,20 +6,31 @@ pre-snap tells and formation/motion/field-zone/personnel tendencies.
 
 import uuid
 from collections import Counter, defaultdict
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics import tendency_break as tb
+from app.cfbd.models import CFBDPlay
 from app.database import get_db
-from app.deps import get_current_user
-from app.models import Clip, Label, User
+from app.deps import get_current_user, require_coach_or_above
+from app.models import Alert, AlertSeverity, AlertType, Clip, Label, User, UserRole
+from app.routers.alerts_sse import publish_alert
+from app.workload import require_workload_capacity
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/self-scout", tags=["self-scout"])
+
+# Tendency-break alerts are an offense-wide scouting concern, not tied to a
+# single position group; they are surfaced via the self-scout endpoints below
+# (staff-only) rather than the position-scoped alerts list.
+TENDENCY_POSITION_GROUP = "OFFENSE"
+SEASON_SESSION_ID = "season"
 
 TENDENCY_ALERT_THRESHOLD = 0.70
 PRE_SNAP_TELL_THRESHOLD = 0.80
@@ -668,3 +679,310 @@ def _generate_alerts(
                 )
 
     return alerts
+
+
+# ── Tendency-break alerts (Issue #137) ──────────────────────────────────────────
+
+
+class TendencyBreakAlertOut(BaseModel):
+    """A persisted tendency-break alert, flattened for the frontend overlay."""
+
+    id: uuid.UUID | None = None
+    grouping_key: str
+    tendency_kind: str
+    lean: str
+    severity: str
+    confidence: float
+    message: str
+    run_rate: float
+    pass_rate: float
+    total_plays: int
+    evidence_clip_ids: list[str]
+    source: str
+    experimental: bool
+    baseline_pass_rate: float | None = None
+    divergence_pp: float | None = None
+    baseline_source: str | None = None
+    session_id: str | None = None
+    is_actioned: bool = False
+    actioned_at: str | None = None
+
+
+class TendencyBreakRunResponse(BaseModel):
+    generated: int
+    season_tendency_count: int
+    pattern_break_count: int
+    season_clip_count: int
+    game_clip_count: int
+    cfbd_baseline_pass_rate: float | None = None
+    cfbd_baseline_source: str | None = None
+    alerts: list[TendencyBreakAlertOut]
+
+
+class TendencyBreakListResponse(BaseModel):
+    alerts: list[TendencyBreakAlertOut]
+    total: int
+
+
+def _block_non_staff(user: User) -> None:
+    """Tendency-break surfaces are coaching-staff only — never player/viewer."""
+    if user.role in (UserRole.player, UserRole.viewer):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-scout tendency breaks are coaching-staff only",
+        )
+
+
+async def _load_plays(
+    db: AsyncSession,
+    video_id: uuid.UUID | None,
+    limit: int,
+) -> list[tb.Play]:
+    """Load cached clips + labels and reduce them to tendency-break plays."""
+    q = select(Clip).order_by(Clip.start_time, Clip.id).limit(limit)
+    if video_id is not None:
+        q = q.where(Clip.video_id == video_id)
+    clips = list((await db.execute(q)).scalars().all())
+    if not clips:
+        return []
+
+    clip_ids = [c.id for c in clips]
+    label_rows = await db.execute(select(Label).where(Label.clip_id.in_(clip_ids)))
+    labels = list(label_rows.scalars().all())
+    labels_by_clip: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for lbl in labels:
+        if lbl.clip_id is not None:
+            labels_by_clip[str(lbl.clip_id)].append(
+                {"label_type": lbl.label_type, "label_value": lbl.label_value}
+            )
+
+    clip_dicts = [
+        {
+            "id": str(c.id),
+            "personnel_grouping": c.personnel_grouping,
+            "field_zone": c.field_zone,
+            "down": c.down,
+            "distance": c.distance,
+        }
+        for c in clips
+    ]
+    return tb.build_plays(clip_dicts, labels_by_clip)
+
+
+async def _cfbd_baseline(db: AsyncSession, team: str | None) -> float | None:
+    """Overall pass rate from cached CFBD plays for ``team`` (offense)."""
+    if not team:
+        return None
+    rows = (
+        await db.execute(select(CFBDPlay.play_type).where(CFBDPlay.offense == team).limit(5000))
+    ).all()
+    if not rows:
+        return None
+    return tb.cfbd_pass_rate_baseline([{"play_type": r[0]} for r in rows])
+
+
+def _alert_out_from_engine(
+    alert: tb.TendencyBreakAlert,
+    *,
+    alert_id: uuid.UUID | None,
+    session_id: str | None,
+    is_actioned: bool = False,
+    actioned_at: str | None = None,
+) -> TendencyBreakAlertOut:
+    return TendencyBreakAlertOut(
+        id=alert_id,
+        grouping_key=alert.grouping_key,
+        tendency_kind=alert.tendency_kind,
+        lean=alert.lean,
+        severity=alert.severity,
+        confidence=alert.confidence,
+        message=alert.message,
+        run_rate=alert.run_rate,
+        pass_rate=alert.pass_rate,
+        total_plays=alert.total_plays,
+        evidence_clip_ids=alert.evidence_clip_ids,
+        source=alert.source,
+        experimental=alert.experimental,
+        baseline_pass_rate=alert.baseline_pass_rate,
+        divergence_pp=alert.divergence_pp,
+        baseline_source=alert.baseline_source,
+        session_id=session_id,
+        is_actioned=is_actioned,
+        actioned_at=actioned_at,
+    )
+
+
+def _alert_out_from_orm(a: Alert) -> TendencyBreakAlertOut:
+    mv = a.metric_value or {}
+    return TendencyBreakAlertOut(
+        id=a.id,
+        grouping_key=str(mv.get("grouping_key", a.metric_name)),
+        tendency_kind=str(mv.get("tendency_kind", "season_tendency")),
+        lean=str(mv.get("lean", "")),
+        severity=a.severity.value,
+        confidence=a.confidence,
+        message=str(mv.get("message", "")),
+        run_rate=float(mv.get("run_rate", 0.0)),
+        pass_rate=float(mv.get("pass_rate", 0.0)),
+        total_plays=int(mv.get("total_plays", 0)),
+        evidence_clip_ids=[str(c) for c in mv.get("evidence_clip_ids", [])],
+        source=str(mv.get("source", "toledo_film")),
+        experimental=bool(mv.get("experimental", False)),
+        baseline_pass_rate=mv.get("baseline_pass_rate"),
+        divergence_pp=mv.get("divergence_pp"),
+        baseline_source=mv.get("baseline_source"),
+        session_id=a.session_id,
+        is_actioned=a.is_actioned,
+        actioned_at=a.actioned_at.isoformat() if a.actioned_at else None,
+    )
+
+
+def _first_uuid(clip_ids: list[str]) -> uuid.UUID | None:
+    for cid in clip_ids:
+        try:
+            return uuid.UUID(cid)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+@router.post("/tendency-break", response_model=TendencyBreakRunResponse)
+async def generate_tendency_break(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_coach_or_above)],
+    _capacity: Annotated[Any, Depends(require_workload_capacity("self_scout.tendency_break"))],
+    game_video_id: uuid.UUID | None = Query(
+        default=None,
+        description="Optional film to evaluate for in-game pattern breaks vs. the season baseline.",
+    ),
+    cfbd_team: str | None = Query(
+        default=None,
+        description="Cached CFBD team (offense) to derive an informational pass-rate baseline.",
+    ),
+    limit: int = Query(default=2000, ge=1, le=5000),
+) -> TendencyBreakRunResponse:
+    """Generate and persist tendency-break alerts from cached/project data.
+
+    Reads the labeled clips the platform already holds (no live video
+    processing), runs the deterministic tendency-break engine, and persists
+    ``formation_tendency`` alerts. Heavy enough to be workload-gated because it
+    scans the whole labeled corpus.
+    """
+    season_plays = await _load_plays(db, video_id=None, limit=limit)
+    season_alerts = tb.season_tendency_alerts(season_plays)
+
+    game_alerts: list[tb.TendencyBreakAlert] = []
+    game_clip_count = 0
+    if game_video_id is not None:
+        game_plays = await _load_plays(db, video_id=game_video_id, limit=limit)
+        game_clip_count = len(game_plays)
+        if game_plays:
+            baseline = tb.season_pass_rate_by_bucket(season_plays)
+            game_alerts = tb.pattern_break_alerts(game_plays, baseline)
+
+    cfbd_baseline = await _cfbd_baseline(db, cfbd_team)
+
+    # Dedup against already-persisted tendency alerts (same session + key).
+    season_sid = SEASON_SESSION_ID
+    game_sid = str(game_video_id) if game_video_id is not None else None
+    session_ids = [season_sid] + ([game_sid] if game_sid else [])
+    existing_rows = (
+        await db.execute(
+            select(Alert.session_id, Alert.metric_name).where(
+                Alert.alert_type == AlertType.formation_tendency,
+                Alert.session_id.in_(session_ids),
+            )
+        )
+    ).all()
+    existing = {(r[0], r[1]) for r in existing_rows}
+
+    out: list[TendencyBreakAlertOut] = []
+    created = 0
+    for engine_alert, session_id in (
+        *[(a, season_sid) for a in season_alerts],
+        *[(a, game_sid) for a in game_alerts],
+    ):
+        if (session_id, engine_alert.grouping_key) in existing:
+            continue
+        existing.add((session_id, engine_alert.grouping_key))
+        metric_value = engine_alert.metric_value()
+        if cfbd_baseline is not None and cfbd_team:
+            metric_value["cfbd_baseline_pass_rate"] = cfbd_baseline
+            metric_value["cfbd_team"] = cfbd_team
+        alert = Alert(
+            id=uuid.uuid4(),
+            clip_id=_first_uuid(engine_alert.evidence_clip_ids),
+            position_group=TENDENCY_POSITION_GROUP,
+            alert_type=AlertType.formation_tendency,
+            severity=AlertSeverity(engine_alert.severity),
+            confidence=engine_alert.confidence,
+            metric_name=engine_alert.grouping_key[:255],
+            metric_value=metric_value,
+            session_id=session_id,
+            is_acknowledged=False,
+            is_actioned=False,
+            created_at=datetime.now(UTC),
+        )
+        db.add(alert)
+        await db.flush()
+        created += 1
+        out.append(_alert_out_from_engine(engine_alert, alert_id=alert.id, session_id=session_id))
+        try:
+            from app.routers.alerts import AlertResponse
+
+            publish_alert(AlertResponse.from_orm(alert).model_dump(mode="json"))
+        except Exception as exc:  # pragma: no cover - best-effort fan-out
+            log.warning("tendency_break_sse_publish_failed", error=str(exc))
+
+    log.info(
+        "tendency_break_generated",
+        season_clip_count=len(season_plays),
+        game_clip_count=game_clip_count,
+        season_alerts=len(season_alerts),
+        pattern_breaks=len(game_alerts),
+        created=created,
+    )
+
+    return TendencyBreakRunResponse(
+        generated=created,
+        season_tendency_count=len(season_alerts),
+        pattern_break_count=len(game_alerts),
+        season_clip_count=len(season_plays),
+        game_clip_count=game_clip_count,
+        cfbd_baseline_pass_rate=cfbd_baseline,
+        cfbd_baseline_source="cfbd" if cfbd_baseline is not None else None,
+        alerts=out,
+    )
+
+
+@router.get("/tendency-break", response_model=TendencyBreakListResponse)
+async def list_tendency_break(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    actioned: bool | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> TendencyBreakListResponse:
+    """List persisted tendency-break alerts (coaching-staff only).
+
+    These are offense-wide scouting alerts, so — unlike the position-scoped
+    alerts list — they are not filtered by the caller's position group.
+    """
+    _block_non_staff(current_user)
+
+    q = (
+        select(Alert)
+        .where(Alert.alert_type == AlertType.formation_tendency)
+        .order_by(Alert.created_at.desc())
+        .limit(limit)
+    )
+    if actioned is not None:
+        q = q.where(Alert.is_actioned == actioned)
+    if session_id is not None:
+        q = q.where(Alert.session_id == session_id)
+
+    rows = list((await db.execute(q)).scalars().all())
+    return TendencyBreakListResponse(
+        alerts=[_alert_out_from_orm(a) for a in rows],
+        total=len(rows),
+    )

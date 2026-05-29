@@ -72,6 +72,9 @@ class AlertResponse(BaseModel):
     is_acknowledged: bool
     acknowledged_by: uuid.UUID | None
     acknowledged_at: str | None
+    is_actioned: bool
+    actioned_by: uuid.UUID | None
+    actioned_at: str | None
     created_at: str
 
     @classmethod
@@ -94,6 +97,9 @@ class AlertResponse(BaseModel):
             is_acknowledged=a.is_acknowledged,
             acknowledged_by=a.acknowledged_by,
             acknowledged_at=a.acknowledged_at.isoformat() if a.acknowledged_at else None,
+            is_actioned=a.is_actioned,
+            actioned_by=a.actioned_by,
+            actioned_at=a.actioned_at.isoformat() if a.actioned_at else None,
             created_at=a.created_at.isoformat(),
         )
 
@@ -129,6 +135,7 @@ async def create_alert(
         session_id=body.session_id,
         job_id=body.job_id,
         is_acknowledged=False,
+        is_actioned=False,
         created_at=datetime.now(UTC),
     )
     db.add(alert)
@@ -159,6 +166,7 @@ async def list_alerts(
     severity: AlertSeverity | None = Query(default=None),
     session_id: str | None = Query(default=None),
     acknowledged: bool | None = Query(default=None),
+    actioned: bool | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> list[AlertResponse]:
@@ -186,6 +194,8 @@ async def list_alerts(
         q = q.where(Alert.session_id == session_id)
     if acknowledged is not None:
         q = q.where(Alert.is_acknowledged == acknowledged)
+    if actioned is not None:
+        q = q.where(Alert.is_actioned == actioned)
 
     result = await db.execute(q)
     return [AlertResponse.from_orm(a) for a in result.scalars().all()]
@@ -237,5 +247,37 @@ async def acknowledge_alert(
         "alert_acknowledged",
         alert_id=str(alert_id),
         acknowledged_by=str(current_user.id),
+    )
+    return AlertResponse.from_orm(alert)
+
+
+@router.patch("/{alert_id}/action", response_model=AlertResponse)
+async def action_alert(
+    alert_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_coach_or_above)],
+) -> AlertResponse:
+    """Mark an alert as actioned (turned into a practice/scheme follow-up).
+
+    Distinct from acknowledging (Issue #137): acknowledging means the alert was
+    seen; actioning means a coach has addressed it. Tracked in the DB so staff
+    can see which tendency breaks have been worked. Only coaching staff and
+    above may action alerts.
+    """
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = result.scalar_one_or_none()
+    if alert is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+
+    alert.is_actioned = True
+    alert.actioned_by = current_user.id
+    alert.actioned_at = datetime.now(UTC)
+    await db.flush()
+
+    log.info(
+        "alert_actioned",
+        alert_id=str(alert_id),
+        actioned_by=str(current_user.id),
+        alert_type=alert.alert_type.value,
     )
     return AlertResponse.from_orm(alert)

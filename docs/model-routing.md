@@ -250,6 +250,25 @@ checkpoints (`PLAY_PREDICTION_FORMATION_MODEL` / `PLAY_PREDICTION_MOTION_MODEL`)
 load at runtime and fall back to the deterministic path when absent. See
 [`docs/pre-snap-prediction.md`](pre-snap-prediction.md).
 
+## Not routed: tendency-break + frontier analytics (Issues #137 / #10)
+
+The self-scout **tendency-break engine**
+(`gpu-worker/pipeline/play_prediction/tendency_break_engine.py`,
+`app/analytics/tendency_break.py`) and the **frontier analytics** scaffolds
+(`gpu-worker/pipeline/frontier_analytics.py` — xSep / xYards / xPressure)
+consume the **outputs** of the routed stages (labels, calibrated tracking) and
+run pure deterministic math. They load no model weights and run identically in
+both priority buckets, so — exactly like the pre-snap predictor and the
+Bayesian snap detector — they register **no** `model_router` stage and are
+absent from `DEFAULT_ROUTING`.
+
+Frontier metrics are produced as **experimental** (`experimental_flag=True`,
+`analytics_safe=False`) and source-labeled; the backend forces these metric
+names experimental on ingest (`app.routers.clips.create_metric`) so an
+unvalidated number can never be stored as trusted. SAM masks (#74) and play
+embeddings (#8) are enrichment-only inputs — the metrics still compute when they
+are absent, and no second SAM/embeddings path is introduced.
+
 ## Unknown stages
 
 `select_model("not-a-stage", priority)` returns the module-level
