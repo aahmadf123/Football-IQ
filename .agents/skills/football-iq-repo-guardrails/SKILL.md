@@ -205,6 +205,9 @@ Backend (FastAPI, Python 3.12):
 
 ```bash
 cd backend
+pip install -r requirements-dev.txt
+export SECRET_KEY=any-32-char-string
+export DATABASE_URL=postgresql+asyncpg://footiq:footiq_dev@localhost:5432/footiq
 ruff check .
 ruff format --check .
 mypy app
