@@ -273,7 +273,6 @@ def _dispatch(
             job_id,
             variant=calib_variant,
             capture_regime=capture_regime,
-            priority=priority,
         )
 
     elif job_type == "detect":

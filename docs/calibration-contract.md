@@ -71,7 +71,7 @@ disqualifying reason code is present.
 | `inlier_ratio`      | RANSAC inlier ratio of the chosen fit |
 | `line_count`        | field lines detected on the calibration frame |
 | `parallel_variance` | angular variance of detected yard lines |
-| `temporal_drift`    | mean inter-window re-projection drift (0.0 for a fixed anchor) |
+| `temporal_drift`    | mean inter-window re-projection drift in pixels (0.0 for a fixed anchor) |
 | `is_game_anchor`    | the once-per-game `fixed_sideline` homography reused across plays |
 
 The existing `homography`, `confidence`, `confidence_threshold`,

@@ -64,7 +64,6 @@ def run(
     *,
     variant: str = VARIANT_KALMAN,
     capture_regime: str | None = None,
-    priority: int = 0,
 ) -> dict[str, Any]:
     """Run Stage 3 for the given clip and return output artifacts.
 
@@ -185,8 +184,9 @@ def _calibrate_drone(
 
     homographies = [f[0] for f in valid]
     confidences = [f[2] for f in valid]
-    # Temporal drift = mean pairwise re-projection gap between consecutive
-    # per-window homographies over the frame corners. Low drift ⇒ stable.
+    # Temporal drift = mean pairwise re-projection gap (px) between
+    # consecutive per-window homographies over the frame corners.
+    # Low drift ⇒ stable.
     temporal_drift = _series_drift(homographies, frames[0].shape[:2])
     temporal_stability = cs.temporal_stability_from_drift(temporal_drift)
 
@@ -263,7 +263,7 @@ def _best_frame_fit(
 
 
 def _series_drift(homographies: list[np.ndarray], shape: tuple[int, int]) -> float:
-    """Mean re-projection gap (yards) between consecutive window homographies."""
+    """Mean re-projection gap (px) between consecutive window homographies."""
     if len(homographies) < 2:
         return 0.0
     h, w = shape
@@ -278,11 +278,14 @@ def _series_drift(homographies: list[np.ndarray], shape: tuple[int, int]) -> flo
 
 def _reproj_gap(H_a: np.ndarray, H_b: np.ndarray, pts: np.ndarray) -> float:
     homog = np.hstack([pts, np.ones((len(pts), 1))])
-    pa = (H_a @ homog.T).T
-    pb = (H_b @ homog.T).T
-    pa = pa[:, :2] / np.where(np.abs(pa[:, 2:3]) < 1e-12, 1e-12, pa[:, 2:3])
-    pb = pb[:, :2] / np.where(np.abs(pb[:, 2:3]) < 1e-12, 1e-12, pb[:, 2:3])
-    return float(np.sqrt(((pa - pb) ** 2).sum(axis=1)).mean())
+    try:
+        inv_b = np.linalg.inv(H_b)
+    except np.linalg.LinAlgError:
+        inv_b = np.linalg.pinv(H_b)
+    rel = inv_b @ H_a
+    warped = (rel @ homog.T).T
+    warped_xy = warped[:, :2] / np.where(np.abs(warped[:, 2:3]) < 1e-12, 1e-12, warped[:, 2:3])
+    return float(np.sqrt(((warped_xy - pts) ** 2).sum(axis=1)).mean())
 
 
 def _variance(angles: list[float]) -> float | None:
