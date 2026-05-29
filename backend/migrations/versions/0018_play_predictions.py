@@ -87,7 +87,13 @@ def upgrade() -> None:
         sa.Column("alpha_run", sa.Float(), nullable=False, server_default=sa.text("2.0")),
         sa.Column("n_pass", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("n_run", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=_NOW, nullable=False),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=_NOW,
+            onupdate=_NOW,
+            nullable=False,
+        ),
         sa.UniqueConstraint(
             "opponent_team",
             "down",
