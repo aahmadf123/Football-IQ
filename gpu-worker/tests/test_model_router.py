@@ -70,7 +70,7 @@ def test_select_model_pose_negative_priority_returns_medium() -> None:
 
 @pytest.mark.parametrize(
     "stage",
-    ["segment", "calibrate", "detect", "track", "reid", "pose", "render", "embeddings"],
+    ["segment", "calibrate", "detect", "ball", "track", "reid", "pose", "render", "embeddings"],
 )
 def test_select_model_returns_non_empty_string_for_known_stages(stage: str) -> None:
     fast = select_model(stage, SAME_SESSION_PRIORITY)
@@ -308,6 +308,51 @@ def test_build_routing_artifact_for_calibrate() -> None:
     assert build_routing_artifact("calibrate", NIGHTLY_PRIORITY) == {
         "calibrate": model_router.CALIB_HOUGH_DLT_KALMAN
     }
+
+
+# ── Ball routing (Issue #133) ────────────────────────────────────────────────
+
+
+def test_ball_same_session_is_dedicated_nano_model() -> None:
+    assert select_model("ball", SAME_SESSION_PRIORITY) == model_router.YOLO_BALL
+
+
+def test_ball_nightly_is_dedicated_nano_model() -> None:
+    # Same nano model in both buckets — SAHI is gated by regime, not priority.
+    assert select_model("ball", NIGHTLY_PRIORITY) == model_router.YOLO_BALL
+
+
+def test_ball_variant_is_not_nightly_only_guardrail() -> None:
+    # The dedicated ball model is lightweight and same-session safe — it must
+    # not be on the SAM/embeddings hard guardrail.
+    assert not model_router.is_nightly_only_variant(model_router.YOLO_BALL)
+
+
+def test_build_routing_artifact_for_ball() -> None:
+    assert build_routing_artifact("ball", SAME_SESSION_PRIORITY) == {
+        "ball": model_router.YOLO_BALL
+    }
+    assert build_routing_artifact("ball", NIGHTLY_PRIORITY) == {
+        "ball": model_router.YOLO_BALL
+    }
+
+
+def test_ball_cannot_be_forced_off_guardrail_into_sam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An override that points ball at a nightly-only SAM variant in the
+    same-session bucket must be rejected at load time."""
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {"ball": {"same_session": "sam3.1", "nightly": model_router.YOLO_BALL}}
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+    ball_same = select_model("ball", SAME_SESSION_PRIORITY)
+    assert ball_same not in model_router.NIGHTLY_ONLY_VARIANTS
+    assert ball_same == DEFAULT_ROUTING["ball"]["same_session"]
 
 
 # ── Embeddings nightly routing (Issue #8) ────────────────────────────────────

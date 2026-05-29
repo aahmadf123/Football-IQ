@@ -318,6 +318,59 @@ def get_detector(
     return StubDetector()
 
 
+# ── Regime-aware player composition (Issue #128) ──────────────────────────────
+
+# Regimes (kept in sync with pipeline.homography.regime_detector).
+_DRONE_FOLLOW = "drone_follow"
+
+
+def player_detection_strategy(regime: str | None) -> str:
+    """Strategy label for the player routing artifact, by capture regime.
+
+    ``drone_follow`` players are 30–80 px tall → SAHI tiles + dual-resolution.
+    ``fixed_sideline`` / ``unknown`` players are 80–200 px → the base detector
+    is enough (SAHI not needed; dual-res only a marginal lift — Issue #128).
+    """
+    return "sahi-400+dual-res" if regime == _DRONE_FOLLOW else "base"
+
+
+def build_player_detector(
+    variant: str,
+    regime: str | None = None,
+    *,
+    base: DetectorBase | None = None,
+    confidence_threshold: float = 0.35,
+) -> DetectorBase:
+    """Compose the regime-appropriate player detector around a base model.
+
+    The base model is the router-resolved variant (``yolov8n`` same-session,
+    ``yolov8m`` nightly, or ``sam3.1`` when ``ENABLE_SAM3_NIGHTLY``). For
+    ``drone_follow`` it is wrapped in dual-resolution + SAHI (400 px tiles,
+    0.2 overlap) to recover small players; otherwise the base model is
+    returned unchanged. Wrapping a router-resolved adapter (never a raw YOLO
+    handle) keeps same-session safety intact.
+    """
+    detector = (
+        base
+        if base is not None
+        else get_detector(variant, confidence_threshold=confidence_threshold)
+    )
+    if regime != _DRONE_FOLLOW:
+        return detector
+    # Local imports avoid a package import cycle (detection imports this module).
+    from pipeline.detection.dual_res_merger import DualResolutionDetector
+    from pipeline.detection.sahi_wrapper import (
+        DEFAULT_OVERLAP,
+        PLAYER_TILE,
+        SAHIDetectorAdapter,
+    )
+
+    sahi = SAHIDetectorAdapter(
+        detector, tile=PLAYER_TILE, overlap=DEFAULT_OVERLAP, full_frame_pass=True
+    )
+    return DualResolutionDetector(sahi)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

@@ -277,7 +277,15 @@ def _dispatch(
 
     elif job_type == "detect":
         detect_variant = model_router.select_model("detect", priority)
-        return stage_detect.run(video_id, input_uri, job_id, variant=detect_variant)
+        capture_regime = input_artifacts.get("capture_regime")
+        return stage_detect.run(
+            video_id,
+            input_uri,
+            job_id,
+            variant=detect_variant,
+            capture_regime=capture_regime,
+            priority=priority,
+        )
 
     elif job_type == "track":
         detections: dict[str, Any] = input_artifacts.get("detections", {})

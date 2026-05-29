@@ -59,6 +59,13 @@ SAM3_1: str = "sam3.1"
 IOU_TRACKER: str = "iou-tracker"
 SAM3_MASK_TRACKER: str = "sam3-mask-tracker"
 
+# Ball variant — Issue #133. A *dedicated* nano ball model (not a class on the
+# player detector). Same model serves both priority buckets; SAHI tiling is
+# gated by capture regime at the stage call site, not by priority (see
+# ``pipeline.detection.ball_detector``). Pixel-only / lightweight, so it is
+# NOT a nightly-only variant and is safe for the same-session window.
+YOLO_BALL: str = "yolov8n-ball"
+
 # Embedding variant — see ``docs/embeddings-architecture.md`` §11 and
 # ``gpu-worker/pipeline/stage_embed.py``.
 PLAY_EMBED_BASELINE: str = "play-embed-clip-vitb32-baseline"
@@ -104,6 +111,7 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "segment":    {_SAME_SESSION_KEY: "optical-flow-fast", _NIGHTLY_KEY: "optical-flow-fast"},
     "calibrate":  {_SAME_SESSION_KEY: CALIB_HOUGH_DLT,     _NIGHTLY_KEY: CALIB_HOUGH_DLT_KALMAN},
     "detect":     {_SAME_SESSION_KEY: "yolov8n",           _NIGHTLY_KEY: "yolov8m"},
+    "ball":       {_SAME_SESSION_KEY: YOLO_BALL,           _NIGHTLY_KEY: YOLO_BALL},
     "track":      {_SAME_SESSION_KEY: "iou-tracker",       _NIGHTLY_KEY: "iou-tracker"},
     "reid":       {_SAME_SESSION_KEY: "jersey-ocr",        _NIGHTLY_KEY: "jersey-ocr"},
     "pose":       {_SAME_SESSION_KEY: RTMPOSE_FAST,        _NIGHTLY_KEY: RTMPOSE_MEDIUM},
@@ -240,9 +248,9 @@ def select_model(stage: str, priority: int) -> str:
     """Return the model variant for ``stage`` at the given ``priority``.
 
     Args:
-        stage: Pipeline stage name — one of ``segment``, ``detect``,
-            ``track``, ``reid``, ``pose``, ``render``, ``embeddings``,
-            or any key configured via ``MODEL_ROUTING_CONFIG``.
+        stage: Pipeline stage name — one of ``segment``, ``calibrate``,
+            ``detect``, ``ball``, ``track``, ``reid``, ``pose``, ``render``,
+            ``embeddings``, or any key configured via ``MODEL_ROUTING_CONFIG``.
         priority: Value from ``processing_jobs.priority``.
             ``SAME_SESSION_PRIORITY`` (10) routes to the fast variant;
             anything lower routes to the nightly variant.
