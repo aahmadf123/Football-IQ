@@ -316,6 +316,12 @@ def _dispatch(
     elif job_type == "events":
         detections = input_artifacts.get("detections", {})
         fps = float(input_artifacts.get("fps", 30))
+        # pose_by_frame comes from the job JSON so its frame keys are strings;
+        # normalise to int so snap_frame arithmetic and dict lookups work.
+        _pose_raw = input_artifacts.get("pose_by_frame")
+        _pose_normed: dict | None = (
+            {int(k): v for k, v in _pose_raw.items()} if _pose_raw else None
+        )
         # Optional multi-signal inputs (Issues #132/#134). When absent the
         # stage falls back to the legacy bbox-displacement heuristic.
         return stage_events.run(
@@ -325,7 +331,9 @@ def _dispatch(
             job_id,
             tracklets=input_artifacts.get("tracklets"),
             ball_detections=input_artifacts.get("ball_detections"),
-            pose_by_frame=input_artifacts.get("pose_by_frame"),
+            pose_by_frame=_pose_normed,
+            frames=input_artifacts.get("frames"),
+            frames_start_frame=int(input_artifacts.get("frames_start_frame", 0)),
             ol_track_ids=input_artifacts.get("ol_track_ids"),
             qb_track_id=input_artifacts.get("qb_track_id"),
             center_track_id=input_artifacts.get("center_track_id"),

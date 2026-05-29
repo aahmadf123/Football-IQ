@@ -125,7 +125,9 @@ confirmed result.
 `input_artifacts["events"]` to `stage_labels`, `stage_metrics`, `stage_oline`,
 and `stage_routes`. Those stages already key off `event_type == "snap"` and the
 snap `frame_number`, so pre-snap formation/motion analysis can consume the new,
-more accurate snap timing and the `los_x` field without further changes.
+more accurate snap timing without further changes. Consuming `attributes.los_x`
+from those downstream stages is a follow-up task: it is stored in every snap
+event but the downstream stages do not yet read it.
 
 ## Inputs the stage accepts
 

@@ -56,6 +56,8 @@ def run(
     tracklets: list[dict[str, Any]] | None = None,
     ball_detections: dict[str, list[dict[str, Any]]] | None = None,
     pose_by_frame: dict[int, dict[str, dict[str, tuple[float, float]]]] | None = None,
+    frames: list[np.ndarray] | None = None,
+    frames_start_frame: int = 0,
     ol_track_ids: list[str] | None = None,
     qb_track_id: str | None = None,
     center_track_id: str | None = None,
@@ -80,6 +82,8 @@ def run(
             detections=detections,
             ball_detections=ball_detections,
             pose_by_frame=pose_by_frame,
+            frames=frames,
+            frames_start_frame=frames_start_frame,
             ol_track_ids=ol_track_ids,
             qb_track_id=qb_track_id,
             center_track_id=center_track_id,
@@ -119,6 +123,8 @@ def _detect_multisignal(
     detections: dict[str, list[dict[str, Any]]],
     ball_detections: dict[str, list[dict[str, Any]]] | None,
     pose_by_frame: dict[int, dict[str, dict[str, tuple[float, float]]]] | None,
+    frames: list[np.ndarray] | None,
+    frames_start_frame: int,
     ol_track_ids: list[str] | None,
     qb_track_id: str | None,
     center_track_id: str | None,
@@ -134,7 +140,11 @@ def _detect_multisignal(
     player_positions = attrib.positions_by_frame(tracklets)
 
     # Ball field/pixel tracks (shared by the snap signal and the FSM).
-    px_obs = observations_from_detections(ball_detections) if ball_detections else {}
+    # Fall back to the merged detections artifact when no dedicated ball
+    # detections artifact is present (stage_detect appends ball boxes into
+    # detections rather than a separate key for most pipeline jobs).
+    _ball_src = ball_detections if ball_detections is not None else detections
+    px_obs = observations_from_detections(_ball_src) if _ball_src else {}
     field_obs = _project_obs(px_obs, homography) if (px_obs and homography is not None) else {}
     ball_track_field = track_ball(field_obs, fps) if field_obs else []
     ball_track_px = track_ball(px_obs, fps) if px_obs else []
@@ -143,6 +153,8 @@ def _detect_multisignal(
     snap_inputs = SnapInputs(
         tracklets=tracklets,
         fps=fps,
+        frames=frames,
+        frames_start_frame=frames_start_frame,
         pose_by_frame=pose_by_frame,
         ol_track_ids=ol_track_ids,
         qb_track_id=qb_track_id,
@@ -220,8 +232,14 @@ def _detect_multisignal(
             if sm.first_airborne_frame is not None
             else None
         )
+        player_velocities = _compute_player_velocities(player_positions, sm.catch_frame, fps)
         receiver_id = (
-            attrib.attribute_catch(ball_track_field, player_positions, sm.catch_frame)
+            attrib.attribute_catch(
+                ball_track_field,
+                player_positions,
+                sm.catch_frame,
+                player_velocities=player_velocities,
+            )
             if sm.catch_frame is not None
             else None
         )
@@ -281,7 +299,7 @@ def _trajectory_metrics(
             times.append(p.frame / fps)
             ys.append(p.y)
     fit = traj.fit_parabola(times, ys) if len(times) >= 3 else None
-    if fit is not None:
+    if fit is not None and fit.well_formed:
         metrics["apex_y_image"] = round(fit.apex_y, 2)
         metrics["trajectory_rms_px"] = round(fit.rms_residual, 2)
     return metrics
@@ -310,6 +328,36 @@ def _validate_states(states: list[Any]) -> bool:
     from pipeline.ball.ball_state_machine import validate
 
     return validate(states)
+
+
+def _compute_player_velocities(
+    player_positions: dict[int, dict[str, tuple[float, float]]],
+    catch_frame: int | None,
+    fps: float,
+) -> dict[str, tuple[float, float]] | None:
+    """Estimate player velocity (yd/s) at *catch_frame* from adjacent frames.
+
+    Returns ``None`` when there is no previous frame to diff against, so the
+    caller can omit ``player_velocities`` and fall back to nearest-player
+    attribution unchanged.
+    """
+    if catch_frame is None:
+        return None
+    prev_frames = [f for f in player_positions if f < catch_frame]
+    if not prev_frames:
+        return None
+    prev_frame = max(prev_frames)
+    dt = (catch_frame - prev_frame) / fps if fps else 0.0
+    if dt <= 0.0:
+        return None
+    cur = player_positions.get(catch_frame, {})
+    prev = player_positions.get(prev_frame, {})
+    velocities: dict[str, tuple[float, float]] = {}
+    for tid, (cx, cy) in cur.items():
+        if tid in prev:
+            px, py = prev[tid]
+            velocities[tid] = ((cx - px) / dt, (cy - py) / dt)
+    return velocities or None
 
 
 # ── Legacy heuristic path (unchanged behaviour) ─────────────────────────────
