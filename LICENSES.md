@@ -160,6 +160,57 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## BoT-SORT (tracker)
+
+| Field | Detail |
+|---|---|
+| **Component** | BoT-SORT multi-object tracker (ECC camera-motion compensation + ReID) |
+| **Source** | https://github.com/NirAharon/BoT-SORT · paper https://arxiv.org/abs/2206.14651 |
+| **Sport coverage** | Sport-agnostic tracking algorithm; applied to American-football player tracking only |
+| **License** | MIT (reference implementation) |
+| **Access / key** | None — Football-IQ ships its **own pure-NumPy adapter** (`gpu-worker/pipeline/tracking/botsort_adapter.py`), not the upstream package; no install, no key |
+| **Weights** | None committed. Appearance ReID is optional and rides on detection embeddings; camera-motion warps come from `pipeline.homography.camera_motion_ecc` (Issue #138) |
+| **Runtime category** | Nightly-only tracker variant (`botsort`); ~2 GB when paired with a ReID model |
+| **Router path** | `pipeline.model_router` → nightly `track` via `ENABLE_BOTSORT_NIGHTLY`; on `NIGHTLY_ONLY_VARIANTS` so same-session is hard-blocked |
+| **Privacy risk** | None beyond existing player-tracking data; single-camera only (Issue #101) |
+| **Football-IQ usage** | Phase CV — Issue #129. Selectable through the router; never bypasses it. |
+
+---
+
+## StrongSORT (tracker)
+
+| Field | Detail |
+|---|---|
+| **Component** | StrongSORT multi-object tracker (matching cascade + appearance EMA), offline IDF1-optimised |
+| **Source** | https://github.com/dyhBUPT/StrongSORT · paper https://arxiv.org/abs/2202.13514 |
+| **Sport coverage** | Sport-agnostic tracking algorithm; applied to American-football player tracking only |
+| **License** | GPL-3.0 (reference implementation) — **not vendored**; Football-IQ ships an independent pure-NumPy adapter so the GPL code is neither imported nor redistributed |
+| **Access / key** | None — `gpu-worker/pipeline/tracking/strongsort_adapter.py`; no install, no key |
+| **Weights** | None committed; appearance embeddings optional (detection-supplied) |
+| **Runtime category** | Nightly-only tracker variant (`strongsort`); ~3 GB with a ReID model |
+| **Router path** | `pipeline.model_router` → nightly `track` via `MODEL_ROUTING_CONFIG`; on `NIGHTLY_ONLY_VARIANTS` so same-session is hard-blocked |
+| **Privacy risk** | None beyond existing player-tracking data; single-camera only |
+| **Football-IQ usage** | Phase CV — Issue #129. Selectable through the router; never bypasses it. |
+
+---
+
+## PARSeq (jersey-number OCR)
+
+| Field | Detail |
+|---|---|
+| **Component** | PARSeq scene-text recognition for jersey-number OCR |
+| **Source** | https://github.com/baudm/parseq · paper https://arxiv.org/abs/2207.06966 |
+| **Sport coverage** | General scene-text OCR; applied to American-football jersey numbers only |
+| **License** | Apache-2.0 (code). Model checkpoints are user-provided/trained; none committed |
+| **Access / key** | None at build time. Runtime checkpoint via `REID_OCR_MODEL=parseq:/path/to/parseq.pt`; loaded lazily with a Tesseract fallback when absent |
+| **Weights** | **Never committed** (`.pt`/`.pth` are git-ignored). Mounted/downloaded at runtime |
+| **Runtime category** | Nightly-only `reid` variant (`parseq-ocr`); torch-backed |
+| **Router path** | `pipeline.model_router` → nightly `reid`; on `NIGHTLY_ONLY_VARIANTS`. Same-session `reid` stays Tesseract `jersey-ocr` |
+| **Privacy risk** | Reads jersey numbers (no PII/medical); single-camera only |
+| **Football-IQ usage** | Phase CV — Issue #131: `gpu-worker/pipeline/tracking/parseq_ocr_adapter.py`, wired into `stage_reid` ahead of Tesseract on the nightly path. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.

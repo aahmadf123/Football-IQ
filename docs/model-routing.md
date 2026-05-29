@@ -18,7 +18,7 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 | `detect`     | `yolov8n`                    | `yolov8m`               |
 | `ball`       | `yolov8n-ball`               | `yolov8n-ball`          |
 | `track`      | `iou-tracker`                | `iou-tracker`           |
-| `reid`       | `jersey-ocr`                 | `jersey-ocr`            |
+| `reid`       | `jersey-ocr`                 | `parseq-ocr`            |
 | `pose`       | `rtmpose-t`                  | `rtmpose-m`             |
 | `render`     | `ffmpeg-overlay`             | `ffmpeg-overlay`        |
 | `embeddings` | `none`                       | `play-embed-clip-vitb32-baseline` |
@@ -43,11 +43,12 @@ When in doubt, route experimental models to `nightly` and let them prove
 out before promoting them to `same_session`.
 
 The router maintains `NIGHTLY_ONLY_VARIANTS` (currently `{"sam3.1",
-"sam3-mask-tracker", "play-embed-clip-vitb32-baseline"}`). Any routing
-config — env override or otherwise — that tries to place one of these
-in the same-session bucket is rejected at load time and the bucket
-falls back to the bundled default. This is the hard guardrail behind
-the "experimental models default to nightly" rule above.
+"sam3-mask-tracker", "play-embed-clip-vitb32-baseline", "botsort",
+"strongsort", "parseq-ocr"}`). Any routing config — env override or
+otherwise — that tries to place one of these in the same-session bucket
+is rejected at load time and the bucket falls back to the bundled
+default. This is the hard guardrail behind the "experimental models
+default to nightly" rule above.
 
 ## Detection: players, ball, officials (Issues #128 / #133 / #148)
 
@@ -140,6 +141,72 @@ Hugging Face — the worker reads `HF_TOKEN` at runtime to download them
 and logs a warning if the token is absent. See
 `reports/phase2-issue74-sam3-eval.md` for the eval harness and
 promotion criteria.
+
+## Tracker adapters: BoT-SORT / StrongSORT (Issue #129)
+
+The same-session `track` bucket stays on `iou-tracker` — the lightweight,
+predictable path that fits the period-break window. Two heavier adapters are
+available **nightly only** and live in `gpu-worker/pipeline/tracking/`:
+
+| Variant | What it adds | VRAM | Routing |
+| ------- | ------------ | ---- | ------- |
+| `botsort` | constant-velocity prediction + ECC camera-motion compensation + optional appearance ReID — survives `drone_follow` pan | ~2 GB | nightly via `ENABLE_BOTSORT_NIGHTLY=1` |
+| `strongsort` | matching cascade + appearance-EMA, best offline IDF1 | ~3 GB | nightly via `MODEL_ROUTING_CONFIG` override |
+
+Both are on `NIGHTLY_ONLY_VARIANTS`, so a config override can never route them
+to same-session. They are pure-NumPy and carry **no model weights**: BoT-SORT's
+camera-motion warps and both adapters' appearance embeddings are *optional
+injected inputs* (the ECC warps come from
+`pipeline.homography.camera_motion_ecc`; embeddings ride on the detection dicts
+when a ReID adapter produced them). With neither supplied, the adapters degrade
+to a constant-velocity, IoU-scored tracker — strictly no worse than
+`iou-tracker` and better through detection gaps.
+
+Set `ENABLE_BOTSORT_NIGHTLY=1` to upgrade the nightly `track` bucket to
+BoT-SORT:
+
+| Stage | Same-session | Nightly (flags off) | `ENABLE_BOTSORT_NIGHTLY=1` |
+| ----- | ------------ | ------------------- | -------------------------- |
+| `track` | `iou-tracker` | `iou-tracker` | `botsort` |
+
+**Precedence.** If both `ENABLE_BOTSORT_NIGHTLY` and `ENABLE_SAM3_NIGHTLY` are
+set, the SAM 3.1 **mask** tracker (`sam3-mask-tracker`) wins the nightly track
+slot — it is tied to SAM 3.1's mask detections. BoT-SORT is applied first and
+SAM 3.1 overrides it. Same-session is never affected by either flag.
+
+BoT-SORT and StrongSORT must clear the Issue #129 acceptance benchmark
+(ID-switches < 5/play, IDF1 > 75, same-session VRAM < 6 GB) before either is
+promoted to a same-session default; until then they stay nightly-only.
+
+## Re-ID upgrade: PARSeq + trajectory prior + min-cost flow (Issue #131)
+
+`reid` now routes `jersey-ocr` (Tesseract) for same-session and `parseq-ocr`
+(PARSeq) for nightly. `parseq-ocr` is on `NIGHTLY_ONLY_VARIANTS`. The PARSeq
+adapter reads small / rotated / motion-blurred jersey numbers far better than
+Tesseract and **falls back to Tesseract at runtime** when its checkpoint is
+absent (activated by `REID_OCR_MODEL=parseq:/path/to/parseq.pt`; no weights are
+committed). The audit still records the *routed* variant (`parseq-ocr`) even
+when the fallback fires — same convention as `detect` recording `yolov8m`.
+
+`stage_reid` applies four layers in priority order, all of which only ever fill
+the existing `player_id` via `PATCH /api/v1/tracklets/{id}` (no tracklet schema
+change, single-camera only):
+
+1. **OCR** — PARSeq (nightly) or Tesseract (same-session).
+2. **Appearance gallery** — cosine match against identified tracklets.
+3. **Trajectory prior** — for OCR/gallery misses, constant-velocity prediction
+   + roster-position prior + team-membership constraint → Hungarian assignment
+   (`tracking.trajectory_prior_reid`, pure-NumPy Hungarian — `scipy` is not a
+   worker dependency).
+4. **Min-cost-flow stitching (nightly only)** — stitch fragmented tracklets of
+   the same identity *within the clip* via a successive-shortest-path min-cost
+   flow (`tracking.min_cost_flow_stitcher`, pure-Python — no OR-Tools/LPSolve),
+   then propagate the `player_id` across each stitched group without
+   overwriting an existing one.
+
+The per-job artifact records the routed OCR variant under
+`output_artifacts["model_routing"]["reid"]` and the per-layer detail under
+`output_artifacts["reid_strategy"]`.
 
 ## Overriding routing
 
