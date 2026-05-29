@@ -146,7 +146,8 @@ def extract_backfield(
     if qb_position is None:
         return SignalValue("unknown", 0.1, {"qb_depth_yd": None})
     depth = offense_direction * (los_x - qb_position[0])
-    depth = abs(depth)
+    if depth < 0:
+        return SignalValue("unknown", 0.1, {"qb_depth_yd": round(depth, 2)})
     centres = {
         "under_center": _UNDER_CENTER_DEPTH,
         "pistol": _PISTOL_DEPTH,

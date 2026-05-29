@@ -178,7 +178,7 @@ class FormationClassifier:
         width = rel[:, 1]
         # Players >1.5 yd behind LOS are "backfield" (QB/RB); treat the rest as
         # on/near the line (OL + WR/TE split out wide).
-        backfield = rel[np.abs(depth) > 1.5]
+        backfield = rel[depth < -1.5]
         n_back = int(backfield.shape[0])
         # Count receivers split wide (|y| > 8 yd from the ball / hash).
         n_wide = int(np.sum(np.abs(width) > 8.0))

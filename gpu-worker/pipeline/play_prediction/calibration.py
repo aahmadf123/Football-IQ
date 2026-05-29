@@ -224,7 +224,7 @@ def reliability_curve(
     probs: np.ndarray | list[float],
     labels: np.ndarray | list[int],
     n_bins: int = 10,
-) -> list[dict[str, float]]:
+) -> list[dict[str, float | int]]:
     """Equal-width reliability bins for a reliability diagram.
 
     Each bin reports the mean predicted probability, the empirical accuracy,
@@ -234,7 +234,7 @@ def reliability_curve(
     p = np.asarray(probs, dtype=np.float64).ravel()
     y = np.asarray(labels, dtype=np.float64).ravel()
     edges = np.linspace(0.0, 1.0, n_bins + 1)
-    out: list[dict[str, float]] = []
+    out: list[dict[str, float | int]] = []
     for lo, hi in zip(edges[:-1], edges[1:], strict=True):
         mask = (p >= lo) & (p < hi) if hi < 1.0 else (p >= lo) & (p <= hi)
         count = int(np.sum(mask))
@@ -246,7 +246,7 @@ def reliability_curve(
                 "bin_upper": float(hi),
                 "mean_predicted": float(np.mean(p[mask])),
                 "empirical_accuracy": float(np.mean(y[mask])),
-                "count": float(count),
+                "count": count,
             }
         )
     return out

@@ -15,6 +15,7 @@ from pipeline.play_prediction.per_opponent_prior import (
     distance_bucket,
     field_zone,
 )
+from pipeline.play_prediction.formation_mlp import FormationClassifier
 from pipeline.play_prediction.personnel import extract_personnel, position_from_jersey
 from pipeline.play_prediction.signal_extractor import (
     PreSnapSignals,
@@ -90,6 +91,12 @@ def test_backfield_pistol() -> None:
 
 def test_backfield_missing_qb_is_unknown_low_confidence() -> None:
     sig = extract_backfield(None, los_x=50.0)
+    assert sig.value == "unknown"
+    assert sig.confidence < 0.2
+
+
+def test_backfield_qb_in_front_of_los_degrades_to_unknown() -> None:
+    sig = extract_backfield((52.0, 0.0), los_x=50.0)
     assert sig.value == "unknown"
     assert sig.confidence < 0.2
 
@@ -211,6 +218,14 @@ def test_extract_signals_degrades_gracefully_on_empty_input() -> None:
     assert d["personnel"]["value"] == "00"  # zero RB/TE
     assert d["down_distance_zone"]["value"] == "unknown"
     assert signals.mean_confidence < 0.5
+
+
+def test_formation_geometric_ignores_players_in_front_of_los_for_backfield_count() -> None:
+    positions = [(50.0, -2.0 + i) for i in range(5)]
+    positions += [(47.0, 0.0), (46.0, 0.0), (45.0, 0.0), (53.0, 0.0)]
+    positions += [(50.0, 12.0), (50.0, -12.0)]
+    signal = FormationClassifier().classify(positions, los_x=50.0)
+    assert signal.label == "i_form"
 
 
 def test_feature_vector_is_numeric_and_fixed_length() -> None:

@@ -354,6 +354,10 @@ def test_correction_updates_existing_prior_cell() -> None:
     assert existing.n_pass == 4
 
 
+def test_opponent_prior_updated_at_has_onupdate() -> None:
+    assert OpponentPrior.__table__.c.updated_at.onupdate is not None
+
+
 def test_correction_404_when_prediction_missing() -> None:
     session = _RecordingSession(prediction_by_id=None)
     with _client(session) as c:

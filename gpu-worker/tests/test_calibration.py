@@ -94,6 +94,7 @@ def test_reliability_curve_omits_empty_bins() -> None:
     # Only the first and last bins are populated.
     assert len(curve) == 2
     assert all(b["count"] > 0 for b in curve)
+    assert all(isinstance(b["count"], int) for b in curve)
 
 
 def test_ece_low_for_well_calibrated() -> None:

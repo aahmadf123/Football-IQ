@@ -33,6 +33,14 @@ from pipeline.play_prediction.signal_extractor import extract_signals
 log = structlog.get_logger(__name__)
 
 
+def _float_or_default(value: Any, default: float) -> float:
+    return default if value is None else float(value)
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    return default if value is None else int(value)
+
+
 def run(
     plays: list[dict[str, Any]],
     *,
@@ -59,7 +67,7 @@ def run(
             log.warning("presnap_play_missing_clip_id_skipped")
             continue
 
-        los_x = float(play.get("los_x", 50.0))
+        los_x = _float_or_default(play.get("los_x"), 50.0)
         down = play.get("down")
         distance = play.get("distance_yards")
         opponent = play.get("opponent_team")
@@ -67,14 +75,14 @@ def run(
         signals = extract_signals(
             offense_players=play.get("offense_players", []),
             los_x=los_x,
-            hash_y=float(play.get("hash_y", 0.0)),
+            hash_y=_float_or_default(play.get("hash_y"), 0.0),
             qb_position=play.get("qb_position"),
             receiver_positions=play.get("receiver_positions"),
             motion_trajectory=play.get("motion_trajectory"),
             down=down,
             distance_yards=distance,
             down_distance_from_event_log=bool(play.get("down_distance_from_event_log", True)),
-            offense_direction=int(play.get("offense_direction", 1)),
+            offense_direction=_int_or_default(play.get("offense_direction"), 1),
         )
 
         # Situational base log-odds from the per-opponent Dirichlet store. Only

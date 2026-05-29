@@ -101,3 +101,10 @@ def test_stage_persists_via_backend(monkeypatch) -> None:  # type: ignore[no-unt
     assert result["persisted_count"] == 2
     assert len(captured["rows"]) == 2
     assert captured["rows"][0]["clip_id"] == "clip-1"
+
+
+def test_stage_defaults_none_numeric_fields() -> None:
+    play = _play()
+    play.update({"los_x": None, "hash_y": None, "offense_direction": None})
+    result = stage.run([play], persist=False)
+    assert result["prediction_count"] == 1
