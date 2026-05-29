@@ -70,7 +70,7 @@ def test_select_model_pose_negative_priority_returns_medium() -> None:
 
 @pytest.mark.parametrize(
     "stage",
-    ["segment", "detect", "track", "reid", "pose", "render", "embeddings"],
+    ["segment", "calibrate", "detect", "track", "reid", "pose", "render", "embeddings"],
 )
 def test_select_model_returns_non_empty_string_for_known_stages(stage: str) -> None:
     fast = select_model(stage, SAME_SESSION_PRIORITY)
@@ -281,6 +281,33 @@ def test_is_nightly_only_variant_flags_sam3() -> None:
     assert model_router.is_nightly_only_variant("sam3-mask-tracker") is True
     assert model_router.is_nightly_only_variant("yolov8n") is False
     assert model_router.is_nightly_only_variant("iou-tracker") is False
+
+
+# ── Calibrate routing (Issue #127) ───────────────────────────────────────────
+
+
+def test_calibrate_same_session_is_lite_variant() -> None:
+    assert select_model("calibrate", SAME_SESSION_PRIORITY) == model_router.CALIB_HOUGH_DLT
+
+
+def test_calibrate_nightly_is_kalman_variant() -> None:
+    assert select_model("calibrate", NIGHTLY_PRIORITY) == model_router.CALIB_HOUGH_DLT_KALMAN
+
+
+def test_calibrate_variants_are_not_nightly_only_guardrail() -> None:
+    # Both calibrate variants are pixel-only OpenCV paths — neither is on the
+    # SAM/embeddings hard guardrail.
+    assert not model_router.is_nightly_only_variant(model_router.CALIB_HOUGH_DLT)
+    assert not model_router.is_nightly_only_variant(model_router.CALIB_HOUGH_DLT_KALMAN)
+
+
+def test_build_routing_artifact_for_calibrate() -> None:
+    assert build_routing_artifact("calibrate", SAME_SESSION_PRIORITY) == {
+        "calibrate": model_router.CALIB_HOUGH_DLT
+    }
+    assert build_routing_artifact("calibrate", NIGHTLY_PRIORITY) == {
+        "calibrate": model_router.CALIB_HOUGH_DLT_KALMAN
+    }
 
 
 # ── Embeddings nightly routing (Issue #8) ────────────────────────────────────

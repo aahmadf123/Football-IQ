@@ -265,7 +265,15 @@ def _dispatch(
         return stage_segment.run(video_id, input_uri, job_id)
 
     elif job_type == "calibrate":
-        return stage_calibrate.run(video_id, input_uri, job_id)
+        calib_variant = model_router.select_model("calibrate", priority)
+        capture_regime = input_artifacts.get("capture_regime")
+        return stage_calibrate.run(
+            video_id,
+            input_uri,
+            job_id,
+            variant=calib_variant,
+            capture_regime=capture_regime,
+        )
 
     elif job_type == "detect":
         detect_variant = model_router.select_model("detect", priority)

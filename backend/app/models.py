@@ -529,6 +529,19 @@ class FieldCalibration(Base):
     reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # Key pixel-to-field point pairs used for calibration
     calibration_points: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # ── Regime-aware calibration diagnostics (Issue #127 / #138) ──────────────
+    # 9-vector Kalman state vec(H) for DRONE_FOLLOW nightly smoothing
+    kalman_state: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    # RANSAC inlier ratio of the chosen homography fit
+    inlier_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Count of field lines detected on the calibration frame
+    line_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Angular variance of detected yard lines (lower = cleaner parallelism)
+    parallel_variance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Mean inter-window re-projection drift (px); 0.0 for a fixed anchor
+    temporal_drift: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # True for the once-per-game FIXED_SIDELINE anchor reused across plays
+    is_game_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="SET NULL"),

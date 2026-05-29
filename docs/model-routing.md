@@ -14,6 +14,7 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 | Stage        | Same-session (priority ≥ 10) | Nightly (priority < 10) |
 | ------------ | ---------------------------- | ----------------------- |
 | `segment`    | `optical-flow-fast`          | `optical-flow-fast`     |
+| `calibrate`  | `calib-hough-dlt`            | `calib-hough-dlt-kalman`|
 | `detect`     | `yolov8n`                    | `yolov8m`               |
 | `track`      | `iou-tracker`                | `iou-tracker`           |
 | `reid`       | `jersey-ocr`                 | `jersey-ocr`            |
@@ -46,6 +47,29 @@ config — env override or otherwise — that tries to place one of these
 in the same-session bucket is rejected at load time and the bucket
 falls back to the bundled default. This is the hard guardrail behind
 the "experimental models default to nightly" rule above.
+
+## Calibration variants (Issue #127)
+
+The `calibrate` stage is regime-aware (it branches on the `capture_regime`
+detected at ingest, Issue #126) and pixel-only — both variants are pure
+OpenCV/NumPy paths, so neither is on the `NIGHTLY_ONLY_VARIANTS` guardrail:
+
+- `calib-hough-dlt` (same-session): white-paint detection → Hough →
+  angle clustering → labeled yard-line correspondences → normalized
+  DLT + RANSAC, with a 5-component confidence score. Fast enough for the
+  period-break window.
+- `calib-hough-dlt-kalman` (nightly): the same detection core plus a
+  9-DoF Kalman smoother over the per-window homography series for
+  `drone_follow` clips, and chained-ECC drift (Issue #138) as the
+  temporal-stability signal.
+
+For `fixed_sideline` (game) film the camera is effectively bolted down, so a
+single homography is fit once on the cleanest frame and flagged
+`is_game_anchor`; same-session jobs can reuse that cached anchor instead of
+recomputing. The deep-keypoint upgrade (PnLCalib / No-Bells-Just-Whistles)
+referenced in Issue #127 is a future nightly-only variant and is **not** yet
+bundled. See [`docs/calibration-contract.md`](calibration-contract.md) for the
+full calibration contract.
 
 ## Nightly-only: play embeddings (Issue #8)
 

@@ -30,6 +30,13 @@ class CalibrationCreate(BaseModel):
     analytics_safe: bool = False
     reason_codes: list[str] | None = None
     calibration_points: dict[str, Any] | None = None
+    # Regime-aware diagnostics (Issues #127 / #138)
+    kalman_state: list[float] | None = None
+    inlier_ratio: float | None = None
+    line_count: int | None = None
+    parallel_variance: float | None = None
+    temporal_drift: float | None = None
+    is_game_anchor: bool = False
     model_version_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
 
@@ -47,6 +54,13 @@ class CalibrationResponse(BaseModel):
     analytics_safe: bool
     reason_codes: list[str] | None
     calibration_points: dict[str, Any] | None
+    # Regime-aware diagnostics (Issues #127 / #138)
+    kalman_state: list[float] | None
+    inlier_ratio: float | None
+    line_count: int | None
+    parallel_variance: float | None
+    temporal_drift: float | None
+    is_game_anchor: bool
     model_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
     created_at: str
@@ -64,6 +78,12 @@ class CalibrationResponse(BaseModel):
             analytics_safe=c.analytics_safe,
             reason_codes=c.reason_codes,
             calibration_points=c.calibration_points,
+            kalman_state=c.kalman_state,
+            inlier_ratio=c.inlier_ratio,
+            line_count=c.line_count,
+            parallel_variance=c.parallel_variance,
+            temporal_drift=c.temporal_drift,
+            is_game_anchor=c.is_game_anchor,
             model_version_id=c.model_version_id,
             job_id=c.job_id,
             created_at=c.created_at.isoformat(),
@@ -97,6 +117,12 @@ async def create_calibration(
         analytics_safe=body.analytics_safe,
         reason_codes=body.reason_codes,
         calibration_points=body.calibration_points,
+        kalman_state=body.kalman_state,
+        inlier_ratio=body.inlier_ratio,
+        line_count=body.line_count,
+        parallel_variance=body.parallel_variance,
+        temporal_drift=body.temporal_drift,
+        is_game_anchor=body.is_game_anchor,
         model_version_id=body.model_version_id,
         job_id=body.job_id,
     )

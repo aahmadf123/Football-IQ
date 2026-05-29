@@ -63,6 +63,15 @@ SAM3_MASK_TRACKER: str = "sam3-mask-tracker"
 # ``gpu-worker/pipeline/stage_embed.py``.
 PLAY_EMBED_BASELINE: str = "play-embed-clip-vitb32-baseline"
 
+# Calibration variants — Issue #127. Both are pixel-only OpenCV/NumPy paths
+# (no heavy model inference). The lite variant runs white-paint + Hough +
+# normalized DLT/RANSAC and is safe for the same-session window; the nightly
+# variant additionally Kalman-smooths the per-window homography series. The
+# deep-keypoint upgrade (PnLCalib / No-Bells-Just-Whistles) is a future
+# nightly-only variant and is not yet bundled.
+CALIB_HOUGH_DLT: str = "calib-hough-dlt"
+CALIB_HOUGH_DLT_KALMAN: str = "calib-hough-dlt-kalman"
+
 # Variants that are NEVER allowed on the same-session path because they
 # are heavy / experimental / require a HF token at runtime, or — in the
 # case of ``PLAY_EMBED_BASELINE`` — because their work product is only
@@ -93,6 +102,7 @@ _SAM3_NIGHTLY_ENV = "ENABLE_SAM3_NIGHTLY"
 # window on a GTX 1660 Ti class GPU. Nightly variants can be heavier.
 DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "segment":    {_SAME_SESSION_KEY: "optical-flow-fast", _NIGHTLY_KEY: "optical-flow-fast"},
+    "calibrate":  {_SAME_SESSION_KEY: CALIB_HOUGH_DLT,     _NIGHTLY_KEY: CALIB_HOUGH_DLT_KALMAN},
     "detect":     {_SAME_SESSION_KEY: "yolov8n",           _NIGHTLY_KEY: "yolov8m"},
     "track":      {_SAME_SESSION_KEY: "iou-tracker",       _NIGHTLY_KEY: "iou-tracker"},
     "reid":       {_SAME_SESSION_KEY: "jersey-ocr",        _NIGHTLY_KEY: "jersey-ocr"},
