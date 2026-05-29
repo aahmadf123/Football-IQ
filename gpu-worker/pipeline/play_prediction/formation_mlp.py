@@ -128,6 +128,8 @@ class FormationClassifier:
         positions: list[tuple[float, float]],
         los_x: float,
         hash_y: float = 0.0,
+        *,
+        offense_direction: int = 1,
     ) -> FormationSignal:
         n = len(positions)
         if self._maybe_load():
@@ -135,7 +137,7 @@ class FormationClassifier:
                 return self._classify_mlp(positions, los_x, hash_y, n)
             except Exception as exc:  # pragma: no cover - env-dependent
                 log.warning("formation_mlp_infer_failed_fallback_geometric", error=str(exc))
-        return self._classify_geometric(positions, los_x, hash_y, n)
+        return self._classify_geometric(positions, los_x, hash_y, n, offense_direction=offense_direction)
 
     def _classify_mlp(
         self,
@@ -166,6 +168,8 @@ class FormationClassifier:
         los_x: float,
         hash_y: float,
         n: int,
+        *,
+        offense_direction: int = 1,
     ) -> FormationSignal:
         """Deterministic fallback over the normalized position distribution."""
         if n < 6:
@@ -174,7 +178,7 @@ class FormationClassifier:
         rel = np.asarray(positions, dtype=np.float64).reshape(-1, 2) - np.array([los_x, hash_y])
         # Backfield = offense players clearly behind the LOS (negative x toward
         # own goal). Width = lateral spread of skill players.
-        depth = rel[:, 0]
+        depth = offense_direction * rel[:, 0]
         width = rel[:, 1]
         # Players >1.5 yd behind LOS are "backfield" (QB/RB); treat the rest as
         # on/near the line (OL + WR/TE split out wide).

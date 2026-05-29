@@ -270,7 +270,9 @@ def extract_signals(
         for p in offense_players
         if p.get("x") is not None and p.get("y") is not None
     ]
-    formation_res: FormationSignal = formation_classifier.classify(positions, los_x, hash_y)
+    formation_res: FormationSignal = formation_classifier.classify(
+        positions, los_x, hash_y, offense_direction=offense_direction
+    )
     formation = SignalValue(
         formation_res.label,
         formation_res.confidence,

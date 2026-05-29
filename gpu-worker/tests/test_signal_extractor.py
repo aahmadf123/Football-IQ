@@ -228,6 +228,14 @@ def test_formation_geometric_ignores_players_in_front_of_los_for_backfield_count
     assert signal.label == "i_form"
 
 
+def test_formation_geometric_respects_reverse_offense_direction() -> None:
+    positions = [(50.0, -2.0 + i) for i in range(5)]
+    positions += [(53.0, 0.0), (54.0, 0.0), (55.0, 0.0), (47.0, 0.0)]
+    positions += [(50.0, 12.0), (50.0, -12.0)]
+    signal = FormationClassifier().classify(positions, los_x=50.0, offense_direction=-1)
+    assert signal.label == "i_form"
+
+
 def test_feature_vector_is_numeric_and_fixed_length() -> None:
     signals = extract_signals(offense_players=_full_offense(), los_x=50.0, down=2, distance_yards=4.0)
     fv = signals.feature_vector()
