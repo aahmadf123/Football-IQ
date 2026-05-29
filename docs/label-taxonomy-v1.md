@@ -15,6 +15,7 @@ This v1 taxonomy maps Toledo football terminology to generic football analytics 
 | Run Concept | Inside Zone, Duo, Counter, Dart, GT | Run concept family | Zone, Gap, Power, Counter, QB run |
 | Pass Concept | Flood, Smash, Stick, Mesh, Y-Cross | Pass concept family | Flood, Smash, Stick, Mesh, Cross, RPO |
 | Event | Explosive, TFL, PBU, Pressure Won | Tagged play event | Snap, handoff, throw, catch, tackle, sack, penalty, TD |
+| Ball-state event (Phase CV) | — | Auto-detected ball event | snap, throw, catch, interception, incomplete, fumble, tackle, out_of_bounds, touchdown |
 
 ## Labeling Rules
 - Apply both **Toledo term** and **generic term** whenever known.
@@ -29,6 +30,24 @@ This v1 taxonomy maps Toledo football terminology to generic football analytics 
 - Officials have a stripe-pattern guard, and helmet color is used only as a tiebreaker when jersey CIELab distances are close.
 - Fallback: if no readable frames or bbox track points are available, the label stage leaves team classification empty and keeps the existing positional label behavior.
 - Limitation: these are visual clusters, not roster-confirmed identities; similar uniforms, occlusion, bad exposure, or too few visible tracklets can still require coach correction.
+
+## Ball-state events (Phase CV — Issues #132, #134)
+
+The GPU-worker event stage emits auto-detected events whose `event_type` values
+extend the Event row above. They are persisted on the existing `events` table —
+the rich per-event payload lives in the JSON `attributes` column, so there is no
+schema migration (see `docs/snap-los-ball-events.md`):
+
+- `snap` — carries `p_snap` (calibrated snap probability), `signals_present`,
+  `signal_strengths`, and the line-of-scrimmage fields `los_x`,
+  `los_confidence`, `los_method`.
+- `throw` — carries `qb_id`, `throw_distance_yd`, `hang_time_s`,
+  `apex_y_image`.
+- `catch` / `interception` — carry `receiver_id` and the same trajectory
+  fields.
+
+Every auto-detected event is tagged `attributes.source = "model"` and may be
+overridden by a coach via the events API (which marks the correction).
 
 ## JSON Shape (Reference)
 ```json
