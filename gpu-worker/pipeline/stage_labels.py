@@ -30,6 +30,7 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.detection.official_suppressor import filter_non_players
 
 log = structlog.get_logger(__name__)
 
@@ -42,6 +43,21 @@ def run(
 ) -> dict[str, Any]:
     """Generate formation and coverage labels for a clip."""
     log.info("stage_labels_start", clip_id=clip_id)
+
+    # ── Official / sideline suppression (Issue #148) ──────────────────────
+    # Drop officials and off-field figures before any team/formation/personnel
+    # analysis so referees never corrupt formation or personnel counts.
+    # Backward compatible: tracklets without a class/role field are kept.
+    total_tracklets = len(tracklets)
+    tracklets = filter_non_players(tracklets)
+    suppressed = total_tracklets - len(tracklets)
+    if suppressed:
+        log.info(
+            "stage_labels_officials_suppressed",
+            clip_id=clip_id,
+            suppressed=suppressed,
+            remaining=len(tracklets),
+        )
 
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0

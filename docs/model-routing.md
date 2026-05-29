@@ -16,6 +16,7 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 | `segment`    | `optical-flow-fast`          | `optical-flow-fast`     |
 | `calibrate`  | `calib-hough-dlt`            | `calib-hough-dlt-kalman`|
 | `detect`     | `yolov8n`                    | `yolov8m`               |
+| `ball`       | `yolov8n-ball`               | `yolov8n-ball`          |
 | `track`      | `iou-tracker`                | `iou-tracker`           |
 | `reid`       | `jersey-ocr`                 | `jersey-ocr`            |
 | `pose`       | `rtmpose-t`                  | `rtmpose-m`             |
@@ -47,6 +48,42 @@ config — env override or otherwise — that tries to place one of these
 in the same-session bucket is rejected at load time and the bucket
 falls back to the bundled default. This is the hard guardrail behind
 the "experimental models default to nightly" rule above.
+
+## Detection: players, ball, officials (Issues #128 / #133 / #148)
+
+Detection is **regime-aware**: it branches on the `capture_regime` detected at
+ingest (Issue #126), exactly like `calibrate`. The model router still owns the
+*model* choice; the *slicing strategy* is chosen at the stage call site from
+the regime, so `select_model` stays purely priority-keyed.
+
+| Stage | What the router picks | `drone_follow` strategy | `fixed_sideline` / `unknown` |
+| ----- | --------------------- | ----------------------- | ---------------------------- |
+| `detect` (player) | `yolov8n` / `yolov8m` | dual-resolution + SAHI 400 px tiles (0.2 overlap) — recovers 30–80 px players | base detector, full frame |
+| `ball` | `yolov8n-ball` (dedicated nano model) | SAHI 128 px tiles (0.2 overlap) — recovers the 6–18 px ball | base detector, full frame (~3× faster) |
+
+- **Why player detect stays `yolov8n`/`yolov8m`.** SAHI and dual-resolution
+  are *inference strategies* wrapped around the router-resolved base detector
+  (`pipeline.detection.sahi_wrapper`, `pipeline.detection.dual_res_merger`),
+  not new variants. The same-session VRAM ceiling keeps YOLOv8n as the
+  same-session cap; YOLO11m / RF-DETR-L (Issue #128) are future variants that
+  must clear a benchmark before promotion, per the "experimental → nightly"
+  rule above. Wrapping a router-resolved adapter (never a raw YOLO handle)
+  preserves same-session safety.
+- **Ball is a separate model, not a player class** (Issue #133): the
+  player/ball class imbalance is too severe for a shared head. `ball` runs the
+  same nano model in both priority buckets; SAHI is gated by regime, not
+  priority, and stays under the 1.5 GB same-session add-on budget. The ball
+  variant is **not** on `NIGHTLY_ONLY_VARIANTS`.
+- **Official suppression** (Issue #148): striped officials are relabeled
+  `class = "official"` (and off-field figures `"sideline"` when a field
+  polygon is supplied) by `pipeline.detection.official_suppressor`. It
+  relabels — never deletes — so a false positive costs a relabel, not a lost
+  player. `stage_labels` filters `official` / `sideline` before formation,
+  personnel, and team analysis.
+
+The per-job audit records the model choices in
+`output_artifacts["model_routing"]` (`{"detect": ..., "ball": ...}`) and the
+regime/slicing detail in `output_artifacts["detection_strategy"]`.
 
 ## Calibration variants (Issue #127)
 
