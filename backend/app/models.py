@@ -35,6 +35,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -396,6 +397,19 @@ class Clip(Base):
         index=True,
     )
     regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # ── Active-learning uncertainty (Issues #145 / #146) ──────────────────────
+    # Clip-level calibrated uncertainty (normalized entropy, in [0, 1]) of the
+    # Phase-2 ensemble for this play; higher = the model is less sure, so it is
+    # prioritized in the coach-correction annotation queue. NULL means "not yet
+    # scored". ``uncertainty_calibrated`` records whether the contributing model
+    # outputs were calibrated (Issue #146) — an uncalibrated score must never be
+    # presented to a coach as a trusted confidence. Indexed because the
+    # annotation queue orders by it.
+    uncertainty_score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    uncertainty_calibrated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

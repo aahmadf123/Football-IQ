@@ -6,9 +6,14 @@ from typing import Annotated, Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.active_learning import (
+    effective_priority,
+    normalize_limit,
+    queue_reason,
+)
 from app.database import get_db
 from app.deps import get_current_user, require_analyst_or_above, require_coach_or_above
 from app.models import Clip, CoachCorrection, CorrectionType, Label, TrainingDataset, User
@@ -64,7 +69,86 @@ class ExportResponse(BaseModel):
     training_dataset_id: uuid.UUID | None = None
 
 
+class AnnotationQueueItem(BaseModel):
+    """One prioritized review item — a view over a clip, not a new product.
+
+    ``uncertainty_score`` is the stored calibrated entropy (NULL when the clip
+    has not been scored yet). ``priority`` is the value the queue is ordered by
+    (higher first; unscored clips sort last). ``uncertainty_calibrated`` lets the
+    UI badge uncalibrated scores honestly (Issue #146).
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    clip_id: uuid.UUID
+    video_id: uuid.UUID
+    play_number: int | None
+    uncertainty_score: float | None
+    uncertainty_calibrated: bool
+    priority: float
+    reason: str
+    is_reviewed: bool
+    created_at: str
+
+    @classmethod
+    def from_orm_clip(cls, c: Clip) -> "AnnotationQueueItem":
+        return cls(
+            clip_id=c.id,
+            video_id=c.video_id,
+            play_number=c.play_number,
+            uncertainty_score=c.uncertainty_score,
+            uncertainty_calibrated=c.uncertainty_calibrated,
+            priority=effective_priority(c.uncertainty_score, c.uncertainty_calibrated),
+            reason=queue_reason(c.uncertainty_score, c.uncertainty_calibrated),
+            is_reviewed=c.is_reviewed,
+            created_at=c.created_at.isoformat(),
+        )
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/queue", response_model=list[AnnotationQueueItem])
+async def get_annotation_queue(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_coach_or_above)],
+    strategy: str = Query(default="uncertainty", pattern="^(uncertainty|recent)$"),
+    video_id: uuid.UUID | None = Query(default=None),
+    include_unscored: bool = Query(default=True),
+    limit: int = Query(default=25, ge=1, le=200),
+) -> list[AnnotationQueueItem]:
+    """Active-learning review queue, ordered by calibrated uncertainty (#145/#146).
+
+    The labeled pool is excluded so the coach-correction loop stays the source
+    of truth: a clip drops out once it is reviewed *or* has any coach correction.
+
+    * ``strategy=uncertainty`` (default): most-uncertain clips first
+      (``uncertainty_score`` desc, NULLs last). Unscored clips are never
+      inflated into confident-looking scores — they sort last and are labeled
+      ``reason="unscored"``.
+    * ``strategy=recent``: newest unlabeled clips first (the prior default
+      ordering), for coaches who just want to work through fresh film.
+
+    ``include_unscored=false`` drops clips that have no uncertainty score yet.
+    """
+    capped = normalize_limit(limit)
+
+    # Labeled pool = reviewed clips OR clips that already have a correction.
+    has_correction = exists().where(CoachCorrection.clip_id == Clip.id)
+    q = select(Clip).where(Clip.is_reviewed.is_(False), ~has_correction)
+    if video_id is not None:
+        q = q.where(Clip.video_id == video_id)
+    if not include_unscored:
+        q = q.where(Clip.uncertainty_score.is_not(None))
+
+    if strategy == "uncertainty":
+        q = q.order_by(Clip.uncertainty_score.desc().nullslast(), Clip.created_at.asc())
+    else:  # recent
+        q = q.order_by(Clip.created_at.desc())
+    q = q.limit(capped)
+
+    result = await db.execute(q)
+    return [AnnotationQueueItem.from_orm_clip(c) for c in result.scalars().all()]
 
 
 @router.post("", response_model=CorrectionResponse, status_code=status.HTTP_201_CREATED)
