@@ -66,7 +66,9 @@ def test_score_is_clamped_to_unit_interval() -> None:
 
 
 def test_payload_shape_matches_clip_patch_contract() -> None:
-    out = clip_uncertainty({"coverage": _calibrated({"cover3": 0.34, "cover2": 0.33, "cover1": 0.33})})
+    out = clip_uncertainty(
+        {"coverage": _calibrated({"cover3": 0.34, "cover2": 0.33, "cover1": 0.33})}
+    )
     payload = out.to_payload()
     assert set(payload) == {"uncertainty_score", "uncertainty_calibrated"}
     assert isinstance(out, ClipUncertainty)
