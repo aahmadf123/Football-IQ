@@ -1,7 +1,7 @@
 """Active-learning uncertainty columns on clips (Issues #145 / #146).
 
 Revision ID: 0020_clip_uncertainty
-Revises: 0019_tendency_break_alerts
+Revises: 0019
 Create Date: 2026-05-30
 
 Adds the clip-level calibrated-uncertainty signal that drives the active-learning
@@ -30,7 +30,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0020_clip_uncertainty"
-down_revision: str | Sequence[str] | None = "0019_tendency_break_alerts"
+down_revision: str | Sequence[str] | None = "0019"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
