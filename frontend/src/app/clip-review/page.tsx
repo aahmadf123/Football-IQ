@@ -84,8 +84,8 @@ function ClipReviewLoader() {
       <section className="panel panel-pad">
         <h3 className="panel-title">No clip selected</h3>
         <p className="kicker" style={{ marginTop: 8 }}>
-          Open a clip from the{" "}
-          <Link href="/library" style={{ color: "var(--gold)" }}>Library</Link>{" "}
+          Open a clip from{" "}
+          <Link href="/film-room/?tab=browse" style={{ color: "var(--gold)" }}>Film Room → Browse Film</Link>{" "}
           to review it.
         </p>
       </section>
@@ -185,8 +185,8 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         <p className="kicker" style={{ marginTop: 8 }}>
           Clip Review requires <code>NEXT_PUBLIC_API_URL</code>.
         </p>
-        <Link href="/library" className="control-button" style={{ marginTop: 12 }}>
-          ← Back to Library
+        <Link href="/film-room/?tab=browse" className="control-button" style={{ marginTop: 12 }}>
+          ← Back to Film Room
         </Link>
       </section>
     );
@@ -198,8 +198,8 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         <p className="kicker" style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}>
           {state.message}
         </p>
-        <Link href="/library" className="control-button" style={{ marginTop: 12 }}>
-          ← Back to Library
+        <Link href="/film-room/?tab=browse" className="control-button" style={{ marginTop: 12 }}>
+          ← Back to Film Room
         </Link>
       </section>
     );
@@ -288,7 +288,7 @@ function ClipReviewReady({
               {possessionLabel ? ` · ${possessionLabel}` : ""}
             </p>
           </div>
-          <Link href="/library" className="control-button">← Library</Link>
+          <Link href="/film-room/?tab=browse" className="control-button">← Film Room</Link>
         </div>
 
         <div

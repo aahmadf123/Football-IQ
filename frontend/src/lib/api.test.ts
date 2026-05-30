@@ -168,6 +168,74 @@ describe("fetchClipOverlays", () => {
   });
 });
 
+describe("requestVideoProcessing", () => {
+  test("POSTs an ingest job to backend /api/v1/jobs (nightly by default)", async () => {
+    const job = { id: "job-1", status: "queued" };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      json: async () => job,
+      text: async () => JSON.stringify(job),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { requestVideoProcessing } = await freshImport();
+    const result = await requestVideoProcessing("vid-1", undefined, "tok123");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.test/api/v1/jobs");
+    expect(opts.method).toBe("POST");
+    const body = JSON.parse(opts.body as string);
+    expect(body).toMatchObject({
+      video_id: "vid-1",
+      job_type: "ingest",
+      priority: 0,
+      pipeline_mode: "nightly",
+    });
+    expect((opts.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok123");
+    expect(result).toEqual({ jobId: "job-1", status: "queued" });
+  });
+
+  test("same_session mode uses priority 10", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: "job-2", status: "queued" }),
+      text: async () => "{}",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { requestVideoProcessing } = await freshImport();
+    await requestVideoProcessing("vid-1", { mode: "same_session" });
+
+    const [, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(opts.body as string);
+    expect(body.priority).toBe(10);
+    expect(body.pipeline_mode).toBe("same_session");
+  });
+
+  test("503 workload_gated throws a WorkloadGatedError carrying the detail message", async () => {
+    const detail = { detail: { message: "Queue saturated, try again." } };
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => detail,
+      text: async () => JSON.stringify(detail),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { requestVideoProcessing, WorkloadGatedError } = await freshImport();
+    await expect(requestVideoProcessing("vid-1")).rejects.toBeInstanceOf(WorkloadGatedError);
+  });
+
+  test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const { requestVideoProcessing } = await freshImport();
+    await expect(requestVideoProcessing("vid-1")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+  });
+});
+
 describe("fetchInboxStatus", () => {
   test("GETs /api/v1/inbox/status", async () => {
     const items = [{ video_id: "v1", filename: "a.mp4", video_status: "processing", total_jobs: 2, running_jobs: 1, succeeded_jobs: 1, failed_jobs: 0, clip_count: 3, calibration_safe_pct: 80, latest_error_stage: null, latest_error_message: null, same_session_job_count: 1, pose_pipeline_active: false, created_at: "2025-01-01" }];

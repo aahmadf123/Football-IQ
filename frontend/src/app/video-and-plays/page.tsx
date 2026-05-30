@@ -1,5 +1,6 @@
-import { PageRenderer } from "@/components/page-renderer";
+import { RouteRedirect } from "@/components/route-redirect";
 
+// ADR 0003: Video & Plays moved into Film Room → Review & Tag Plays.
 export default function VideoAndPlaysPage() {
-  return <PageRenderer page="video-and-plays" />;
+  return <RouteRedirect to="/film-room/?tab=review" label="Opening Film Room → Review & Tag Plays…" />;
 }
