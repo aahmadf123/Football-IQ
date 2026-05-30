@@ -163,6 +163,70 @@ describe("AnalyticsPage card states", () => {
     expect(screen.queryByText("95%")).toBeNull();
   });
 
+  test("renders frontier metrics as EXPERIMENTAL (never trusted) when backend has samples", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetchRoutes([
+      { url: "/api/v1/self-scout/tendencies", body: SAMPLE_TENDENCIES },
+      { url: "/api/v1/alerts", body: [] },
+      {
+        url: "/api/v1/analytics/frontier",
+        body: {
+          metrics: [
+            {
+              id: "m-1",
+              clip_id: "c-1",
+              tracklet_id: "t-1",
+              metric_name: "xsep",
+              metric_value: { yards: 2.6, source: "tracking", sample_size: 14 },
+              unit: "yd",
+              experimental: true,
+              analytics_safe: false,
+              confidence: 0.6,
+              source: "tracking",
+              sample_size: 14,
+              stability_note: "directional until ~30 reps",
+              position_group: "WR",
+              created_at: "2026-05-26T12:00:00Z",
+            },
+          ],
+          total: 1,
+          experimental: true,
+          definitions: {},
+          note: "Experimental frontier analytics — NOT validated.",
+        },
+      },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+    ]);
+
+    const { AnalyticsPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <AnalyticsPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("frontier-xsep")).toBeTruthy();
+    });
+    // xSep card is now live, with an experimental badge — never presented as trusted.
+    expect(
+      screen
+        .getByTestId("analytics-card-expected-separation-xsep")
+        .getAttribute("data-card-state"),
+    ).toBe("live");
+    expect(screen.getAllByTestId("experimental-badge").length).toBeGreaterThan(0);
+    expect(screen.getByText("2.60 yd")).toBeTruthy();
+    // xYards / xPressure remain unavailable (no samples) — not fabricated.
+    expect(
+      screen
+        .getByTestId("analytics-card-expected-yards-xyards")
+        .getAttribute("data-card-state"),
+    ).toBe("unavailable");
+  });
+
   test("renders live formation tendencies and live alerts when backend returns data", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
     installFetchRoutes([

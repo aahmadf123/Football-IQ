@@ -119,6 +119,116 @@ const SAMPLE_TENDENCIES = {
   clip_count: 12,
 };
 
+const SAMPLE_BREAKS = {
+  alerts: [
+    {
+      id: "brk-1",
+      grouping_key: "Trips · 11 pers · red zone · 3-long",
+      tendency_kind: "season_tendency",
+      lean: "pass",
+      severity: "high",
+      confidence: 0.8,
+      message: "Trips red zone 3-long: 90% pass on 10 plays.",
+      run_rate: 0.1,
+      pass_rate: 0.9,
+      total_plays: 10,
+      evidence_clip_ids: [],
+      source: "toledo_film",
+      experimental: false,
+      baseline_pass_rate: null,
+      divergence_pp: null,
+      baseline_source: null,
+      session_id: "season",
+      is_actioned: false,
+      actioned_at: null,
+    },
+    {
+      id: "brk-2",
+      grouping_key: "I · 12 pers",
+      tendency_kind: "pattern_break",
+      lean: "pass",
+      severity: "medium",
+      confidence: 0.7,
+      message: "This game is 40% more pass-heavy than the season baseline.",
+      run_rate: 0.1,
+      pass_rate: 0.9,
+      total_plays: 6,
+      evidence_clip_ids: [],
+      source: "toledo_film",
+      experimental: false,
+      baseline_pass_rate: 0.5,
+      divergence_pp: 0.4,
+      baseline_source: "season_baseline",
+      session_id: "vid-1",
+      is_actioned: false,
+      actioned_at: null,
+    },
+  ],
+  total: 2,
+};
+
+describe("SelfScoutPage tendency-break overlay", () => {
+  test("renders persisted tendency-break alerts with a pattern-break badge", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetchRoutes([
+      { url: "/api/v1/self-scout/tendency-break", body: SAMPLE_BREAKS },
+      { url: "/api/v1/self-scout/tendencies", body: SAMPLE_TENDENCIES },
+      { url: "/api/v1/videos", body: [SAMPLE_VIDEO] },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+    ]);
+
+    const { SelfScoutPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <SelfScoutPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Trips · 11 pers · red zone · 3-long")).toBeTruthy();
+    });
+    // The in-game pattern break carries an experimental badge.
+    expect(screen.getAllByTestId("experimental-badge").length).toBeGreaterThan(0);
+    // Each unactioned alert has a "Mark actioned" control.
+    expect(screen.getByTestId("action-break-brk-1")).toBeTruthy();
+  });
+
+  test("Generate button POSTs to the tendency-break endpoint", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const { fetchMock } = installFetchRoutes([
+      { url: "/api/v1/self-scout/tendency-break", body: SAMPLE_BREAKS },
+      { url: "/api/v1/self-scout/tendencies", body: SAMPLE_TENDENCIES },
+      { url: "/api/v1/videos", body: [SAMPLE_VIDEO] },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+    ]);
+
+    const { SelfScoutPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <SelfScoutPage />
+      </AppStateProvider>,
+    );
+
+    const button = await screen.findByTestId("generate-tendency-break");
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    await waitFor(() => {
+      const posted = fetchMock.mock.calls.some(
+        (call: unknown[]) =>
+          String(call[0]).includes("/api/v1/self-scout/tendency-break") &&
+          (call[1] as { method?: string } | undefined)?.method === "POST",
+      );
+      expect(posted).toBe(true);
+    });
+  });
+});
+
 describe("SelfScoutPage", () => {
   test("shows offline state when NEXT_PUBLIC_API_URL is missing", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");

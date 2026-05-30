@@ -157,6 +157,11 @@ class AlertType(enum.StrEnum):
     bio_deviation = "bio_deviation"
     effort_anomaly = "effort_anomaly"
     formation_anomaly = "formation_anomaly"
+    # Self-scout tendency-break alerts (Issue #137): a formation/personnel/
+    # situation tuple whose run-or-pass tendency is so lopsided that it is
+    # coaching-actionable (season tendency), or an in-game pattern break where
+    # the current game diverges sharply from the season baseline.
+    formation_tendency = "formation_tendency"
 
 
 class AlertSeverity(enum.StrEnum):
@@ -934,6 +939,14 @@ class Alert(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "Actioned" is distinct from "acknowledged" (Issue #137): a coach marks an
+    # alert actioned once they have turned it into a practice/scheme follow-up,
+    # so the staff can track which tendency breaks have been addressed.
+    is_actioned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    actioned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    actioned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -941,6 +954,7 @@ class Alert(Base):
     player: Mapped["Player | None"] = relationship("Player")
     clip: Mapped["Clip | None"] = relationship("Clip")
     acknowledger: Mapped["User | None"] = relationship("User", foreign_keys=[acknowledged_by])
+    actioner: Mapped["User | None"] = relationship("User", foreign_keys=[actioned_by])
 
 
 class ActiveLearningQueueItem(Base):

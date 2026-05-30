@@ -21,6 +21,8 @@ from typing import Any
 
 import structlog
 
+from pipeline import backend
+
 log = structlog.get_logger(__name__)
 
 TENDENCY_ALERT_THRESHOLD = 0.70
@@ -39,9 +41,21 @@ def run(
     clips: list[dict[str, Any]],
     labels_by_clip: dict[str, list[dict[str, Any]]],
     metrics_by_clip: dict[str, list[dict[str, Any]]],
+    *,
+    game_clip_ids: set[str] | None = None,
+    game_session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Compute self-scout tendency analysis across a batch of clips."""
+    """Compute self-scout tendency analysis across a batch of clips.
+
+    ``game_clip_ids`` selects the subset of clips that make up the current game,
+    so the tendency-break engine (Issue #137) can flag in-game pattern breaks
+    against the season baseline derived from the full set.
+    """
     del metrics_by_clip  # Unused in this stage for now.
+
+    # Imported lazily so merely importing this stage stays dependency-light
+    # (the play_prediction package pulls numpy via the signal extractor).
+    from pipeline.play_prediction import tendency_break_engine as tbe
 
     log.info("stage_self_scout_start", clip_count=len(clips))
 
@@ -58,6 +72,12 @@ def run(
         field_zone_tendencies,
         personnel_tendencies,
     )
+    tendency_break_alerts = tbe.generate_alert_payloads(
+        clips,
+        labels_by_clip,
+        game_clip_ids=game_clip_ids,
+        game_session_id=game_session_id,
+    )
 
     result = {
         "formation_tendencies": formation_tendencies,
@@ -68,11 +88,29 @@ def run(
         "formation_concept_families": formation_concept_families,
         "pre_snap_tells": pre_snap_tells,
         "alerts": alerts,
+        "tendency_break_alerts": tendency_break_alerts,
         "clip_count": len(clips),
     }
 
-    log.info("stage_self_scout_done", alert_count=len(alerts))
+    log.info(
+        "stage_self_scout_done",
+        alert_count=len(alerts),
+        tendency_break_count=len(tendency_break_alerts),
+    )
     return result
+
+
+def persist_tendency_break_alerts(alert_payloads: list[dict[str, Any]]) -> int:
+    """POST tendency-break alert payloads to the backend; return count persisted.
+
+    Best-effort: returns 0 when the backend is disabled (``BACKEND_API_URL``
+    unset) so the stage stays a no-op offline / in unit tests.
+    """
+    if not alert_payloads:
+        return 0
+    persisted = backend.create_alerts(alert_payloads)
+    log.info("tendency_break_alerts_persisted", count=persisted, total=len(alert_payloads))
+    return persisted
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

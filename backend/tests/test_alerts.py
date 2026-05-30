@@ -58,6 +58,9 @@ def _make_alert(
     a.is_acknowledged = False
     a.acknowledged_by = None
     a.acknowledged_at = None
+    a.is_actioned = False
+    a.actioned_by = None
+    a.actioned_at = None
     a.created_at = datetime(2026, 5, 8, tzinfo=UTC)
     return a
 
@@ -299,6 +302,56 @@ def test_acknowledge_alert_coach_allowed() -> None:
 def test_acknowledge_alert_viewer_blocked(client: TestClient) -> None:
     resp = client.patch(f"/api/v1/alerts/{uuid.uuid4()}/ack")
     assert resp.status_code in (401, 403)
+
+
+def test_action_alert_coach_allowed() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    coach = _make_user(UserRole.coach, "OL")
+    mock_alert = _make_alert(alert_type=AlertType.formation_tendency)
+    mock_alert.is_actioned = False
+    app.dependency_overrides[get_current_user] = lambda: coach
+    app.dependency_overrides[get_db] = _mock_db(scalar_result=mock_alert)
+
+    with TestClient(app) as c:
+        resp = c.patch(f"/api/v1/alerts/{mock_alert.id}/action")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert mock_alert.is_actioned is True
+    assert mock_alert.actioned_by == coach.id
+    assert resp.json()["is_actioned"] is True
+
+
+def test_action_alert_not_found() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    coach = _make_user(UserRole.coach, "OL")
+    app.dependency_overrides[get_current_user] = lambda: coach
+    app.dependency_overrides[get_db] = _mock_db(scalar_result=None)
+
+    with TestClient(app) as c:
+        resp = c.patch(f"/api/v1/alerts/{uuid.uuid4()}/action")
+    app.dependency_overrides.clear()
+    assert resp.status_code == 404
+
+
+def test_action_alert_viewer_blocked(client: TestClient) -> None:
+    resp = client.patch(f"/api/v1/alerts/{uuid.uuid4()}/action")
+    assert resp.status_code in (401, 403)
+
+
+def test_alert_response_from_orm_actioned() -> None:
+    alert = _make_alert(alert_type=AlertType.formation_tendency)
+    alert.is_actioned = True
+    alert.actioned_by = uuid.uuid4()
+    alert.actioned_at = datetime(2026, 5, 9, 9, 30, 0, tzinfo=UTC)
+    resp = AlertResponse.from_orm(alert)
+    assert resp.alert_type == "formation_tendency"
+    assert resp.is_actioned is True
+    assert resp.actioned_at == "2026-05-09T09:30:00+00:00"
 
 
 # ── Position-group filter unit tests ─────────────────────────────────────────

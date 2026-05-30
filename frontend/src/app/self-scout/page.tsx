@@ -5,11 +5,16 @@ import { FootballShell } from "@/components/football-shell";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { useAppState } from "@/lib/app-state";
 import {
+  actionAlert,
   fetchSelfScoutTendencies,
+  fetchTendencyBreakAlerts,
   fetchVideos,
+  generateTendencyBreak,
+  type TendencyBreakAlert,
   type VideoFilters,
 } from "@/lib/api";
 import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
+import { ExperimentalBadge } from "@/components/experimental-badge";
 
 type ScoutDataState =
   | { kind: "loading" }
@@ -17,6 +22,13 @@ type ScoutDataState =
   | { kind: "empty" }
   | { kind: "error"; message: string }
   | { kind: "ready"; data: SelfScoutResponse };
+
+type BreakState =
+  | { kind: "loading" }
+  | { kind: "offline" }
+  | { kind: "empty" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; alerts: TendencyBreakAlert[] };
 
 const ALL_VIDEOS = "__all__";
 
@@ -107,6 +119,91 @@ function SelfScoutView() {
   useEffect(() => {
     loadTendencies();
   }, [loadTendencies]);
+
+  // ── Tendency-break alerts (Issue #137) ──────────────────────────────────────
+  const [breakState, setBreakState] = useState<BreakState>({ kind: "loading" });
+  const [generating, setGenerating] = useState(false);
+
+  const loadBreaks = useCallback(async () => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      setBreakState({ kind: "offline" });
+      return;
+    }
+    setBreakState({ kind: "loading" });
+    try {
+      const res = await fetchTendencyBreakAlerts({ limit: 100 }, authToken);
+      const list = Array.isArray(res?.alerts) ? res.alerts : [];
+      setBreakState(list.length === 0 ? { kind: "empty" } : { kind: "ready", alerts: list });
+    } catch (err) {
+      setBreakState({
+        kind: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    loadBreaks();
+  }, [loadBreaks]);
+
+  const handleGenerate = useCallback(async () => {
+    setGenerating(true);
+    try {
+      const videoId = selectedVideoId === ALL_VIDEOS ? undefined : selectedVideoId;
+      await generateTendencyBreak({ game_video_id: videoId }, authToken);
+      await loadBreaks();
+    } catch (err) {
+      setBreakState({
+        kind: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setGenerating(false);
+    }
+  }, [authToken, selectedVideoId, loadBreaks]);
+
+  const handleActionBreak = useCallback(
+    async (alertId: string) => {
+      try {
+        await actionAlert(alertId, authToken);
+        setBreakState((cur) => {
+          if (cur.kind !== "ready") return cur;
+          return {
+            kind: "ready",
+            alerts: cur.alerts.map((a) =>
+              a.id === alertId ? { ...a, is_actioned: true } : a,
+            ),
+          };
+        });
+      } catch {
+        // Leave the alert open on failure.
+      }
+    },
+    [authToken],
+  );
+
+  const breakCardState = useMemo<AnalyticsCardState>(() => {
+    switch (breakState.kind) {
+      case "loading":
+        return { kind: "loading", label: "Loading tendency breaks…" };
+      case "offline":
+        return {
+          kind: "unavailable",
+          reason: "Tendency-break alerts need the FastAPI backend (NEXT_PUBLIC_API_URL).",
+        };
+      case "empty":
+        return {
+          kind: "empty",
+          reason:
+            "No tendency-break alerts yet. Generate them from your labeled film with the button above.",
+        };
+      case "error":
+        return { kind: "error", message: breakState.message, onRetry: loadBreaks };
+      case "ready":
+        return { kind: "live" };
+    }
+  }, [breakState, loadBreaks]);
 
   const cardState = useMemo<AnalyticsCardState>(() => {
     switch (state.kind) {
@@ -259,6 +356,76 @@ function SelfScoutView() {
             </div>
           ))}
       </AnalyticsCard>
+
+      <AnalyticsCard
+        title="Tendency-Break Alerts"
+        state={breakCardState}
+        className="span-12"
+        headerExtra={
+          <button
+            type="button"
+            className="control-button primary"
+            data-testid="generate-tendency-break"
+            onClick={handleGenerate}
+            disabled={generating}
+          >
+            {generating ? "Generating…" : "Generate from film"}
+          </button>
+        }
+      >
+        {breakState.kind === "ready" && (
+          <TendencyBreakList alerts={breakState.alerts} onAction={handleActionBreak} />
+        )}
+      </AnalyticsCard>
+    </div>
+  );
+}
+
+function TendencyBreakList({
+  alerts,
+  onAction,
+}: {
+  alerts: TendencyBreakAlert[];
+  onAction: (alertId: string) => void;
+}) {
+  return (
+    <div className="list-stack" style={{ gap: 8 }}>
+      {alerts.map((a) => (
+        <div
+          key={a.id ?? a.grouping_key}
+          className="status-row"
+          style={{ gridTemplateColumns: "1fr auto", alignItems: "start", gap: 12 }}
+          data-testid={`tendency-break-${a.id ?? a.grouping_key}`}
+        >
+          <div>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              <strong>{a.grouping_key}</strong>
+              {a.tendency_kind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
+            </div>
+            <div className="kicker">{a.message}</div>
+            <div className="kicker">
+              {Math.round(a.pass_rate * 100)}% pass · {Math.round(a.run_rate * 100)}% run ·{" "}
+              {a.total_plays} plays · source {a.source}
+              {a.is_actioned ? " · actioned" : ""}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "end" }}>
+            <span className={`status-pill ${a.severity === "high" ? "danger" : "warning"}`}>
+              {a.severity}
+            </span>
+            {a.id && !a.is_actioned && (
+              <button
+                type="button"
+                className="control-button"
+                data-testid={`action-break-${a.id}`}
+                onClick={() => onAction(a.id as string)}
+              >
+                Mark actioned
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

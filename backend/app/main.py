@@ -26,6 +26,7 @@ from app.routers.correction_sync import router as correction_sync_router
 from app.routers.corrections import router as corrections_router
 from app.routers.embeddings import router as embeddings_router
 from app.routers.events import router as events_router
+from app.routers.frontier_analytics import router as frontier_analytics_router
 from app.routers.inbox_integration import router as inbox_router
 from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
@@ -117,3 +118,4 @@ app.include_router(settings_router)
 app.include_router(reports_router)
 app.include_router(cfbd_router)
 app.include_router(play_prediction_router)
+app.include_router(frontier_analytics_router)

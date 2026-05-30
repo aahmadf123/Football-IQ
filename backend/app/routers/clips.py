@@ -108,21 +108,6 @@ class ClipResponse(BaseModel):
         )
 
 
-class MetricCreate(BaseModel):
-    model_config = {"protected_namespaces": ()}
-
-    clip_id: uuid.UUID
-    metric_name: str
-    metric_value: dict[str, Any]
-    unit: str | None = None
-    is_suppressed: bool = False
-    suppression_reason: str | None = None
-    evidence_uri: str | None = None
-    model_version_id: uuid.UUID | None = None
-    calibration_version_id: uuid.UUID | None = None
-    job_id: uuid.UUID | None = None
-
-
 class MetricResponse(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -132,8 +117,12 @@ class MetricResponse(BaseModel):
     unit: str | None
     is_suppressed: bool
     suppression_reason: str | None
+    experimental_flag: bool
+    analytics_safe: bool
+    confidence: float | None
     evidence_uri: str | None
     clip_id: uuid.UUID
+    tracklet_id: uuid.UUID | None
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
@@ -148,8 +137,12 @@ class MetricResponse(BaseModel):
             unit=m.unit,
             is_suppressed=m.is_suppressed,
             suppression_reason=m.suppression_reason,
+            experimental_flag=m.experimental_flag,
+            analytics_safe=m.analytics_safe,
+            confidence=m.confidence,
             evidence_uri=m.evidence_uri,
             clip_id=m.clip_id,
+            tracklet_id=m.tracklet_id,
             model_version_id=m.model_version_id,
             calibration_version_id=m.calibration_version_id,
             job_id=m.job_id,
@@ -354,40 +347,7 @@ async def get_clip_metrics(
     return [MetricResponse.from_orm_metric(m) for m in result.scalars().all()]
 
 
-@router.post(
-    "/api/v1/metrics",
-    response_model=MetricResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_metric(
-    body: MetricCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(require_any_staff)],
-) -> MetricResponse:
-    """Store a computed analytics metric for a clip (written by the GPU worker)."""
-    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
-    if clip_result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
-
-    metric = Metric(
-        id=uuid.uuid4(),
-        clip_id=body.clip_id,
-        metric_name=body.metric_name,
-        metric_value=body.metric_value,
-        unit=body.unit,
-        is_suppressed=body.is_suppressed,
-        suppression_reason=body.suppression_reason,
-        evidence_uri=body.evidence_uri,
-        model_version_id=body.model_version_id,
-        calibration_version_id=body.calibration_version_id,
-        job_id=body.job_id,
-    )
-    db.add(metric)
-    await db.flush()
-    log.info(
-        "metric_created",
-        metric_id=str(metric.id),
-        clip_id=str(body.clip_id),
-        metric_name=body.metric_name,
-    )
-    return MetricResponse.from_orm_metric(metric)
+# ``POST /api/v1/metrics`` is owned by ``app.routers.metrics`` (a single handler
+# keeps the experimental-flag / analytics-safe ingest policy and role gate in
+# one place). It used to be duplicated here, which silently shadowed the
+# stricter metrics-router handler because ``clips_router`` is registered first.

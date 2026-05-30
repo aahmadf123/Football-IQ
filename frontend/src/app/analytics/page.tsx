@@ -6,11 +6,22 @@ import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-c
 import { useAppState } from "@/lib/app-state";
 import {
   fetchAlerts,
+  fetchFrontierMetrics,
   fetchSelfScoutTendencies,
   fetchVideos,
   type ApiAlert,
+  type FrontierMetric,
 } from "@/lib/api";
 import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
+import { ExperimentalBadge } from "@/components/experimental-badge";
+
+const FRONTIER_UNAVAILABLE_REASON: Record<string, string> = {
+  xsep: "xSep requires calibrated receiver tracking (#127/#128/#129). No experimental samples yet for this filter.",
+  xyards:
+    "xYards requires the play-outcome metrics pipeline. No experimental samples yet for this filter.",
+  xpressure:
+    "xPressure requires pass-rush tracking + snap/throw events. No experimental samples yet for this filter.",
+};
 
 type FetchState<T> =
   | { kind: "loading" }
@@ -32,6 +43,9 @@ function AnalyticsView() {
   const [videos, setVideos] = useState<FetchState<ApiVideo[]>>({ kind: "loading" });
   const [scout, setScout] = useState<FetchState<SelfScoutResponse>>({ kind: "loading" });
   const [alerts, setAlerts] = useState<FetchState<ApiAlert[]>>({ kind: "loading" });
+  // Frontier analytics (Issue #10) — experimental, may be empty.
+  const [frontier, setFrontier] = useState<FrontierMetric[] | null>(null);
+  const [frontierLoading, setFrontierLoading] = useState(true);
 
   const loadVideos = useCallback(async () => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -99,6 +113,26 @@ function AnalyticsView() {
     }
   }, [authToken]);
 
+  const loadFrontier = useCallback(async () => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      setFrontier(null);
+      setFrontierLoading(false);
+      return;
+    }
+    setFrontierLoading(true);
+    try {
+      const res = await fetchFrontierMetrics({ limit: 100 }, authToken);
+      setFrontier(Array.isArray(res?.metrics) ? res.metrics : []);
+    } catch {
+      // Experimental scaffolds are expected to be absent — fall back to the
+      // "unavailable" card state rather than surfacing a hard error.
+      setFrontier(null);
+    } finally {
+      setFrontierLoading(false);
+    }
+  }, [authToken]);
+
   useEffect(() => {
     loadVideos();
   }, [loadVideos]);
@@ -110,6 +144,10 @@ function AnalyticsView() {
   useEffect(() => {
     loadAlerts();
   }, [loadAlerts]);
+
+  useEffect(() => {
+    loadFrontier();
+  }, [loadFrontier]);
 
   const totalPlaysState = useMemo<AnalyticsCardState>(() => {
     switch (videos.kind) {
@@ -157,34 +195,31 @@ function AnalyticsView() {
         )}
       </AnalyticsCard>
 
-      <AnalyticsCard
+      <FrontierCard
         title="Expected Separation (xSep)"
-        state={{
-          kind: "unavailable",
-          reason:
-            "xSep requires the receiver-tracking metrics pipeline. Tracked in Issue #10 — gated until a live model lands.",
-        }}
-        className="span-4"
+        metricName="xsep"
+        valueKey="yards"
+        unit="yd"
+        metrics={frontier}
+        loading={frontierLoading}
       />
 
-      <AnalyticsCard
+      <FrontierCard
         title="Expected Yards (xYards)"
-        state={{
-          kind: "unavailable",
-          reason:
-            "xYards requires the play-outcome metrics pipeline. Tracked in Issue #10 — gated until a live model lands.",
-        }}
-        className="span-4"
+        metricName="xyards"
+        valueKey="observed_yac_yd"
+        unit="yd"
+        metrics={frontier}
+        loading={frontierLoading}
       />
 
-      <AnalyticsCard
+      <FrontierCard
         title="Expected Pressure (xPressure)"
-        state={{
-          kind: "unavailable",
-          reason:
-            "xPressure requires the pass-rush metrics pipeline. Tracked in Issue #10 — gated until a live model lands.",
-        }}
-        className="span-4"
+        metricName="xpressure"
+        valueKey="xpressure"
+        unit=""
+        metrics={frontier}
+        loading={frontierLoading}
       />
 
       <AnalyticsCard
@@ -311,6 +346,65 @@ function alertPillClass(severity: string): string {
     default:
       return "info";
   }
+}
+
+function FrontierCard({
+  title,
+  metricName,
+  valueKey,
+  unit,
+  metrics,
+  loading,
+}: {
+  title: string;
+  metricName: string;
+  valueKey: string;
+  unit: string;
+  metrics: FrontierMetric[] | null;
+  loading: boolean;
+}) {
+  // Only non-suppressed metrics for this name count as a real value.
+  const forName = (metrics ?? []).filter(
+    (m) =>
+      m.metric_name.toLowerCase() === metricName &&
+      m.metric_value?.suppressed !== true,
+  );
+  const latest = forName[0];
+  const rawValue = latest ? latest.metric_value?.[valueKey] : undefined;
+  const hasValue = typeof rawValue === "number";
+
+  const state: AnalyticsCardState = loading
+    ? { kind: "loading", label: "Loading experimental metrics…" }
+    : !hasValue
+      ? { kind: "unavailable", reason: FRONTIER_UNAVAILABLE_REASON[metricName] }
+      : { kind: "live" };
+
+  return (
+    <AnalyticsCard
+      title={title}
+      state={state}
+      className="span-4"
+      headerExtra={hasValue ? <ExperimentalBadge /> : undefined}
+    >
+      {hasValue && latest && (
+        <div data-testid={`frontier-${metricName}`}>
+          <strong style={{ fontSize: "1.4rem" }}>
+            {Number(rawValue).toFixed(2)}
+            {unit ? ` ${unit}` : ""}
+          </strong>
+          <p className="kicker" style={{ marginTop: 4 }}>
+            {forName.length} sample{forName.length === 1 ? "" : "s"} · source {latest.source}
+            {latest.sample_size != null ? ` · n=${latest.sample_size}` : ""}
+          </p>
+          {latest.stability_note && (
+            <p className="kicker" style={{ marginTop: 4 }}>
+              {latest.stability_note}
+            </p>
+          )}
+        </div>
+      )}
+    </AnalyticsCard>
+  );
 }
 
 function TendencyTable({ entries }: { entries: TendencyEntry[] }) {

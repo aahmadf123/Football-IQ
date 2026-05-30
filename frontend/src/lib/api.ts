@@ -421,6 +421,9 @@ export interface ApiAlert {
   is_acknowledged: boolean;
   acknowledged_by: string | null;
   acknowledged_at: string | null;
+  is_actioned: boolean;
+  actioned_by: string | null;
+  actioned_at: string | null;
   created_at: string;
 }
 
@@ -429,6 +432,7 @@ export interface AlertFilters {
   severity?: string;
   session_id?: string;
   acknowledged?: boolean;
+  actioned?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -446,6 +450,157 @@ export async function fetchAlerts(
   const qs = params.toString();
   return getJSON<ApiAlert[]>(
     `${base}/api/v1/alerts${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+/** Mark an alert as actioned (turned into a practice/scheme follow-up, #137). */
+export async function actionAlert(alertId: string, token?: string): Promise<ApiAlert> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const res = await fetch(`${base}/api/v1/alerts/${alertId}/action`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Action alert failed (${res.status}): ${body}`);
+  }
+  return res.json() as Promise<ApiAlert>;
+}
+
+// ── Tendency-break alerts (Issue #137) ───────────────────────────────────────
+
+export interface TendencyBreakAlert {
+  id: string | null;
+  grouping_key: string;
+  tendency_kind: string; // "season_tendency" | "pattern_break"
+  lean: string; // "run" | "pass"
+  severity: string;
+  confidence: number;
+  message: string;
+  run_rate: number;
+  pass_rate: number;
+  total_plays: number;
+  evidence_clip_ids: string[];
+  source: string;
+  experimental: boolean;
+  baseline_pass_rate: number | null;
+  divergence_pp: number | null;
+  baseline_source: string | null;
+  session_id: string | null;
+  is_actioned: boolean;
+  actioned_at: string | null;
+}
+
+export interface TendencyBreakListResponse {
+  alerts: TendencyBreakAlert[];
+  total: number;
+}
+
+export interface TendencyBreakRunResponse {
+  generated: number;
+  season_tendency_count: number;
+  pattern_break_count: number;
+  season_clip_count: number;
+  game_clip_count: number;
+  cfbd_baseline_pass_rate: number | null;
+  cfbd_baseline_source: string | null;
+  alerts: TendencyBreakAlert[];
+}
+
+export async function fetchTendencyBreakAlerts(
+  filters: { actioned?: boolean; session_id?: string; limit?: number } = {},
+  token?: string,
+): Promise<TendencyBreakListResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<TendencyBreakListResponse>(
+    `${base}/api/v1/self-scout/tendency-break${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+export async function generateTendencyBreak(
+  opts: { game_video_id?: string; cfbd_team?: string } = {},
+  token?: string,
+): Promise<TendencyBreakRunResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(opts)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  const res = await fetch(
+    `${base}/api/v1/self-scout/tendency-break${qs ? `?${qs}` : ""}`,
+    { method: "POST", headers: authHeaders(token) },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Generate tendency-break failed (${res.status}): ${body}`);
+  }
+  return res.json() as Promise<TendencyBreakRunResponse>;
+}
+
+// ── Frontier analytics (Issue #10) — experimental xSep/xYards/xPressure ───────
+
+export interface FrontierMetric {
+  id: string;
+  clip_id: string;
+  tracklet_id: string | null;
+  metric_name: string;
+  metric_value: Record<string, unknown>;
+  unit: string | null;
+  experimental: boolean;
+  analytics_safe: boolean;
+  confidence: number | null;
+  source: string;
+  sample_size: number | null;
+  stability_note: string | null;
+  position_group: string | null;
+  created_at: string;
+}
+
+export interface FrontierMetricsResponse {
+  metrics: FrontierMetric[];
+  total: number;
+  experimental: boolean;
+  definitions: Record<
+    string,
+    { label: string; definition: string; interpretation: string; depends_on: string }
+  >;
+  note: string;
+}
+
+export interface FrontierFilters {
+  metric_name?: string;
+  clip_id?: string;
+  position_group?: string;
+  formation?: string;
+  concept?: string;
+  opponent?: string;
+  limit?: number;
+}
+
+export async function fetchFrontierMetrics(
+  filters: FrontierFilters = {},
+  token?: string,
+): Promise<FrontierMetricsResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<FrontierMetricsResponse>(
+    `${base}/api/v1/analytics/frontier${qs ? `?${qs}` : ""}`,
     token,
   );
 }
