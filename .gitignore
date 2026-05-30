@@ -61,6 +61,14 @@ coverage.xml
 *.engine
 *.safetensors
 
+# NFL Big Data Bowl (Issue #164) — raw Kaggle data + normalized artifacts are
+# OFFLINE-only and must never be committed. The synthetic sample under
+# gpu-worker/datasets/bdb/sample/ is the only BDB-shaped data in the repo.
+.cache/
+gpu-worker/.cache/
+data/bdb/**
+!data/bdb/README.md
+
 # Playwright (frontend E2E)
 frontend/playwright-report/
 frontend/test-results/

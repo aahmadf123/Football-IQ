@@ -1,0 +1,10 @@
+nflId,displayName,position,height,weight,collegeName
+1,Synthetic QB,QB,6-3,215,Sample State
+2,Synthetic RB,RB,5-11,205,Sample State
+3,Synthetic WR L,WR,6-1,190,Sample Tech
+4,Synthetic WR R,WR,6-0,185,Sample Tech
+5,Synthetic TE,TE,6-5,250,Sample A&M
+6,Synthetic CB L,CB,6-0,195,Sample U
+7,Synthetic CB R,CB,5-11,190,Sample U
+8,Synthetic LB,ILB,6-2,240,Sample College
+9,Synthetic S,FS,6-1,205,Sample College

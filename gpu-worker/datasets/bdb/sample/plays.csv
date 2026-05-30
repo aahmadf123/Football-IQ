@@ -1,0 +1,3 @@
+gameId,playId,quarter,down,yardsToGo,possessionTeam,defensiveTeam,offenseFormation,receiverAlignment,yardlineSide,yardlineNumber,absoluteYardlineNumber,passResult,playDirection
+9000001,101,1,1,10,AAA,BBB,SHOTGUN,2x2,AAA,40,50,C,right
+9000001,102,1,2,7,AAA,BBB,SINGLEBACK,3x1,AAA,43,50,I,right

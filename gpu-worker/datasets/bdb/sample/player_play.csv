@@ -1,0 +1,9 @@
+gameId,playId,nflId,teamAbbr,routeRan,wasRunningRoute,motionSinceLineset,inMotionAtBallSnap
+9000001,101,3,AAA,HITCH,true,false,false
+9000001,101,4,AAA,GO,true,true,false
+9000001,101,5,AAA,FLAT,true,false,false
+9000001,101,2,AAA,,false,false,false
+9000001,102,3,AAA,SLANT,true,false,false
+9000001,102,4,AAA,OUT,true,false,false
+9000001,102,5,AAA,CROSS,true,true,true
+9000001,102,2,AAA,,false,false,false
