@@ -50,8 +50,10 @@ export function PageRenderer({ page }: { page: PageKey }) {
     if (!files || files.length === 0) return;
     try {
       const created = await addUploads(files);
-      setUploadStatus(`Uploaded ${created.length} clip${created.length === 1 ? "" : "s"} ready for review`);
-      setTimeout(() => setUploadStatus(null), 4000);
+      setUploadStatus(
+        `Uploaded ${created.length} clip${created.length === 1 ? "" : "s"} — open Film Room → Upload / Process Film to start processing.`,
+      );
+      setTimeout(() => setUploadStatus(null), 5000);
     } catch (err) {
       setUploadStatus(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -450,7 +452,7 @@ function phaseColor(phase: UploadPhase): string {
   }
 }
 
-function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
+export function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
   const { data, filteredPlays, currentPlayIndex, setCurrentPlayIndex, uploads, removeUpload, retryUpload } = useAppState();
   return (
     <div className="content-grid">
@@ -460,8 +462,8 @@ function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
             <h2 className="panel-title">Clip Review <MockBadge status="mock" /></h2>
             <p className="kicker">
               Editable boundaries, overlays, comments, and labels. For real
-              backend-backed clip review, open a clip from the{" "}
-              <Link href="/library" style={{ color: "var(--gold)" }}>Library</Link>.
+              backend-backed clip review, open a clip from{" "}
+              <Link href="/film-room/?tab=browse" style={{ color: "var(--gold)" }}>Browse Film</Link>.
             </p>
           </div>
           <button className="control-button primary" onClick={onUploadClick}><Upload size={15} /> Upload Film</button>
@@ -988,7 +990,7 @@ function ReportRow({
   );
 }
 
-function ClipsHighlights() {
+export function ClipsHighlights() {
   const { data } = useAppState();
   const [filterTag, setFilterTag] = useState<string>("All");
   const [query, setQuery] = useState("");

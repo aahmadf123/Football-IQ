@@ -26,6 +26,7 @@ import type {
   SystemSettingsUpdate,
   UserPreferences,
   OurPossession,
+  WorkloadGatedDetail,
 } from "./types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -399,6 +400,77 @@ export async function retryJob(jobId: string, token?: string): Promise<unknown> 
     throw new Error(`Job retry failed (${res.status}): ${body}`);
   }
   return res.json();
+}
+
+// ── Process Film (ADR 0003 / Issue #187) ──────────────────────────────────────
+
+export type ProcessingMode = "same_session" | "nightly";
+
+export interface ProcessVideoResult {
+  jobId: string;
+  status: string;
+}
+
+/**
+ * Raised when the backend returns ``503 workload_gated`` for a processing
+ * request. Carries the structured workload detail so the UI can show a
+ * coach-readable "system is busy" message instead of a raw error.
+ */
+export class WorkloadGatedError extends Error {
+  readonly detail: WorkloadGatedDetail | null;
+  constructor(message: string, detail: WorkloadGatedDetail | null) {
+    super(message);
+    this.name = "WorkloadGatedError";
+    this.detail = detail;
+  }
+}
+
+/**
+ * Request processing for an uploaded video by creating an ``ingest`` job
+ * through the **backend** job API (``POST /api/v1/jobs``). This is the
+ * sanctioned, workload-gated entry point — it does not bypass the backend job
+ * API or the Worker/R2 flow, and it never calls an external API. Defaults to
+ * nightly (full-quality) priority; ``same_session`` (priority 10) is the
+ * period-break fast path.
+ */
+export async function requestVideoProcessing(
+  videoId: string,
+  options?: { mode?: ProcessingMode },
+  token?: string,
+): Promise<ProcessVideoResult> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const mode: ProcessingMode = options?.mode ?? "nightly";
+  const priority = mode === "same_session" ? 10 : 0;
+  const res = await fetch(`${base}/api/v1/jobs`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      video_id: videoId,
+      job_type: "ingest",
+      priority,
+      pipeline_mode: mode,
+    }),
+  });
+  if (res.status === 503) {
+    let detail: WorkloadGatedDetail | null = null;
+    try {
+      const body = (await res.json()) as { detail?: WorkloadGatedDetail };
+      detail = body?.detail ?? null;
+    } catch {
+      detail = null;
+    }
+    throw new WorkloadGatedError(
+      detail?.message ?? "The processing queue is busy right now. Try again shortly.",
+      detail,
+    );
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Process film request failed (${res.status}): ${body}`);
+  }
+  const job = (await res.json()) as { id: string; status: string };
+  return { jobId: job.id, status: job.status };
 }
 
 // ── Alerts ───────────────────────────────────────────────────────────────────

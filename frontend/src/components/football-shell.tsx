@@ -12,14 +12,11 @@ import {
   ClipboardList,
   Clapperboard,
   FileText,
-  FolderOpen,
   HeartPulse,
   Home,
   LineChart,
-  MonitorPlay,
   Radio,
   Settings,
-  ShieldCheck,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -35,22 +32,31 @@ import {
 } from "@/lib/app-state";
 import { MockBadge } from "@/components/mock-badge";
 
+// Consolidated coach-facing navigation (ADR 0003). Film Room and Scouting are
+// workspace hubs; Analytics is surfaced as "Model Insights". Alerts moved to a
+// top-bar inbox bell, and College Data lives inside the Scouting workspace.
 const navItems = [
   { key: "dashboard", label: "Dashboard", href: "/", icon: Home },
-  { key: "library", label: "Library", href: "/library", icon: FolderOpen },
-  { key: "alerts", label: "Alerts", href: "/alerts", icon: BellRing },
-  { key: "video-and-plays", label: "Video & Plays", href: "/video-and-plays", icon: MonitorPlay },
+  { key: "film-room", label: "Film Room", href: "/film-room", icon: Clapperboard },
+  { key: "scouting", label: "Scouting", href: "/scouting", icon: ClipboardList },
   { key: "players", label: "Players", href: "/players", icon: UserRound },
-  { key: "analytics", label: "Analytics", href: "/analytics", icon: LineChart },
-  { key: "self-scout", label: "Self-Scout", href: "/self-scout", icon: ShieldCheck },
-  { key: "opponent-scout", label: "Opponent Scout", href: "/opponent-scout", icon: ClipboardList },
   { key: "player-development", label: "Player Development", href: "/player-development", icon: UsersRound },
   { key: "health-workload", label: "Health & Workload", href: "/health-workload", icon: HeartPulse },
+  { key: "analytics", label: "Model Insights", href: "/analytics", icon: LineChart },
   { key: "reports", label: "Reports", href: "/reports", icon: FileText },
-  { key: "college-data", label: "College Data", href: "/college-data", icon: CalendarDays },
-  { key: "clips-highlights", label: "Clips & Highlights", href: "/clips-highlights", icon: Clapperboard },
   { key: "settings", label: "Settings", href: "/settings", icon: Settings },
 ] as const;
+
+// Compatibility routes (ADR 0003) that fold into a hub. Used to keep the hub
+// nav item highlighted when a coach lands on an old deep link.
+const COMPAT_ACTIVE: Partial<Record<PageKey, PageKey>> = {
+  library: "film-room",
+  "video-and-plays": "film-room",
+  "clips-highlights": "film-room",
+  "self-scout": "scouting",
+  "opponent-scout": "scouting",
+  "college-data": "scouting",
+};
 
 function formatDateLabel(value: string): string {
   if (!value) return "All dates";
@@ -85,6 +91,7 @@ export function FootballShell({
   } = useAppState();
 
   const titleEntry = pageTitles[activePage];
+  const navActiveKey = COMPAT_ACTIVE[activePage] ?? activePage;
   const totalPlays = filteredPlays.length;
   const totalClips = data.clips.length + uploads.length;
 
@@ -165,6 +172,26 @@ export function FootballShell({
             </select>
           </label>
 
+          <Link
+            href="/alerts"
+            className={`alerts-bell ${navActiveKey === "alerts" ? "active" : ""}`}
+            aria-label="Coaching alerts inbox"
+            title="Coaching alerts inbox"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              border: "1px solid var(--line-soft)",
+              color: "var(--text)",
+              flexShrink: 0,
+            }}
+          >
+            <BellRing size={18} />
+          </Link>
+
           <div className="user-pill" aria-label="User profile">UT</div>
         </div>
       </header>
@@ -176,7 +203,7 @@ export function FootballShell({
             const isActive =
               pathname === item.href ||
               (item.href !== "/" && pathname?.startsWith(item.href)) ||
-              activePage === item.key;
+              navActiveKey === item.key;
             return (
               <Link key={item.key} href={item.href} className={`nav-link ${isActive ? "active" : ""}`}>
                 <Icon size={18} />

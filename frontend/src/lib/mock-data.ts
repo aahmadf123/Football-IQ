@@ -5,6 +5,14 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     title: "Practice & Game Intelligence Cockpit",
     subtitle: "Processed football intelligence coaching review",
   },
+  "film-room": {
+    title: "Film Room",
+    subtitle: "Browse film, review & tag plays, build clips, and upload/process new film",
+  },
+  scouting: {
+    title: "Scouting",
+    subtitle: "Our tendencies, opponent prep, and college data context",
+  },
   "video-and-plays": {
     title: "Video & Plays",
     subtitle: "Clip review, play correction, boundaries, and call signs",
@@ -14,8 +22,8 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     subtitle: "Roster, identity confidence, and development snapshots",
   },
   analytics: {
-    title: "Analytics",
-    subtitle: "Key metrics, formation recognition, tracking quality, and model outputs",
+    title: "Model Insights",
+    subtitle: "Model-derived metrics, formation recognition, tracking quality, and model outputs",
   },
   "self-scout": {
     title: "Self-Scout",

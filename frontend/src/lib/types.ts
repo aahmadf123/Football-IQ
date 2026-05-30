@@ -1,19 +1,24 @@
 export type PageKey =
+  // Consolidated top-level destinations (ADR 0003)
   | "dashboard"
-  | "library"
-  | "video-and-plays"
+  | "film-room"
+  | "scouting"
   | "players"
   | "analytics"
-  | "self-scout"
-  | "opponent-scout"
   | "player-development"
   | "health-workload"
   | "reports"
-  | "clips-highlights"
+  | "settings"
+  // Inbox + deep-link / compatibility surfaces
   | "alerts"
   | "clip-review"
-  | "college-data"
-  | "settings";
+  // Retained compatibility routes (no longer in primary nav — see ADR 0003)
+  | "library"
+  | "video-and-plays"
+  | "self-scout"
+  | "opponent-scout"
+  | "clips-highlights"
+  | "college-data";
 
 // Backend-aligned enums (ADR 0001). These describe API payloads, not the
 // existing UI filter literals in app-state.tsx — the ADR explicitly defers
