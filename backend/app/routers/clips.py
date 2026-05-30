@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,9 @@ class ClipCreate(BaseModel):
     side_of_ball: SideOfBall | None = None
     capture_regime: CaptureRegime | None = None
     regime_confidence: float | None = None
+    # Active-learning uncertainty written by the GPU worker (Issues #145/#146).
+    uncertainty_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    uncertainty_calibrated: bool = False
 
 
 class ClipUpdate(BaseModel):
@@ -56,6 +59,8 @@ class ClipUpdate(BaseModel):
     side_of_ball: SideOfBall | None = None
     capture_regime: CaptureRegime | None = None
     regime_confidence: float | None = None
+    uncertainty_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    uncertainty_calibrated: bool | None = None
 
 
 class ClipResponse(BaseModel):
@@ -80,6 +85,8 @@ class ClipResponse(BaseModel):
     side_of_ball: SideOfBall | None
     capture_regime: CaptureRegime | None
     regime_confidence: float | None
+    uncertainty_score: float | None
+    uncertainty_calibrated: bool
     created_at: str
 
     @classmethod
@@ -104,6 +111,8 @@ class ClipResponse(BaseModel):
             side_of_ball=c.side_of_ball,
             capture_regime=c.capture_regime,
             regime_confidence=c.regime_confidence,
+            uncertainty_score=c.uncertainty_score,
+            uncertainty_calibrated=c.uncertainty_calibrated,
             created_at=c.created_at.isoformat(),
         )
 
@@ -250,6 +259,8 @@ async def create_clip(
         side_of_ball=side_of_ball,
         capture_regime=capture_regime,
         regime_confidence=regime_confidence,
+        uncertainty_score=body.uncertainty_score,
+        uncertainty_calibrated=body.uncertainty_calibrated,
     )
     db.add(clip)
     await db.flush()
@@ -324,6 +335,10 @@ async def update_clip(
             clip.regime_confidence = 1.0
     if body.regime_confidence is not None:
         clip.regime_confidence = body.regime_confidence
+    if body.uncertainty_score is not None:
+        clip.uncertainty_score = body.uncertainty_score
+    if body.uncertainty_calibrated is not None:
+        clip.uncertainty_calibrated = body.uncertainty_calibrated
 
     await db.flush()
     log.info("clip_updated", clip_id=str(clip_id))
