@@ -220,3 +220,4 @@ def test_stage_coverage_uncalibrated_coords_fallback() -> None:
     result = stage_coverage.run("clip-1", tracks, events, fps=30.0, analytics_safe=False)
     assert result["calibration_method"] == "uncalibrated"
     assert result["shell"] is not None
+    assert result["coverage_bust_flag"] is False

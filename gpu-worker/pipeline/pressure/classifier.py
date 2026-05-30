@@ -180,6 +180,7 @@ class PressureModel:
 def _baseline_probability(feats: PressureFeatures) -> float:
     """Deterministic, documented pressure prior (Issue #140, experimental)."""
     extra_rushers = feats.rusher_blocker_diff + 1.0  # 4-vs-5 ⇒ diff -1 ⇒ 0 extra
+    distance_yards = feats.distance_yards if feats.distance_yards is not None else _REF_DISTANCE
     logit = (
         _BASE_BIAS
         + _W_EXTRA_RUSHERS * extra_rushers
@@ -189,7 +190,7 @@ def _baseline_probability(feats: PressureFeatures) -> float:
         + _W_EDGE * feats.dl_gap_counts.get("edge", 0)
         + _W_BOX * max(feats.box_count - _REF_BOX, 0.0)
         - _W_LB_DEPTH * (feats.mean_lb_depth - _REF_LB_DEPTH)
-        + _W_LONG_YARDAGE * max((feats.distance_yards or _REF_DISTANCE) - _REF_DISTANCE, 0.0)
+        + _W_LONG_YARDAGE * max(distance_yards - _REF_DISTANCE, 0.0)
     )
     return float(sigmoid(logit))
 

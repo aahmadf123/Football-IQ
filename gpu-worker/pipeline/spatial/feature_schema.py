@@ -369,6 +369,7 @@ def build_spatial_graph(
     edges_dst: list[int] = []
     edge_feats: list[list[float]] = []
 
+    undirected_edges: set[tuple[int, int]] = set()
     for i in range(n):
         # Rank neighbours by distance for the k-NN fallback.
         dists = sorted(
@@ -384,14 +385,17 @@ def build_spatial_graph(
             within_knn = rank < max_degree
             if not (within_radius or within_knn):
                 continue
-            if i < j:  # add each undirected edge once, both directions
-                dx = nodes[j].field_x - nodes[i].field_x
-                dy = nodes[j].field_y - nodes[i].field_y
-                cos = _motion_cosine(nodes[i].velocity, nodes[j].velocity)
-                ef = [float(dist), float(dx), float(dy), float(cos)]
-                edges_src += [i, j]
-                edges_dst += [j, i]
-                edge_feats += [ef, [ef[0], -ef[1], -ef[2], ef[3]]]
+            undirected_edges.add((min(i, j), max(i, j)))
+
+    for i, j in sorted(undirected_edges):
+        dist = math.dist((nodes[i].field_x, nodes[i].field_y), (nodes[j].field_x, nodes[j].field_y))
+        dx = nodes[j].field_x - nodes[i].field_x
+        dy = nodes[j].field_y - nodes[i].field_y
+        cos = _motion_cosine(nodes[i].velocity, nodes[j].velocity)
+        ef = [float(dist), float(dx), float(dy), float(cos)]
+        edges_src += [i, j]
+        edges_dst += [j, i]
+        edge_feats += [ef, [ef[0], -ef[1], -ef[2], ef[3]]]
 
     edge_index = (
         np.array([edges_src, edges_dst], dtype=np.int64)

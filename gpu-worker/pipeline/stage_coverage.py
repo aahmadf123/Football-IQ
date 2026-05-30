@@ -112,7 +112,18 @@ def run(
         })
 
     # ── Coverage shell classification (GNN + calibrated uncertainty, #139) ──
-    bust = coverage_bust_flag(defense, snap_frame, fps)
+    if analytics_safe:
+        bust = coverage_bust_flag(defense, snap_frame, fps)
+    else:
+        bust = {
+            "coverage_bust_flag": False,
+            "max_displacement_yards": None,
+            "divergence_threshold_yards": None,
+            "window_frames": None,
+            "defenders_measured": 0,
+            "busted_track_id": None,
+            "reason": "calibration_not_analytics_safe",
+        }
     shell_value = _classify_shell(
         defense,
         offense,
@@ -320,7 +331,7 @@ def _classify_shell(
                 "model": out.get("detail", {}).get("model"),
             }
         except fs.FieldFrameError:
-            log.warning("coverage_shell_field_frame_guard_tripped", clip=None)
+            log.warning("coverage_shell_field_frame_guard_tripped")
 
     shell, conf = _classify_coverage_shell(defense, snap_frame, los_x)
     return {

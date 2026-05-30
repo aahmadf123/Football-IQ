@@ -57,6 +57,12 @@ def _heavy_blitz_front() -> list[dict[str, Any]]:
     return tracks
 
 
+def _wide_ol_c_gap_front() -> list[dict[str, Any]]:
+    tracks = [_player(f"ol{i}", LOS, y, "offense") for i, y in enumerate((-9.0, -4.5, 0.0, 4.5, 9.0))]
+    tracks.append(_player("dl-c", LOS + 1.0, 6.7, "defense"))  # near wide interior gap -> C-gap
+    return tracks
+
+
 def test_field_frame_guard_blocks_uncalibrated() -> None:
     with pytest.raises(FieldFrameError):
         extract_pressure_features(
@@ -75,6 +81,14 @@ def test_features_capture_gaps_dl_and_blitz() -> None:
     assert feats.blitz_indicator is False  # LBs at 4.5 yd are not blitzing
     # Vector layout matches the declared schema length.
     assert feats.to_vector().shape == (len(PRESSURE_FEATURE_NAMES),)
+
+
+def test_features_include_c_gap_count_in_vector_schema() -> None:
+    feats = extract_pressure_features(_wide_ol_c_gap_front(), 10, LOS, calibration_confirmed=True)
+    assert "dl_in_c_gap" in PRESSURE_FEATURE_NAMES
+    c_idx = PRESSURE_FEATURE_NAMES.index("dl_in_c_gap")
+    assert feats.dl_gap_counts["c"] >= 1
+    assert feats.to_vector()[c_idx] >= 1.0
 
 
 def test_blitz_front_flags_blitzers_and_more_rushers() -> None:

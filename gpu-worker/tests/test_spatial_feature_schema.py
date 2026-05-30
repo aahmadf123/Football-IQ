@@ -131,6 +131,21 @@ def test_empty_graph_has_well_formed_shapes() -> None:
     assert graph.edge_index.shape == (2, 0)
 
 
+def test_build_spatial_graph_keeps_knn_edges_for_higher_index_nodes() -> None:
+    # "d" picks lower-index "c" for k=1, while "c" picks "b" instead.
+    nodes = [
+        fs.PlayerNode("a", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, velocity=(0.0, 0.0)),
+        fs.PlayerNode("b", 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, velocity=(0.0, 0.0)),
+        fs.PlayerNode("c", 100.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, velocity=(0.0, 0.0)),
+        fs.PlayerNode("d", 101.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, velocity=(0.0, 0.0)),
+    ]
+    graph = fs.build_spatial_graph(nodes, radius_yards=0.01, max_degree=1)
+    src = graph.edge_index[0].tolist()
+    dst = graph.edge_index[1].tolist()
+    assert [3, 2] in [list(p) for p in zip(src, dst, strict=True)]
+    assert [2, 3] in [list(p) for p in zip(src, dst, strict=True)]
+
+
 def test_estimate_los_x_is_median() -> None:
     tracks = [
         _track("a", [(10, 48.0, 0.0)]),
