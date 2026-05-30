@@ -265,10 +265,12 @@ function ProcessingRow({
   pending: boolean;
   onProcess: (videoId: string) => void;
 }) {
-  const badge = statusBadge(item.video_status, request);
   const isQueued = request?.kind === "queued";
+  const badge = isQueued
+    ? { label: "Queued", color: "var(--accent-amber, #fbbf24)" }
+    : statusBadge(item.video_status, request);
   const canProcess = item.video_status === "uploaded" && !isQueued;
-  const isFailed = item.video_status === "failed";
+  const isFailed = item.video_status === "failed" && !isQueued;
 
   return (
     <div
