@@ -249,6 +249,7 @@ def _dispatch(
         stage_labels,
         stage_metrics,
         stage_oline,
+        stage_pressure,
         stage_reid,
         stage_render,
         stage_routes,
@@ -369,8 +370,17 @@ def _dispatch(
     elif job_type == "coverage":
         tracklets = input_artifacts.get("tracklets", [])
         events_list = input_artifacts.get("events", [])
+        analytics_safe = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
-        return stage_coverage.run(clip_id, tracklets, events_list, fps)
+        offense_direction = int(input_artifacts.get("offense_direction", 1))
+        return stage_coverage.run(
+            clip_id,
+            tracklets,
+            events_list,
+            fps,
+            analytics_safe=analytics_safe,
+            offense_direction=offense_direction,
+        )
 
     elif job_type == "oline":
         tracklets = input_artifacts.get("tracklets", [])
@@ -379,6 +389,23 @@ def _dispatch(
         fps = float(input_artifacts.get("fps", 30))
         return stage_oline.run(
             clip_id, tracklets, events_list, analytics_safe, fps, job_id
+        )
+
+    elif job_type == "pressure":
+        tracklets = input_artifacts.get("tracklets", [])
+        events_list = input_artifacts.get("events", [])
+        analytics_safe = bool(input_artifacts.get("analytics_safe", False))
+        fps = float(input_artifacts.get("fps", 30))
+        return stage_pressure.run(
+            clip_id,
+            tracklets,
+            events_list,
+            analytics_safe,
+            fps,
+            job_id,
+            offense_direction=int(input_artifacts.get("offense_direction", 1)),
+            down=input_artifacts.get("down"),
+            distance_yards=input_artifacts.get("distance_yards"),
         )
 
     elif job_type == "self_scout":
