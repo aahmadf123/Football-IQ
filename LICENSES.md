@@ -148,6 +148,26 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## NFL Big Data Bowl (BDB) — offline dataset adapter (Issue #164)
+
+| Field | Detail |
+|---|---|
+| **Resource** | NFL Big Data Bowl tracking datasets (Kaggle competitions) |
+| **Sport coverage** | NFL / American football ✅ (player tracking). Not soccer. |
+| **Toledo / MAC relevance** | Broad American football. **Not** Toledo film and **not** Toledo labels — offline analogue only. |
+| **Source URL** | Overview https://operations.nfl.com/gameday/analytics/big-data-bowl/ · BDB 2025 https://www.kaggle.com/competitions/nfl-big-data-bowl-2025 · BDB 2026 https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction · refs: formation https://operations.nfl.com/media/3672/big-data-bowl-vonder-haar.pdf, route-ID https://arxiv.org/abs/1908.02423 |
+| **License / access terms** | Per-competition Kaggle rules; account + rules acceptance required. Typically usable for the competition and non-commercial research; **redistribution generally not permitted**. Verify the specific competition's rules before any use beyond offline research. |
+| **Runtime category** | **Offline training / benchmark only.** Normalized locally into JSONL artifacts; never in the same-session or nightly production path. |
+| **Secret / key requirement** | `KAGGLE_USERNAME` + `KAGGLE_API_TOKEN` (**not** `KAGGLE_KEY`). Used only at manual download time; bridged to the `kaggle` CLI's `KAGGLE_KEY` var locally. Never exposed to frontend, browser bundles, Workers, logs, PR/issue text, R2 artifacts, coach-visible errors, or the database. Not read by the backend, so **not** in `backend/app/config.py`. **No value committed.** |
+| **Data privacy risk** | Public NFL competition data; no Toledo PII, medical, or recruiting data. BDB labels must not be presented as Toledo labels. |
+| **Model-router / registry path** | N/A — data normalizer, **no model code introduced**, no router/registry path. Any future model trained on these artifacts must route via `select_model(stage, priority)` and default nightly-only until benchmarked. |
+| **Overlap with closed decisions** | None. Single-camera (#101), pgvector (#8/#77), SAM (#74) untouched. CFBD (#160–#163) remains authoritative for college data. |
+| **Calibrated-tracking dependency** | BDB coordinates are clean ground-truth field yards; Football-IQ derives field coordinates via #127/#128/#129. BDB is offline-only **until** Toledo validation proves transfer — recorded in every artifact manifest. |
+| **Football-IQ usage** | Issue #164 — `gpu-worker/datasets/bdb/` offline adapter + benchmark, run via `python -m datasets.bdb`. Feeds offline #139/#140/#141/#150. Raw + normalized data are gitignored; only a synthetic sample is committed. |
+| **Notes** | No Kaggle data committed. No token logged/printed/committed. Schema report: [`reports/spike-issue164-bdb-adapter.md`](reports/spike-issue164-bdb-adapter.md). |
+
+---
+
 ## Field visualization evaluation — sportypy / sportyR / cfbplotR (Issue #169)
 
 | Field | Detail |
