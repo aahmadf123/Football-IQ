@@ -27,6 +27,8 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.coverage.gnn_classifier import CoverageClassifier, coverage_bust_flag
+from pipeline.spatial import feature_schema as fs
 
 log = structlog.get_logger(__name__)
 
@@ -41,8 +43,21 @@ def run(
     tracklets: list[dict[str, Any]],
     events: list[dict[str, Any]],
     fps: float,
+    *,
+    analytics_safe: bool = False,
+    offense_direction: int = 1,
+    classifier: CoverageClassifier | None = None,
 ) -> dict[str, Any]:
-    """Analyse coverage shell and leverage, write labels."""
+    """Analyse coverage shell and leverage, write labels.
+
+    The coverage shell is classified by :class:`CoverageClassifier` (the GNN
+    when ``COVERAGE_GNN_MODEL`` is configured, else the deterministic baseline)
+    over the shared spatial graph — but only when ``analytics_safe`` confirms the
+    field-frame calibration. Without confirmed calibration the stage falls back
+    to the legacy depth heuristic and flags the result uncalibrated, so a number
+    is never computed on uncalibrated coordinates (#127). The shell ships with a
+    calibrated ``coverage_confidence`` (#139/#146) and a ``coverage_bust_flag``.
+    """
     log.info("stage_coverage_start", clip_id=clip_id)
 
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
@@ -96,16 +111,44 @@ def run(
             },
         })
 
-    # ── Coverage shell classification ─────────────────────────────────────
-    shell, shell_confidence = _classify_coverage_shell(defense, snap_frame, los_x)
-    labels.append({
-        "label_type": "coverage_shell",
-        "label_value": {
-            "shell": shell,
-            "confidence": shell_confidence,
-            "defender_count": len(defense),
-        },
-    })
+    # ── Coverage shell classification (GNN + calibrated uncertainty, #139) ──
+    if analytics_safe:
+        bust = coverage_bust_flag(defense, snap_frame, fps)
+    else:
+        bust = {
+            "coverage_bust_flag": False,
+            "max_displacement_yards": None,
+            "divergence_threshold_yards": None,
+            "window_frames": None,
+            "defenders_measured": 0,
+            "busted_track_id": None,
+            "reason": "calibration_not_analytics_safe",
+        }
+    shell_value = _classify_shell(
+        defense,
+        offense,
+        snap_frame,
+        los_x,
+        analytics_safe=analytics_safe,
+        offense_direction=offense_direction,
+        classifier=classifier,
+    )
+    shell = str(shell_value["shell"])
+    shell_label: dict[str, Any] = {
+        "shell": shell,
+        "confidence": shell_value["coverage_confidence"],
+        "coverage_confidence": shell_value["coverage_confidence"],
+        "calibration_method": shell_value["calibration_method"],
+        "is_calibrated": shell_value["is_calibrated"],
+        "experimental": shell_value["experimental"],
+        "model": shell_value["model"],
+        "probabilities": shell_value["probabilities"],
+        "uncertainty": shell_value["uncertainty"],
+        "defender_count": len(defense),
+        "coverage_bust_flag": bust["coverage_bust_flag"],
+        "bust_detail": bust,
+    }
+    labels.append({"label_type": "coverage_shell", "label_value": shell_label})
 
     # Write labels
     label_ids: list[str] = []
@@ -121,11 +164,22 @@ def run(
         except Exception as exc:
             log.warning("coverage_label_write_failed", error=str(exc))
 
-    log.info("stage_coverage_done", clip_id=clip_id, label_count=len(label_ids))
+    log.info(
+        "stage_coverage_done",
+        clip_id=clip_id,
+        label_count=len(label_ids),
+        shell=shell,
+        coverage_confidence=round(float(shell_value["coverage_confidence"]), 3),
+        calibrated=shell_value["is_calibrated"],
+        coverage_bust_flag=bust["coverage_bust_flag"],
+    )
     return {
         "label_count": len(label_ids),
         "label_ids": label_ids,
         "shell": shell,
+        "coverage_confidence": shell_value["coverage_confidence"],
+        "calibration_method": shell_value["calibration_method"],
+        "coverage_bust_flag": bust["coverage_bust_flag"],
         "alignments": alignment_results,
     }
 
@@ -230,6 +284,67 @@ def _classify_leverage(
     if lateral_diff < 0:
         return "inside"
     return "outside"
+
+
+def _classify_shell(
+    defense: list[dict[str, Any]],
+    offense: list[dict[str, Any]],
+    snap_frame: int,
+    los_x: float,
+    *,
+    analytics_safe: bool,
+    offense_direction: int,
+    classifier: CoverageClassifier | None,
+) -> dict[str, Any]:
+    """Classify the coverage shell with calibrated uncertainty (Issue #139).
+
+    Uses the GNN/baseline classifier over the shared spatial graph when
+    calibration is confirmed; otherwise falls back to the legacy depth heuristic
+    and flags the result uncalibrated (coordinates unconfirmed).
+    """
+    if analytics_safe:
+        try:
+            receiver_positions = [
+                pos
+                for pos in (_position_at_frame(t, snap_frame) for t in offense)
+                if pos is not None
+            ]
+            nodes = fs.build_player_nodes(
+                defense,
+                snap_frame,
+                los_x,
+                calibration_confirmed=True,
+                offense_direction=offense_direction,
+                receiver_positions=receiver_positions,
+            )
+            graph = fs.build_spatial_graph(nodes)
+            clf = classifier or CoverageClassifier.from_env()
+            out = clf.classify(nodes, graph).to_dict()
+            return {
+                "shell": out["value"],
+                "coverage_confidence": out["confidence"],
+                "calibration_method": out["calibration_method"],
+                "is_calibrated": out["is_calibrated"],
+                "experimental": out["experimental"],
+                "uncertainty": out["uncertainty"],
+                "probabilities": out.get("probabilities"),
+                "model": out.get("detail", {}).get("model"),
+            }
+        except fs.FieldFrameError:
+            log.warning("coverage_shell_field_frame_guard_tripped")
+
+    shell, conf = _classify_coverage_shell(defense, snap_frame, los_x)
+    return {
+        "shell": shell,
+        # Discount the heuristic confidence because the field frame is unconfirmed.
+        "coverage_confidence": round(conf * 0.8, 4),
+        "calibration_method": "uncalibrated",
+        "is_calibrated": False,
+        "experimental": True,
+        "uncertainty": None,
+        "probabilities": None,
+        "model": "coverage-baseline-heuristic-unconfirmed-coords",
+    }
 
 
 def _classify_coverage_shell(

@@ -269,6 +269,32 @@ unvalidated number can never be stored as trusted. SAM masks (#74) and play
 embeddings (#8) are enrichment-only inputs — the metrics still compute when they
 are absent, and no second SAM/embeddings path is introduced.
 
+## Not routed: coverage GNN + pre-snap pressure (Issues #139 / #140 / #146)
+
+The coverage classifier (`gpu-worker/pipeline/coverage/`, `stage_coverage.py`)
+and the pre-snap pressure predictor (`gpu-worker/pipeline/pressure/`,
+`stage_pressure.py`) consume the **outputs** of the routed stages (calibrated
+tracking, snap anchor, OL/DL identification) and run pure-NumPy graph/heuristic
+math over the shared spatial schema (`gpu-worker/pipeline/spatial/`). In their
+default path they load **no heavy weights** and run identically in both priority
+buckets, so — exactly like the pre-snap run/pass predictor and frontier
+analytics — they register **no** `model_router` stage and are absent from
+`DEFAULT_ROUTING`.
+
+Optional offline-trained checkpoints (`COVERAGE_GNN_MODEL`, `PRESSURE_MODEL`) are
+small CPU-friendly NumPy artifacts that load at runtime and **fall back** to the
+deterministic baseline when absent — mirroring `PLAY_PREDICTION_FORMATION_MODEL`
+/ `REID_OCR_MODEL`. They never touch `output_artifacts["model_routing"]`, so the
+routing audit for the routed stages is preserved untouched. Both classifiers
+ship a calibrated confidence (`CalibratedOutput`, Issue #146) and are flagged
+**experimental / uncalibrated** until an offline-trained, Toledo-validated,
+calibrated checkpoint is supplied; pressure metrics are additionally forced
+`experimental_flag=True` / `analytics_safe=False` on write. A future heavy GNN
+variant that needs the GPU must be added to `DEFAULT_ROUTING` +
+`gpu-worker/tests/test_model_router.py` and benchmarked before any same-session
+use (the "experimental → nightly" rule). See
+[`docs/coverage-pressure-features.md`](coverage-pressure-features.md).
+
 ## Unknown stages
 
 `select_model("not-a-stage", priority)` returns the module-level

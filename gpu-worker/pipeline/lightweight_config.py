@@ -52,6 +52,7 @@ SAME_SESSION_STAGES: list[str] = [
     "routes",
     "coverage",
     "oline",
+    "pressure",
     "render",
 ]
 
@@ -69,6 +70,7 @@ NIGHTLY_STAGES: list[str] = [
     "routes",
     "coverage",
     "oline",
+    "pressure",
     "render",
     "render_hls",
     "self_scout",
