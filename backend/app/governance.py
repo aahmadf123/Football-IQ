@@ -39,7 +39,7 @@ import structlog
 from fastapi import Depends, HTTPException, status
 
 from app.deps import get_current_user
-from app.models import Player, PlayerVisibilityState, User, UserRole
+from app.models import Player, PlayerProfile, PlayerVisibilityState, User, UserRole
 
 log = structlog.get_logger("app.governance")
 
@@ -52,6 +52,7 @@ class Resource(enum.StrEnum):
 
     PLAYER_PROFILE = "player_profile"
     PLAYER_VISIBILITY = "player_visibility"
+    PLAYER_DEVELOPMENT = "player_development"
     PLAYER_METRICS = "player_metrics"
     HEALTH_WORKLOAD = "health_workload"
     HEAVY_WORKLOAD = "heavy_workload"
@@ -86,6 +87,18 @@ POLICY: dict[tuple[Resource, Action], frozenset[UserRole]] = {
         {UserRole.admin, UserRole.analyst, UserRole.coach}
     ),
     (Resource.PLAYER_VISIBILITY, Action.APPROVE): frozenset({UserRole.admin, UserRole.analyst}),
+    # Player development passport (Issue #7): authoring profile content
+    # (role summary, development goals, coach notes, player summary, curated
+    # clips) and weekly snapshots is coaching-staff only. Approving a snapshot
+    # for player-facing/recruiting use is the same staff set — recruiting
+    # *exposure* is additionally gated by the player_visibility:approve row
+    # above (admin/analyst) via the parent player's visibility state.
+    (Resource.PLAYER_DEVELOPMENT, Action.WRITE): frozenset(
+        {UserRole.admin, UserRole.analyst, UserRole.coach}
+    ),
+    (Resource.PLAYER_DEVELOPMENT, Action.APPROVE): frozenset(
+        {UserRole.admin, UserRole.analyst, UserRole.coach}
+    ),
     # Player metrics: staff + the player themselves (filtered by shape_player).
     (Resource.PLAYER_METRICS, Action.READ): frozenset(
         {
@@ -398,6 +411,90 @@ def shape_player(
     return None
 
 
+def _iso(value: Any) -> str | None:
+    """Return an ISO-8601 string for a datetime-like value, else ``None``."""
+    if value is None:
+        return None
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        return str(isoformat())
+    return str(value)
+
+
+def _enum_value(value: Any) -> Any:
+    """Return ``value.value`` for enums (and enum-like), else ``value``."""
+    return getattr(value, "value", value)
+
+
+def shape_player_profile(
+    profile: PlayerProfile,
+    player: Player,
+    mode: VisibilityMode,
+    *,
+    actor: User | None = None,
+) -> dict[str, Any] | None:
+    """Project a player development profile (Issue #7) for ``mode``.
+
+    The outward-facing lifecycle gate is delegated to :func:`shape_player` on
+    the parent ``player`` — if the player record's visibility state prohibits
+    the mode (``archived``, not yet ``player_approved`` for a self-view, not
+    ``recruiting_approved`` for an external view, or an owner mismatch), this
+    returns ``None`` so callers can translate it into a 404.
+
+    ``coach_notes`` is private staff content and is **never** present in the
+    player or recruiting projections, regardless of column state — the staff
+    projection is the only one that includes it.
+    """
+    if shape_player(player, mode, actor=actor) is None:
+        return None
+
+    if mode == VisibilityMode.STAFF:
+        return {
+            "id": str(profile.id),
+            "player_id": str(profile.player_id),
+            "season": profile.season,
+            "role_summary": profile.role_summary,
+            "development_goals": profile.development_goals,
+            "coach_notes": profile.coach_notes,
+            "player_summary": profile.player_summary,
+            "benchmark_group": profile.benchmark_group,
+            "favorite_clip_ids": profile.favorite_clip_ids or [],
+            "generated_by": _enum_value(profile.generated_by),
+            "approved_by": str(profile.approved_by) if profile.approved_by else None,
+            "approved_at": _iso(profile.approved_at),
+            "created_at": _iso(profile.created_at),
+            "updated_at": _iso(profile.updated_at),
+            "view": VisibilityMode.STAFF.value,
+        }
+
+    if mode == VisibilityMode.PLAYER:
+        # Player self-view: coach-approved development content only. No private
+        # coach notes, no internal role/authoring bookkeeping.
+        return {
+            "id": str(profile.id),
+            "player_id": str(profile.player_id),
+            "season": profile.season,
+            "player_summary": profile.player_summary,
+            "development_goals": profile.development_goals,
+            "favorite_clip_ids": profile.favorite_clip_ids or [],
+            "view": VisibilityMode.PLAYER.value,
+        }
+
+    if mode == VisibilityMode.RECRUITING:
+        # External recruiting view: identity-level proof points and approved
+        # highlights only — never private notes or internal development goals.
+        return {
+            "player_id": str(profile.player_id),
+            "season": profile.season,
+            "player_summary": profile.player_summary,
+            "favorite_clip_ids": profile.favorite_clip_ids or [],
+            "view": VisibilityMode.RECRUITING.value,
+        }
+
+    # Unreachable — the enum is exhaustive above.
+    return None
+
+
 # ── Audit logging ─────────────────────────────────────────────────────────────
 
 
@@ -419,6 +516,14 @@ _AUDIT_ALLOWED_KEYS: frozenset[str] = frozenset(
         "queue_threshold",
         "endpoint",
         "decision",
+        # Player development passport (Issue #7) — identifiers/enums only,
+        # never profile content, metrics, or notes.
+        "season",
+        "snapshot_id",
+        "identity_state",
+        "approval_status",
+        "generated_by",
+        "experimental",
     }
 )
 

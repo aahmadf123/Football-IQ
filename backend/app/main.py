@@ -36,6 +36,7 @@ from app.routers.mlops import router as mlops_router
 from app.routers.opponents import router as opponents_router
 from app.routers.overlays import router as overlays_router
 from app.routers.play_prediction import router as play_prediction_router
+from app.routers.player_profiles import router as player_profiles_router
 from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
 from app.routers.practice_sessions import router as practice_sessions_router
@@ -95,6 +96,7 @@ app.include_router(videos_router)
 app.include_router(clips_router)
 app.include_router(practice_sessions_router)
 app.include_router(players_router)
+app.include_router(player_profiles_router)
 app.include_router(jobs_router)
 app.include_router(calibrations_router)
 app.include_router(tracklets_router)

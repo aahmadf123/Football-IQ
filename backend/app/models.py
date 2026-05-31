@@ -27,6 +27,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -37,6 +38,7 @@ from sqlalchemy import (
     UniqueConstraint,
     false,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -228,6 +230,49 @@ class ReportFormat(enum.StrEnum):
     pdf = "pdf"
     csv = "csv"
     json = "json"
+
+
+class ProfileGenerationSource(enum.StrEnum):
+    """How a player profile / development snapshot was produced (Issue #7).
+
+    Recorded as ``generated_by`` so a coach always knows whether a snapshot was
+    hand-authored, derived from model outputs, or imported from an external
+    record before it is approved for player-facing use.
+    """
+
+    manual = "manual"
+    model_assisted = "model_assisted"
+    imported = "imported"
+
+
+class PlayerIdentityState(enum.StrEnum):
+    """Confidence-scored identity state for a development snapshot (Issue #7).
+
+    Jersey OCR is never treated as ground truth — practice clips include
+    temporary/non-assigned jerseys, pinnies, wrong numbers, or unreadable
+    numbers, so the resolved identity carries an explicit state alongside its
+    confidence. Low-confidence states (everything other than ``known`` /
+    ``probable``) can never be silently attached to a player-facing profile.
+    """
+
+    known = "known"
+    probable = "probable"
+    unknown = "unknown"
+    conflicting = "conflicting"
+    needs_review = "needs_review"
+
+
+class SnapshotApprovalStatus(enum.StrEnum):
+    """Approval lifecycle for a weekly development snapshot (Issue #7).
+
+    A snapshot starts ``pending`` and must be explicitly ``approved`` by a
+    coach/analyst before it participates in any player-facing or recruiting
+    projection. ``rejected`` keeps the row for audit without surfacing it.
+    """
+
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -1226,6 +1271,149 @@ class PlayerVisibilityAudit(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ── Player development passport (Issue #7) ─────────────────────────────────────
+
+
+class PlayerProfile(Base):
+    """Per-player, per-season development profile — the passport home record.
+
+    One row per ``(player, season)``. The outward-facing visibility lifecycle
+    is governed entirely by the parent :class:`Player.visibility_state`
+    (Issue #114); this table deliberately does **not** duplicate that state so
+    there is a single source of truth. ``coach_notes`` is private staff content
+    and is stripped from every non-staff projection by
+    :func:`app.governance.shape_player_profile` — never serialize it directly.
+    """
+
+    __tablename__ = "player_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Season label, e.g. "2026". Free-form string so spring/fall splits or
+    # custom training blocks can reuse the table without a schema change.
+    season: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Staff-facing role description (e.g. "slot receiver / gunner").
+    role_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Position-specific development goals, configurable per position group.
+    development_goals: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # PRIVATE — coaches/analysts only. Never exposed to player/recruiting views.
+    coach_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Player-facing summary, written/approved by staff.
+    player_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Benchmark cohort: "position_group" | "class_year" | "role".
+    benchmark_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Curated best teaching / recruiting clip ids (list of uuid strings).
+    favorite_clip_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    generated_by: Mapped[ProfileGenerationSource] = mapped_column(
+        Enum(ProfileGenerationSource, name="profile_generation_source"),
+        nullable=False,
+        default=ProfileGenerationSource.manual,
+        server_default=ProfileGenerationSource.manual.value,
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "season", name="player_profiles_player_season_uq"),
+    )
+
+    player: Mapped["Player"] = relationship("Player")
+    snapshots: Mapped[list["PlayerProfileSnapshot"]] = relationship(
+        "PlayerProfileSnapshot", back_populates="profile", cascade="all, delete-orphan"
+    )
+
+
+class PlayerProfileSnapshot(Base):
+    """Weekly development snapshot for a player profile (Issue #7).
+
+    Captures the longitudinal record: per-week summary metrics, strengths,
+    development focus, and evidence clips, alongside a confidence-scored
+    identity resolution. A snapshot only participates in player-facing or
+    recruiting projections once ``approval_status == approved``; low-confidence
+    or unknown identities are forced ``experimental_flag = True`` and cannot be
+    approved (see ``app.routers.player_profiles``).
+    """
+
+    __tablename__ = "player_profile_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("player_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Denormalized parent player id so snapshot queries don't have to JOIN
+    # player_profiles to filter/authorize by player.
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The Monday (or chosen anchor) of the snapshot week.
+    week_start: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    summary_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    strengths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    development_focus: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    evidence_clip_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # ── Confidence-scored identity (Issue #7 — MP4-only, no face recognition) ──
+    identity_state: Mapped[PlayerIdentityState] = mapped_column(
+        Enum(PlayerIdentityState, name="player_identity_state"),
+        nullable=False,
+        default=PlayerIdentityState.needs_review,
+        server_default=PlayerIdentityState.needs_review.value,
+    )
+    identity_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Source signals that produced the identity, e.g.
+    # {"jersey_ocr": 0.4, "appearance": 0.6, "trajectory": 0.7,
+    #  "roster_mapping": true, "manual_correction": true}. Never face data.
+    identity_signals: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    generated_by: Mapped[ProfileGenerationSource] = mapped_column(
+        Enum(ProfileGenerationSource, name="profile_generation_source", create_type=False),
+        nullable=False,
+        default=ProfileGenerationSource.model_assisted,
+        server_default=ProfileGenerationSource.model_assisted.value,
+    )
+    approval_status: Mapped[SnapshotApprovalStatus] = mapped_column(
+        Enum(SnapshotApprovalStatus, name="snapshot_approval_status"),
+        nullable=False,
+        default=SnapshotApprovalStatus.pending,
+        server_default=SnapshotApprovalStatus.pending.value,
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Forced True when identity confidence is below threshold or the identity
+    # state is not known/probable — such a snapshot is never silently attached
+    # to a player-facing profile.
+    experimental_flag: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    profile: Mapped["PlayerProfile"] = relationship("PlayerProfile", back_populates="snapshots")
 
 
 # ── Settings (Issue #112) ─────────────────────────────────────────────────────
