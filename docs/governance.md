@@ -36,6 +36,8 @@ any (resource, action) pair not listed in the table is forbidden.
 | `player_profile`      | `read`     | all authenticated roles                       |
 | `player_visibility`   | `write`    | admin, analyst, coach                         |
 | `player_visibility`   | `approve`  | admin, analyst (recruiting approval)          |
+| `player_development`  | `write`    | admin, analyst, coach                         |
+| `player_development`  | `approve`  | admin, analyst, coach                         |
 | `player_metrics`      | `read`     | admin, analyst, coach, sportsperformance, player |
 | `health_workload`     | `read`     | admin, analyst, sportsperformance             |
 | `heavy_workload`      | `trigger`  | admin, analyst                                |
@@ -165,6 +167,11 @@ Events to expect:
 * `audit.gating.allowed`
 * `audit.gating.rejected`
 * `audit.health_workload.read`
+* `audit.profile.read`
+* `audit.profile.upserted`
+* `audit.profile.snapshot_created`
+* `audit.profile.snapshot_approval_changed`
+* `audit.profile.snapshot_approval_blocked`
 
 These follow the existing structlog JSON format and can be filtered by
 `event=audit.*` in log aggregators.
@@ -201,6 +208,45 @@ Two coaching-staff-only surfaces build on the layers above:
   ingest. `GET /api/v1/analytics/frontier` blocks `player`/`viewer`, returns the
   coach-readable definitions, and labels every value EXPERIMENTAL. See
   [`docs/frontier-analytics.md`](frontier-analytics.md).
+
+## 6c. Player development passport (Issue #7)
+
+The individualized player profile / development passport builds directly on the
+visibility lifecycle and RBAC above. Two tables back it
+(`player_profiles`, `player_profile_snapshots`); the router is
+`app.routers.player_profiles`.
+
+* **Single source of visibility.** The outward-facing lifecycle stays on
+  `players.visibility_state` (§3). The passport tables deliberately do **not**
+  duplicate it — `shape_player_profile` delegates the staff/player/recruiting
+  gate to `shape_player`, so a profile is only visible in a mode the parent
+  player record already permits.
+* **Private coach notes.** `coach_notes` is staff-only and is stripped from
+  every player/recruiting projection regardless of column state. The player
+  self-view returns the staff-approved `player_summary`, development goals, and
+  curated clips only — never coach notes, identity confidence, or raw metrics.
+* **Authoring vs. approval.** Writing profile content and weekly snapshots
+  requires `player_development:write` (coaching staff). Approving a snapshot for
+  player-facing/recruiting use requires `player_development:approve`. Every
+  snapshot records `generated_by` (`manual` / `model_assisted` / `imported`)
+  and, once approved, `approved_by` / `approved_at`.
+* **Confidence-scored identity (no face recognition).** Each snapshot carries a
+  `PlayerIdentityState` (`known` / `probable` / `unknown` / `conflicting` /
+  `needs_review`), an `identity_confidence`, and the `identity_signals` that
+  produced it (jersey OCR, appearance, trajectory, roster mapping, manual
+  correction — never face data). Jersey OCR is never treated as ground truth.
+* **Low-confidence guard.** A snapshot whose identity confidence is below
+  `PLAYER_PROFILE_IDENTITY_CONFIDENCE_THRESHOLD` or whose state is not
+  `known`/`probable` is forced `experimental_flag = True` and **cannot be
+  approved** for player-facing use (`409 identity_confidence_too_low`) — a
+  low-confidence identity is never silently attached to a player's profile.
+  Identity is resolved/corrected via the existing tracklet + coach-correction
+  flywheel (`PATCH /api/v1/tracklets/{id}`), not by this router.
+* **Audit.** Reads emit `audit.profile.read`; writes emit
+  `audit.profile.upserted` / `audit.profile.snapshot_created`; approval emits
+  `audit.profile.snapshot_approval_changed` or
+  `audit.profile.snapshot_approval_blocked`. All carry identifiers/enums only —
+  never profile content, metrics, or notes.
 
 ## 7. Integration placeholders
 

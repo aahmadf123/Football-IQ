@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # staff can tighten/loosen the first-pass review queue without a redeploy.
     clip_low_confidence_threshold: float = 0.5
 
+    # ── Player development passport (Issue #7) ────────────────────────────
+    # A development snapshot whose resolved identity confidence is below this
+    # value (or whose identity state is not known/probable) is forced
+    # experimental and can never be approved for player-facing use. Jersey OCR
+    # is never trusted as ground truth, so this gate keeps low-confidence
+    # identities from being silently attached to a player profile.
+    player_profile_identity_confidence_threshold: float = 0.5
+
     # ── College Football Data (CFBD) — backend-only (Issues #160/#161/#162) ─
     # Vendor integration for Toledo/MAC analytics. The key is read by the
     # backend ONLY and must never reach frontend code, browser bundles, logs,
