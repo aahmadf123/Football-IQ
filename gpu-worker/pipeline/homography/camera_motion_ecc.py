@@ -346,6 +346,9 @@ def compensate_sequence(
                 last_H = homographies[i - 1]
                 homographies[i] = last_H
                 if last_H is not None:
+                    # Pass ANCHOR_MIN_CONFIDENCE so set_anchor clears its own
+                    # floor: this is a forced continuity reset, not a fresh
+                    # high-confidence calibration, so we only need it to take.
                     comp.set_anchor(i, last_H, ANCHOR_MIN_CONFIDENCE)
             continue
 
