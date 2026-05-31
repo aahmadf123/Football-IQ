@@ -49,8 +49,13 @@ log = structlog.get_logger(__name__)
 MIN_PLAY_DURATION = 3.0  # seconds — ignore very short segments
 
 
-def run(video_id: str, input_uri: str, job_id: str) -> dict[str, Any]:
-    """Run Stage 2: propose clip boundaries and write them to the backend."""
+def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0) -> dict[str, Any]:
+    """Run Stage 2: propose clip boundaries and write them to the backend.
+
+    ``priority`` selects the clip result tier (Issue #147): same-session jobs
+    produce ``preliminary`` clips (a first pass awaiting the nightly upgrade);
+    nightly jobs produce ``final`` clips.
+    """
     variant = os.environ.get("SEGMENTER_VARIANT", OPTICAL_FLOW)
     segmenter = get_segmenter(variant)
     log.info(
@@ -58,12 +63,13 @@ def run(video_id: str, input_uri: str, job_id: str) -> dict[str, Any]:
         video_id=video_id,
         variant=variant,
         adapter=type(segmenter).__name__,
+        priority=priority,
     )
 
     r2_key = _uri_to_r2_key(input_uri)
     video_path = r2.download_to_temp(r2_key)
     try:
-        return _segment(video_id, video_path, job_id, segmenter)
+        return _segment(video_id, video_path, job_id, segmenter, priority)
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -90,10 +96,17 @@ def _segment(
     video_path: Path,
     job_id: str,
     segmenter: SegmenterBase,
+    priority: int = 0,
 ) -> dict[str, Any]:
+    from pipeline.model_router import is_same_session
+
     boundaries = segmenter.segment(video_path)
     duration = _video_duration(video_path)
-    clips = _write_clips(video_id, boundaries, duration, job_id, segmenter.source)
+    # Same-session clips are a first pass (preliminary); nightly clips are final.
+    result_state = "preliminary" if is_same_session(priority) else "final"
+    clips = _write_clips(
+        video_id, boundaries, duration, job_id, segmenter.source, result_state
+    )
 
     log.info(
         "stage_segment_done",
@@ -115,6 +128,7 @@ def _write_clips(
     duration: float,
     job_id: str,
     boundary_model: str,
+    result_state: str | None = None,
 ) -> list[dict[str, Any]]:
     """Post one clip per segment to the backend.
 
@@ -145,6 +159,7 @@ def _write_clips(
             boundary_confidence=confidence,
             play_number=play_idx,
             job_id=job_id,
+            result_state=result_state,
         )
         # Tag the in-memory clip dict so callers/tests can see which
         # adapter produced it without re-querying the backend.

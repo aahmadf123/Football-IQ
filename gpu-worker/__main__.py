@@ -220,6 +220,14 @@ def process_job(job: dict[str, Any]) -> None:
         if is_same_session and job_type == "render":
             _queue_nightly_hls_followup(job, artifacts)
 
+        # After a nightly render completes, upgrade this video's same-session
+        # preliminary clips to final (Issue #147): the nightly full-quality
+        # output now supersedes the period-break first pass, so the coach's
+        # "Preliminary" badge clears. Best-effort + idempotent; skipped when the
+        # job carries no video_id.
+        if not is_same_session and job_type == "render" and video_id:
+            _finalize_nightly_clips(video_id)
+
     except JobTimeoutError:
         _jto(job_type, pipeline_mode)
         log.warning("job_timeout_handled", job_id=job_id, priority=priority)
@@ -263,7 +271,7 @@ def _dispatch(
         return stage_ingest.run(video_id, input_uri, job_id)
 
     elif job_type == "segment":
-        return stage_segment.run(video_id, input_uri, job_id)
+        return stage_segment.run(video_id, input_uri, job_id, priority=priority)
 
     elif job_type == "calibrate":
         calib_variant = model_router.select_model("calibrate", priority)
@@ -636,6 +644,18 @@ def _queue_nightly_hls_followup(
                 followup_job_id=followup_job_id,
                 error=str(exc),
             )
+
+
+def _finalize_nightly_clips(video_id: str) -> None:
+    """Flip a video's same-session preliminary clips to final (Issue #147)."""
+    from pipeline import backend as backend_mod
+
+    try:
+        count = backend_mod.finalize_video_clips(video_id)
+        if count:
+            log.info("nightly_clips_finalized", video_id=video_id, finalized_count=count)
+    except Exception as exc:
+        log.warning("nightly_clips_finalize_failed", video_id=video_id, error=str(exc))
 
 
 def _update_job_status(

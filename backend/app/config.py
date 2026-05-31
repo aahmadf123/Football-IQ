@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000"
 
+    # ── Same-session feedback loop (Issue #147) ───────────────────────────
+    # Clip ``confidence`` at or below this value is surfaced to coaches as
+    # ``low_confidence`` in the derived review state. Calibrated high
+    # uncertainty (Issue #146) is also treated as low-confidence. Tunable so
+    # staff can tighten/loosen the first-pass review queue without a redeploy.
+    clip_low_confidence_threshold: float = 0.5
+
     # ── College Football Data (CFBD) — backend-only (Issues #160/#161/#162) ─
     # Vendor integration for Toledo/MAC analytics. The key is read by the
     # backend ONLY and must never reach frontend code, browser bundles, logs,

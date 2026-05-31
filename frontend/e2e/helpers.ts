@@ -161,6 +161,7 @@ export function sampleInboxItem(overrides: Record<string, unknown> = {}) {
     succeeded_jobs: 6,
     failed_jobs: 0,
     clip_count: 12,
+    preliminary_clip_count: 0,
     calibration_safe_pct: 94,
     latest_error_stage: null,
     latest_error_message: null,

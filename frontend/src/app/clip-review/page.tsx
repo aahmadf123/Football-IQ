@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClipStateBadges } from "@/components/clip-state-badge";
 import { FootballShell } from "@/components/football-shell";
 import { useAppState } from "@/lib/app-state";
 import {
@@ -277,11 +278,17 @@ function ClipReviewReady({
       <section className="panel span-8 panel-pad">
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <div>
-            <h2 className="panel-title">
-              {clip.play_number != null
-                ? `Play #${clip.play_number}`
-                : `Clip ${clip.id.slice(0, 8)}`}
-            </h2>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <h2 className="panel-title">
+                {clip.play_number != null
+                  ? `Play #${clip.play_number}`
+                  : `Clip ${clip.id.slice(0, 8)}`}
+              </h2>
+              <ClipStateBadges
+                isPreliminary={clip.is_preliminary}
+                reviewState={clip.review_state}
+              />
+            </div>
             <p className="kicker">
               {sessionKindLabel}
               {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
@@ -393,6 +400,12 @@ function ClipReviewReady({
                   : "Unknown"
             }
           />
+          {clip.result_state && (
+            <MetadataRow
+              label="Results"
+              value={clip.is_preliminary ? "Preliminary (same-session)" : "Final (nightly)"}
+            />
+          )}
           {video.recorded_at && (
             <MetadataRow
               label="Recorded"
