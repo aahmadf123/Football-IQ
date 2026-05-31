@@ -309,6 +309,26 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## OpenAI CLIP ViT-B/32 (play embeddings + text-tower search)
+
+| Field | Detail |
+|---|---|
+| **Model** | OpenAI CLIP ViT-B/32 (frozen) — image tower + text tower |
+| **Source URL** | https://github.com/openai/CLIP · model card https://github.com/openai/CLIP/blob/main/model-card.md · open-weights via https://github.com/mlfoundations/open_clip (`ViT-B-32`, `openai`) |
+| **Sport coverage** | Sport-agnostic vision-language model; applied to **American football** clips and an American-football-only concept vocabulary. Not soccer. |
+| **Toledo / MAC relevance** | Broad American football — encodes Toledo clip keyframes (image tower) and football concept phrases (text tower). |
+| **License** | MIT (CLIP reference code). Pretrained weights released for research use; re-verify before any external/commercial deployment. |
+| **Access / key** | `pip install open_clip_torch` (or `transformers`); **no API key**. Not gated, no token required. |
+| **Secret / key requirement** | None. |
+| **Runtime category** | Nightly-only embedding encoder (image tower, `stage_embed` — Issues #8/#77) + **offline** text-tower encode for the committed concept catalog (Issue #195). Never same-session. |
+| **Data privacy risk** | None beyond existing player-tracking imagery; single-camera only (#101). The committed catalog holds CLIP **text** vectors of generic football phrases — no PII, no Toledo footage. |
+| **Model-router / registry path** | `pipeline.model_router` → nightly `embeddings` = `play-embed-clip-vitb32-baseline`; on `NIGHTLY_ONLY_VARIANTS`. Issue #195 adds **no** new stage/variant — it persists the raw 512-d image embedding to `playembeddings.clip_vector` and serves `/api/v1/search/text` from it. |
+| **Calibrated-tracking dependency** | None (#127/#128/#129 not implicated). |
+| **Weights** | **Never committed** (`.pt`/`.pth`/`.safetensors` git-ignored). Downloaded at runtime by `open_clip`/`transformers`. The committed `backend/app/data/concept_catalog.json` holds **vectors only** (CLIP text-tower outputs), produced offline by `gpu-worker/scripts/build_concept_catalog.py` — never weights. |
+| **Football-IQ usage** | Phase 3 — Issues #8/#77 (fused play embedding) and #195 (raw `clip_vector(512)` + CLIP text-tower `/search/text`). Results are always experimental/approximate and never promote to a label. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.

@@ -1046,6 +1046,12 @@ class ActiveLearningQueueItem(Base):
 PLAY_EMBEDDING_DIM: int = 256
 PLAY_EMBEDDING_VISUAL_DIM: int = 192
 PLAY_EMBEDDING_STRUCTURED_DIM: int = 64
+# Raw CLIP ViT-B/32 image embedding, in CLIP's shared text-image space
+# (Issue #195). Stored *unprojected* so a CLIP text-tower query can be
+# cosine-compared against it — the fused ``vector`` above is not in CLIP
+# space (its visual half is a random-init projection per
+# ``docs/embeddings-architecture.md`` §7), so it cannot serve text search.
+PLAY_EMBEDDING_CLIP_DIM: int = 512
 
 
 class PlayEmbedding(Base):
@@ -1078,6 +1084,14 @@ class PlayEmbedding(Base):
     )
     structured_vector: Mapped[list[float] | None] = mapped_column(
         Vector(PLAY_EMBEDDING_STRUCTURED_DIM), nullable=True
+    )
+    # Raw CLIP ViT-B/32 image embedding (512-d, CLIP shared text-image
+    # space) retained for genuine CLIP text-tower zero-shot search
+    # (Issue #195). Nullable: populated only when a real CLIP visual
+    # encoder ran (the default ``ZeroVisualEncoder`` leaves it NULL), and
+    # backfilled incrementally by the nightly embed stage.
+    clip_vector: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_CLIP_DIM), nullable=True
     )
 
     # Lineage

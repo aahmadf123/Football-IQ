@@ -420,6 +420,7 @@ def create_play_embedding(
     *,
     visual_vector: list[float] | None = None,
     structured_vector: list[float] | None = None,
+    clip_vector: list[float] | None = None,
     chunk_kind: str = "play",
     snap_anchor: bool = True,
     used_sam_masks: bool = False,
@@ -443,6 +444,8 @@ def create_play_embedding(
         payload["visual_vector"] = visual_vector
     if structured_vector is not None:
         payload["structured_vector"] = structured_vector
+    if clip_vector is not None:
+        payload["clip_vector"] = clip_vector
     if embedding_confidence is not None:
         payload["embedding_confidence"] = embedding_confidence
     if source_label_ids:
