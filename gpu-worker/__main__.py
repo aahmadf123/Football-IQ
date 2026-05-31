@@ -501,6 +501,7 @@ def _dispatch(
             vector=result.vector,
             visual_vector=result.visual_vector,
             structured_vector=result.structured_vector,
+            clip_vector=result.clip_vector,
             chunk_kind=result.chunk_kind,
             snap_anchor=result.snap_anchor,
             used_sam_masks=result.used_sam_masks,
@@ -515,6 +516,7 @@ def _dispatch(
             "snap_anchor": result.snap_anchor,
             "used_sam_masks": result.used_sam_masks,
             "embedding_confidence": result.embedding_confidence,
+            "has_clip_vector": result.clip_vector is not None,
         }
 
     elif job_type == "render":

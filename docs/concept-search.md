@@ -83,17 +83,34 @@ clear `reason`, per `docs/external-resource-rubric.md` §2.
 
 ## Relationship to `/api/v1/search/text`
 
-`/search/text` is the **future** CLIP text-tower path: it stays gated behind
-`ENABLE_EMBEDDING_TEXT_SEARCH` and returns 501 until a text encoder is injected
-into the backend deployment. It is *not* required for concept search — the
-fused 256-d play embedding is not in CLIP text space, so a raw text-tower query
-cannot be cosine-compared against it. Concept search instead grounds on
-structured labels and expands via the *image-derived* embeddings, which is why
-it works today with no encoder in the backend container.
+`/search/text` is the genuine CLIP text-tower path (Issue #195). It stays gated
+behind `ENABLE_EMBEDDING_TEXT_SEARCH` (503 when off) and matches a free-text
+query directly against the raw `playembeddings.clip_vector(512)` — the CLIP
+*image* embedding in CLIP's shared text-image space. It is *not* required for
+concept search: the fused 256-d play embedding is **not** in CLIP text space
+(its visual half is a random-init projection per
+`docs/embeddings-architecture.md` §7), so a raw text-tower query cannot be
+cosine-compared against it. Concept search instead grounds on structured labels
+and expands via the *image-derived* fused embeddings, which is why it works
+today with no encoder in the backend container.
 
-Wiring genuine CLIP text-tower search (a raw `clip_vector(512)` column in CLIP
-shared space + a text encoder) is tracked as a follow-up in
-[#195](https://github.com/aahmadf123/Football-IQ/issues/195).
+`/search/text` builds the query vector in CLIP space one of two ways:
+
+1. a deployment-injected CLIP **text** tower (`app.state.clip_text_encoder`),
+   which handles arbitrary phrasing; or
+2. the precomputed **concept catalog** (`app.concept_catalog`,
+   `backend/app/data/concept_catalog.json`): the query is grounded to
+   American-football concept(s) **lexically** via the same lexicon used here
+   (soccer rejected), and those concepts' precomputed CLIP text vectors are
+   averaged — so no CLIP weights live in the backend container (only committed
+   vectors, never weights).
+
+Results are **always** `experimental: true` / `approximate: true` and never
+promote to a label. When neither an encoder nor a built catalog can ground the
+query, `/search/text` returns a clear `reason` and no results — it never
+fabricates matches. The catalog ships **unbuilt** (every vector `null`) until
+the offline encoder `gpu-worker/scripts/build_concept_catalog.py` is run with
+real CLIP weights and the populated JSON is committed.
 
 ## Promotion stays a coach decision
 
