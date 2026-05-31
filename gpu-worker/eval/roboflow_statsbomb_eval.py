@@ -100,13 +100,23 @@ def normalize_label(label: str) -> str:
 
 
 def is_soccer_label(label: str) -> bool:
-    return any(term in normalize_label(label) for term in SOCCER_TERMS)
+    norm = normalize_label(label)
+    tokens = set(norm.split())
+    for term in SOCCER_TERMS:
+        t = normalize_label(term)
+        if (" " in t and t in norm) or (" " not in t and t in tokens):
+            return True
+    return False
 
 
 def is_face_biometric_label(label: str) -> bool:
     norm = normalize_label(label)
-    return any(term in norm for term in FACE_BIOMETRIC_TERMS)
-
+    tokens = set(norm.split())
+    for term in FACE_BIOMETRIC_TERMS:
+        t = normalize_label(term)
+        if (" " in t and t in norm) or (" " not in t and t in tokens):
+            return True
+    return False
 
 def matched_football_iq_class(label: str) -> str | None:
     """Return the Football-IQ class a Roboflow label maps to, or ``None``."""
