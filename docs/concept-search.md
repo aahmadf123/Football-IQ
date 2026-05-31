@@ -91,6 +91,10 @@ cannot be cosine-compared against it. Concept search instead grounds on
 structured labels and expands via the *image-derived* embeddings, which is why
 it works today with no encoder in the backend container.
 
+Wiring genuine CLIP text-tower search (a raw `clip_vector(512)` column in CLIP
+shared space + a text encoder) is tracked as a follow-up in
+[#195](https://github.com/aahmadf123/Football-IQ/issues/195).
+
 ## Promotion stays a coach decision
 
 Nothing here promotes a concept to an official label. Promotion remains the
