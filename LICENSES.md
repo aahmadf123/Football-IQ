@@ -65,6 +65,54 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## SportsDataverse sportypy
+
+| Field | Detail |
+|---|---|
+| **Library** | `sportypy` by SportsDataverse |
+| **License** | GPL-3.0 |
+| **Access** | https://sportypy.sportsdataverse.org and https://github.com/sportsdataverse/sportypy - `pip install sportypy`; no account required |
+| **Sport coverage** | Multi-sport playing-surface renderer; includes American football NCAA/NFL fields. Avoid broad multi-sport adoption paths that could pull in soccer/association-football use. |
+| **Football-IQ usage** | Issue #169 evaluation only. Recommended for optional analyst/report-only exploration, not as a production backend, frontend, Worker, or GPU-worker dependency. |
+| **Secret/key required** | No |
+| **Privacy risk** | Low when used with synthetic or approved aggregated field coordinates. Real route/spacing charts must wait for calibrated tracking gates and must not expose private footage or player PII. |
+| **Model-router impact** | None - visualization only; no inference stage or model registry path. |
+| **Notes** | GPL-3.0 requires legal review before any deployed-service dependency. No package dependency was added in the issue #169 PR. |
+
+---
+
+## SportsDataverse cfbplotR
+
+| Field | Detail |
+|---|---|
+| **Library** | `cfbplotR` by SportsDataverse |
+| **License** | MIT for package code; college football data/logos belong to their respective owners and are governed by their terms of use |
+| **Access** | https://cfbplotr.sportsdataverse.org and https://github.com/sportsdataverse/cfbplotR - R/GitHub install; no account required |
+| **Sport coverage** | College football visualization helpers, especially logo plotting in ggplot2 |
+| **Football-IQ usage** | Issue #169 evaluation only. Deferred for production because Football-IQ should not add R to the backend for logo/chart rendering, and Toledo/MAC marks require explicit rights review. |
+| **Secret/key required** | No package secret; this evaluation makes no CFBD or Sportradar calls |
+| **Privacy risk** | Medium for logo/trademark handling; low for synthetic chart geometry |
+| **Model-router impact** | None - visualization only; no inference stage or model registry path. |
+| **Notes** | Use only approved local Toledo brand assets/tokens if frontend identity is needed. Do not expose vendor keys or fetch external logo/data catalogs in browser code. |
+
+---
+
+## SportsDataverse sportyR
+
+| Field | Detail |
+|---|---|
+| **Library** | `sportyR` by SportsDataverse |
+| **License** | GPL-3.0 |
+| **Access** | https://sportyr.sportsdataverse.org and https://github.com/sportsdataverse/sportyR - R package; no account required |
+| **Sport coverage** | Multi-sport playing-surface renderer; includes American football but also soccer surfaces |
+| **Football-IQ usage** | Issue #169 evaluation only. Deferred; it duplicates the playing-surface use case while adding an R runtime and GPL-3.0 production-review burden. |
+| **Secret/key required** | No |
+| **Privacy risk** | Low when limited to synthetic or approved aggregated coordinates |
+| **Model-router impact** | None - visualization only; no inference stage or model registry path. |
+| **Notes** | Do not use for production Football-IQ rendering unless a future ADR explicitly approves R/GPL dependency handling. |
+
+---
+
 ## Ultralytics (YOLOv8 / YOLOv11)
 
 | Field | Detail |
