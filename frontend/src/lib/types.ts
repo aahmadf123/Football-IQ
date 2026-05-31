@@ -335,6 +335,8 @@ export interface OverlayMetric {
   metric_value: Record<string, unknown>;
   unit: string | null;
   confidence: number | null;
+  effort_zscore?: number | null;
+  loaf_flag?: boolean | null;
 }
 
 export interface OverlayLayersAvailable {

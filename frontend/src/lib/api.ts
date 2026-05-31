@@ -390,6 +390,105 @@ export async function fetchPlayer(playerId: string, token?: string): Promise<Api
   return getJSON<ApiPlayer>(`${base}/api/v1/players/${playerId}`, token);
 }
 
+// ── Metrics + coach corrections ──────────────────────────────────────────────
+
+export interface ApiMetric {
+  id: string;
+  clip_id: string;
+  tracklet_id: string | null;
+  metric_name: string;
+  metric_value: Record<string, unknown>;
+  unit: string | null;
+  is_suppressed: boolean;
+  suppression_reason: string | null;
+  experimental_flag: boolean;
+  analytics_safe: boolean;
+  confidence: number | null;
+  effort_zscore: number | null;
+  loaf_flag: boolean | null;
+  evidence_uri: string | null;
+  model_version_id: string | null;
+  calibration_version_id: string | null;
+  job_id: string | null;
+  created_at: string;
+}
+
+export interface MetricFilters {
+  clip_id?: string;
+  tracklet_id?: string;
+  metric_name?: string;
+  experimental?: boolean;
+  analytics_safe?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchMetrics(
+  filters: MetricFilters = {},
+  token?: string,
+): Promise<ApiMetric[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<ApiMetric[]>(
+    `${base}/api/v1/metrics${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+export type CorrectionType =
+  | "clip_boundary"
+  | "player_identity"
+  | "event_tag"
+  | "formation_tag"
+  | "route_tag"
+  | "coverage_tag"
+  | "personnel_tag"
+  | "leverage_tag"
+  | "effort_tag"
+  | "pose_biomechanics_tag";
+
+export interface CorrectionCreate {
+  clip_id: string;
+  correction_type: CorrectionType;
+  original_value?: Record<string, unknown> | null;
+  corrected_value: Record<string, unknown>;
+  notes?: string | null;
+  training_eligible?: boolean;
+}
+
+export interface CorrectionResponse extends CorrectionCreate {
+  id: string;
+  corrected_by: string;
+  exported_as_label: boolean;
+  created_at: string;
+  original_value: Record<string, unknown> | null;
+  notes: string | null;
+  training_eligible: boolean;
+}
+
+export async function createCorrection(
+  body: CorrectionCreate,
+  token?: string,
+): Promise<CorrectionResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const res = await fetch(`${base}/api/v1/corrections`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Correction request failed (${res.status}): ${errorBody}`);
+  }
+  return res.json() as Promise<CorrectionResponse>;
+}
+
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 
 export async function retryJob(jobId: string, token?: string): Promise<unknown> {

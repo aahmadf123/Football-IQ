@@ -50,6 +50,14 @@ def _derive_review_state(clip: Clip) -> str:
     return "needs_review"
 
 
+def _optional_float(value: Any) -> float | None:
+    return value if isinstance(value, float) else None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["clips"])
 
@@ -177,6 +185,8 @@ class MetricResponse(BaseModel):
     experimental_flag: bool
     analytics_safe: bool
     confidence: float | None
+    effort_zscore: float | None
+    loaf_flag: bool | None
     evidence_uri: str | None
     clip_id: uuid.UUID
     tracklet_id: uuid.UUID | None
@@ -197,6 +207,8 @@ class MetricResponse(BaseModel):
             experimental_flag=m.experimental_flag,
             analytics_safe=m.analytics_safe,
             confidence=m.confidence,
+            effort_zscore=_optional_float(getattr(m, "effort_zscore", None)),
+            loaf_flag=_optional_bool(getattr(m, "loaf_flag", None)),
             evidence_uri=m.evidence_uri,
             clip_id=m.clip_id,
             tracklet_id=m.tracklet_id,

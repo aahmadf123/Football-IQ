@@ -35,6 +35,14 @@ log = structlog.get_logger(__name__)
 router = APIRouter(tags=["overlays"])
 
 
+def _optional_float(value: Any) -> float | None:
+    return value if isinstance(value, float) else None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 # ── Schemas ─────────────────────────────────────────────────────────────
 
 
@@ -85,6 +93,8 @@ class OverlayMetric(BaseModel):
     metric_value: dict[str, Any]
     unit: str | None
     confidence: float | None
+    effort_zscore: float | None
+    loaf_flag: bool | None
 
 
 class OverlayLayersAvailable(BaseModel):
@@ -207,6 +217,8 @@ async def get_clip_overlays(
                 metric_value=m.metric_value,
                 unit=m.unit,
                 confidence=m.confidence,
+                effort_zscore=_optional_float(getattr(m, "effort_zscore", None)),
+                loaf_flag=_optional_bool(getattr(m, "loaf_flag", None)),
             )
             for m in metrics
         ],

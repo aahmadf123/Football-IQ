@@ -799,6 +799,11 @@ class Metric(Base):
     analytics_safe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 0.0–1.0 model confidence for this specific metric value
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Effort-review scalar fields from issue #142. These duplicate the JSON
+    # payload for indexed/queryable access while the full review context stays
+    # in metric_value.
+    effort_zscore: Mapped[float | None] = mapped_column(Float, nullable=True)
+    loaf_flag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # URI to the evidence artifact (e.g. annotated frame, track overlay)
     evidence_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full version lineage for every metric

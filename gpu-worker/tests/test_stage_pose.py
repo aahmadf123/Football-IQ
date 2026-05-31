@@ -562,6 +562,36 @@ def test_run_with_single_ol_tracklet_writes_metrics() -> None:
         assert call_kwargs["analytics_safe"] is False
 
 
+def test_run_writes_head_yaw_to_pose_keypoints() -> None:
+    src = MockVideoSource(total_frames=6, fps=30.0)
+    tracklet = {
+        "id": "tracklet-1",
+        "position_group": "DB",
+        "start_frame": 0,
+        "end_frame": 6,
+    }
+
+    with patch("pipeline.stage_pose.backend") as mock_backend:
+        mock_backend.create_metric.return_value = {"id": "metric-1"}
+        mock_backend.create_pose_keypoints.return_value = {"id": "kp-1"}
+
+        run(
+            clip_id="clip-1",
+            video_source=src,
+            tracklets=[tracklet],
+            events=[],
+            analytics_safe=False,
+            fps=30.0,
+            job_id="job-1",
+            model_path=None,
+        )
+
+    assert mock_backend.create_pose_keypoints.called
+    call_kwargs = mock_backend.create_pose_keypoints.call_args.kwargs
+    assert call_kwargs["head_yaw_degrees"] is not None
+    assert call_kwargs["head_orientation_confidence"] is not None
+
+
 def test_run_pose_metric_names_are_all_pose_prefixed() -> None:
     src = MockVideoSource(total_frames=30, fps=30.0)
     captured_names: list[str] = []

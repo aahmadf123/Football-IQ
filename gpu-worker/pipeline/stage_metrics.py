@@ -32,6 +32,7 @@ Phase 2 additions — Practice Tempo & Effort:
   - downfield_blocking       — whether skill players engage downfield
   - rep_count                — number of plays in a period
   - time_between_plays       — seconds between end of one play and snap of next
+  - effort_review_candidate  — per-tracklet effort z-score + coach-review flag
 
 All metric_value dicts include a `confidence` field.
 Metrics with field coords require analytics_safe=True on the calibration.
@@ -47,6 +48,7 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.metrics.effort_zscore import evaluate_effort_candidate
 
 log = structlog.get_logger(__name__)
 
@@ -199,11 +201,17 @@ def run(
         try:
             payload: dict[str, Any] = {
                 "clip_id": clip_id,
+                "tracklet_id": m.get("tracklet_id"),
                 "metric_name": m["metric_name"],
                 "metric_value": m["metric_value"],
                 "unit": m.get("unit"),
                 "is_suppressed": m.get("is_suppressed", False),
                 "suppression_reason": m.get("suppression_reason"),
+                "experimental_flag": m.get("experimental_flag", False),
+                "analytics_safe": m.get("analytics_safe", False),
+                "confidence": m.get("confidence"),
+                "effort_zscore": m.get("effort_zscore"),
+                "loaf_flag": m.get("loaf_flag"),
                 "job_id": job_id,
             }
             resp = backend.create_metric(**payload)
@@ -687,6 +695,29 @@ def _effort_metrics(
             "unit": "count",
             "is_suppressed": False,
             "suppression_reason": None,
+        })
+
+    for t in tracklets:
+        candidate = evaluate_effort_candidate(
+            t,
+            snap_frame=snap_frame,
+            fps=fps,
+            analytics_safe=not suppressed,
+        )
+        if candidate is None:
+            continue
+        metrics.append({
+            "tracklet_id": t.get("id"),
+            "metric_name": "effort_review_candidate",
+            "metric_value": candidate,
+            "unit": "review",
+            "effort_zscore": candidate.get("effort_zscore"),
+            "loaf_flag": candidate.get("loaf_flag"),
+            "experimental_flag": True,
+            "analytics_safe": False,
+            "confidence": candidate.get("confidence"),
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
         })
 
     return metrics
