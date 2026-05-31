@@ -105,8 +105,8 @@ the license gate.
 | **Sportradar** | American football ✅ (verify product) | Commercial API; confirm the specific feed is American football, contract terms, and secret handling before any production use. |
 | **Roboflow** | Tooling / datasets ⚠️ | CV dataset/annotation platform; verify each dataset's sport and license individually. |
 | **StatsBomb American Football (AMF)** | American football ✅ | Distinct from StatsBomb soccer open data (§2). Verify license / access before adoption. |
-| **SportQA** | Documentation / benchmark ⚠️ | Sports QA benchmark; verify it covers American football and its license before use. |
-| **SportR** | Tooling ⚠️ | Verify sport coverage and license individually before adoption. |
+| **SportQA** | Documentation / benchmark ⚠️ | Text sports-QA benchmark (American football ✅ among 35 sports; CC-BY-4.0). **Deferred, offline-only** — see [`reports/spike-issue168-sportqa-sportr.md`](../reports/spike-issue168-sportqa-sportr.md). |
+| **SportR** | Documentation / benchmark ⚠️ | Multimodal sports-reasoning benchmark (American football ✅ among 5 sports; Apache-2.0). **Deferred until full release** — see [`reports/spike-issue168-sportqa-sportr.md`](../reports/spike-issue168-sportqa-sportr.md). |
 
 ---
 

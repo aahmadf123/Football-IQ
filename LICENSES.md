@@ -279,6 +279,36 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## SportQA — evaluated, not adopted (Issue #168)
+
+| Field | Detail |
+|---|---|
+| **Resource** | SportQA — sports-understanding text QA benchmark (70,592 multiple-choice questions, 35 sports, 3 difficulty levels) |
+| **Source** | https://github.com/haotianxia/SportQA · paper https://arxiv.org/abs/2402.15862 (NAACL 2024) |
+| **Sport coverage** | 35 sports; **American football ✅ present** (also contains soccer — that subset is excluded per the denylist) |
+| **License** | **CC-BY-4.0** (attribution). Redistribution permitted under CC-BY; raw data kept local/gitignored regardless |
+| **Access / key** | Public download; **no API key**. Not read by the backend |
+| **Runtime category** | **Offline evaluation only** — never same-session/nightly, not coach-facing, not in the model router |
+| **Privacy risk** | None — public sports-knowledge QA; benchmark scores are **not** Toledo labels |
+| **Football-IQ usage** | **Deferred** (Issue #168). Coverage harness only: `gpu-worker/eval/sportqa_sportr_eval.py`. Adopt for offline assistant-rules eval only when a coach-facing assistant is scoped. See `reports/spike-issue168-sportqa-sportr.md`. |
+
+---
+
+## SportR — evaluated, deferred to full release (Issue #168)
+
+| Field | Detail |
+|---|---|
+| **Resource** | SportR — multimodal sports-reasoning benchmark (4,789 images, 2,052 videos, 20k+ QA, 6,841 chain-of-thought, bbox grounding) |
+| **Source** | https://github.com/chili-lab/SportR · preprint https://arxiv.org/abs/2511.06499 (ICLR 2026) |
+| **Sport coverage** | 5 ball/racket sports — basketball, soccer, table tennis, badminton, **American football ✅**. Soccer subset excluded per the denylist |
+| **License** | **Apache-2.0**. **Full dataset staged for release "before ICLR 2026" — verify availability before any use** |
+| **Access / key** | Public release; **no key known**. Not read by the backend |
+| **Runtime category** | **Offline evaluation only** — not coach-facing, not in the pipeline; single-camera product (#101) means its broadcast frames are an external probe, never a capture mode |
+| **Privacy risk** | Public broadcast imagery (verify the released split); no Toledo data; its annotations are **not** calibrated Football-IQ coordinates (#127–#129) |
+| **Football-IQ usage** | **Deferred** until full release + license re-check (Issue #168). Same offline harness as SportQA. See `reports/spike-issue168-sportqa-sportr.md`. |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.

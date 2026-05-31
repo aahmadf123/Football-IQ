@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/lib/app-state";
+import { ConceptSearch } from "@/components/concept-search";
 import {
   fetchClipsForVideo,
   fetchPracticeSessions,
@@ -192,6 +193,8 @@ export function LibraryView() {
           </div>
         </div>
       </section>
+
+      <ConceptSearch />
 
       {state.kind === "loading" && (
         <section className="panel panel-pad span-12">

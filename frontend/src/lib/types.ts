@@ -496,3 +496,32 @@ export interface CfbdMacBenchmarkResponse {
   teams: CfbdMacBenchmarkRow[];
   cache: CfbdCacheMeta;
 }
+
+// ── Zero-shot concept search (Issue #144) ────────────────────────────────────
+
+export interface ConceptSearchMatch {
+  concept_id: string;
+  display_name: string;
+  category: string;
+  confidence: number;
+}
+
+export interface ConceptSearchResult {
+  clip_id: string;
+  source: "metadata" | "embedding" | string;
+  confidence: number;
+  score: number | null;
+  is_experimental: boolean;
+  matched_concept_ids: string[];
+  label_data: Record<string, unknown> | null;
+}
+
+export interface ConceptSearchResponse {
+  query: string;
+  matched_concepts: ConceptSearchMatch[];
+  approximate: boolean;
+  experimental: boolean;
+  reason: string | null;
+  model_version_label: string | null;
+  results: ConceptSearchResult[];
+}
