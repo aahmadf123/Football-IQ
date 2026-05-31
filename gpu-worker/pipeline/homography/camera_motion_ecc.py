@@ -339,7 +339,14 @@ def compensate_sequence(
                 reanchor_count += 1
                 homographies[i] = comp.anchor_H
             else:
-                homographies[i] = homographies[i - 1]
+                # No direct re-anchor available: reset the chain anchor to the
+                # last known homography so later warps compose from this frame
+                # forward. Otherwise the dropped inter-frame warp leaves the
+                # cumulative motion missing one step and drifting thereafter.
+                last_H = homographies[i - 1]
+                homographies[i] = last_H
+                if last_H is not None:
+                    comp.set_anchor(i, last_H, ANCHOR_MIN_CONFIDENCE)
             continue
 
         H_t, _ = comp.chain(warp)
@@ -369,9 +376,13 @@ def compensate_sequence(
                     reanchor_count += 1
                     homographies[i] = comp.anchor_H
 
-    valid = [h for h in homographies if h is not None]
+    # Frames before the first anchor have no estimate; fill them with the first
+    # anchor homography so the returned list stays aligned with the input
+    # indices (length ``n_frames``).
+    first_anchor_H = homographies[start]
+    filled = [h if h is not None else first_anchor_H for h in homographies]
     return CompensationResult(
-        homographies=valid,
+        homographies=filled,
         mean_drift_px=float(np.mean(drifts)) if drifts else 0.0,
         max_drift_px=float(np.max(drifts)) if drifts else 0.0,
         reanchor_count=reanchor_count,

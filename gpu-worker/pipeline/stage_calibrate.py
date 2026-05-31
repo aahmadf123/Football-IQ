@@ -126,7 +126,9 @@ def _calibrate(
 
     if regime == FIXED_SIDELINE:
         return _calibrate_fixed_sideline(video_id, job_id, frames, regime)
-    return _calibrate_drone(video_id, video_path, job_id, frames, regime, variant)
+    return _calibrate_drone(
+        video_id, job_id, frames, regime, variant, video_path=video_path
+    )
 
 
 # ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
@@ -170,13 +172,18 @@ def _calibrate_fixed_sideline(
 
 def _calibrate_drone(
     video_id: str,
-    video_path: Path,
     job_id: str,
     frames: list[np.ndarray],
     regime: str,
     variant: str,
+    *,
+    video_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Per-window calibration; nightly variant adds Kalman temporal smoothing."""
+    """Per-window calibration; nightly variant adds Kalman temporal smoothing.
+
+    ``video_path`` is optional: when omitted, chained-ECC is treated as
+    unavailable and the temporal-stability signal falls back to ``series_drift``.
+    """
     fits: list[tuple[np.ndarray, yk.KeypointResult, float] | None] = []
     for frame in frames:
         best = _best_frame_fit([frame])
@@ -204,7 +211,11 @@ def _calibrate_drone(
     # back to the per-window pairwise re-projection gap when ECC is unavailable
     # (no OpenCV / too-short clip). Low drift ⇒ stable.
     series_drift = _series_drift(homographies, shape)
-    ecc_drift, ecc_diag = _chained_ecc_drift(video_path, regime, shape)
+    if video_path is not None:
+        ecc_drift, ecc_diag = _chained_ecc_drift(video_path, regime, shape)
+    else:
+        # No clip on disk ⇒ ECC unavailable; fall back to the series drift.
+        ecc_drift, ecc_diag = None, {}
     temporal_drift = ecc_drift if ecc_drift is not None else series_drift
     temporal_stability = cs.temporal_stability_from_drift(temporal_drift)
     ecc_diag = {"series_drift_px": round(float(series_drift), 4), **ecc_diag}
@@ -342,12 +353,21 @@ def _chained_ecc_drift(
         # ECC template is the previous frame, so mask the previous frame too.
         return ecc.estimate_warp(grays[i - 1], grays[i], mask=masks[i - 1])
 
+    anchor_cache: dict[int, tuple[np.ndarray, float] | None] = {}
+
     def anchor_fit(i: int) -> tuple[np.ndarray, float] | None:
+        # compensate_sequence may request the same index repeatedly (seed scan,
+        # checkpoints, re-anchors); cache the keypoint/RANSAC fit per frame.
+        if i in anchor_cache:
+            return anchor_cache[i]
         best = _best_frame_fit([window[i]])
         if best is None:
+            anchor_cache[i] = None
             return None
         H, _kp, inlier_ratio, _ = best
-        return H, float(inlier_ratio)
+        fit = (H, float(inlier_ratio))
+        anchor_cache[i] = fit
+        return fit
 
     result = ecc.compensate_sequence(
         n_frames=len(window),
