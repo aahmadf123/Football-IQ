@@ -55,6 +55,9 @@ HEAD_ORIENTATION_METRIC_NAMES: frozenset[str] = frozenset(
 # analytics_safe on ingest. A coach must review them before they leave the
 # experimental surface, exactly like head-orientation metrics.
 FRONTIER_METRIC_NAMES: frozenset[str] = frozenset({"xsep", "xyards", "xpressure"})
+REVIEW_CANDIDATE_METRIC_NAMES: frozenset[str] = frozenset(
+    {"effort_review_candidate", "pose_body_orientation_proxy"}
+)
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -70,6 +73,8 @@ class MetricCreate(BaseModel):
     experimental_flag: bool = False
     analytics_safe: bool = False
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    effort_zscore: float | None = None
+    loaf_flag: bool | None = None
     evidence_uri: str | None = None
     model_version_id: uuid.UUID | None = None
     calibration_version_id: uuid.UUID | None = None
@@ -92,6 +97,8 @@ class MetricResponse(BaseModel):
     experimental_flag: bool
     analytics_safe: bool
     confidence: float | None
+    effort_zscore: float | None
+    loaf_flag: bool | None
     evidence_uri: str | None
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
@@ -112,6 +119,8 @@ class MetricResponse(BaseModel):
             experimental_flag=m.experimental_flag,
             analytics_safe=m.analytics_safe,
             confidence=m.confidence,
+            effort_zscore=_optional_float(getattr(m, "effort_zscore", None)),
+            loaf_flag=_optional_bool(getattr(m, "loaf_flag", None)),
             evidence_uri=m.evidence_uri,
             model_version_id=m.model_version_id,
             calibration_version_id=m.calibration_version_id,
@@ -155,6 +164,14 @@ def _is_player_role(user: User) -> bool:
     return user.role == UserRole.player
 
 
+def _optional_float(value: Any) -> float | None:
+    return value if isinstance(value, float) else None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -183,7 +200,9 @@ async def create_metric(
     # until coach-approved, regardless of the payload.
     name_lower = body.metric_name.lower()
     is_always_experimental = (
-        body.metric_name in HEAD_ORIENTATION_METRIC_NAMES or name_lower in FRONTIER_METRIC_NAMES
+        body.metric_name in HEAD_ORIENTATION_METRIC_NAMES
+        or name_lower in FRONTIER_METRIC_NAMES
+        or name_lower in REVIEW_CANDIDATE_METRIC_NAMES
     )
     effective_experimental = body.experimental_flag or is_always_experimental
     # analytics_safe must not be pre-set true for these metrics without review
@@ -199,6 +218,8 @@ async def create_metric(
         experimental_flag=effective_experimental,
         analytics_safe=effective_analytics_safe,
         confidence=body.confidence,
+        effort_zscore=body.effort_zscore,
+        loaf_flag=body.loaf_flag,
         evidence_uri=body.evidence_uri,
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
@@ -227,6 +248,7 @@ async def list_metrics(
     metric_name: str | None = Query(default=None),
     experimental: bool | None = Query(default=None),
     analytics_safe: bool | None = Query(default=None),
+    player_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> list[MetricResponse]:
@@ -246,6 +268,8 @@ async def list_metrics(
         q = q.where(Metric.experimental_flag == experimental)
     if analytics_safe is not None:
         q = q.where(Metric.analytics_safe == analytics_safe)
+    if player_id is not None:
+        q = q.where(Metric.metric_value["player_id"].as_string() == str(player_id))
 
     # Players must never see experimental metrics regardless of analytics_safe
     if _is_player_role(current_user):

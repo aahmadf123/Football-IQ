@@ -35,6 +35,7 @@ Metric names (written into the ``metrics`` table):
   pose_qb_release_consistency
   pose_stride_symmetry
   pose_biomechanical_drift
+  pose_body_orientation_proxy
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.pose.head_yaw import compute_head_yaw, summarize_body_orientation
 from pipeline.pose_estimator import (
     PoseEstimatorBase,
     angle_degrees,
@@ -75,6 +77,7 @@ POSE_METRIC_NAMES: frozenset[str] = frozenset(
         "pose_qb_release_consistency",
         "pose_stride_symmetry",
         "pose_biomechanical_drift",
+        "pose_body_orientation_proxy",
     }
 )
 
@@ -163,6 +166,15 @@ def run(
         # Write raw keypoints to pose_keypoints table
         kp_ids = _write_keypoints(clip_id, tracklet_id, kp_seq, job_id)
         keypoint_count += len(kp_ids)
+
+        orientation_metric = _compute_body_orientation_proxy(
+            kp_seq,
+            tracklet_id,
+            player_id=tracklet.get("player_id"),
+            position_group=position_group or None,
+        )
+        if orientation_metric:
+            metrics.append(orientation_metric)
 
         # Position-group-specific biomechanics
         if position_group in ("OL", "DL", "OT", "OG", "OC", "DE", "DT", "NT"):
@@ -1191,10 +1203,21 @@ def _write_keypoints(
     ids: list[str] = []
     for entry in kp_seq:
         try:
+            head_orientation = compute_head_yaw(entry["keypoints"])
             resp = backend.create_pose_keypoints(
                 tracklet_id=tracklet_id,
                 frame_number=entry["frame_number"],
                 keypoints=entry["keypoints"],
+                head_yaw_degrees=(
+                    head_orientation.get("head_yaw_degrees")
+                    if head_orientation is not None
+                    else None
+                ),
+                head_orientation_confidence=(
+                    head_orientation.get("confidence")
+                    if head_orientation is not None
+                    else None
+                ),
                 job_id=job_id,
             )
             ids.append(resp.get("id", ""))
@@ -1205,3 +1228,36 @@ def _write_keypoints(
                 error=str(exc),
             )
     return ids
+
+
+def _compute_body_orientation_proxy(
+    kp_seq: list[dict[str, Any]],
+    tracklet_id: str | None,
+    *,
+    player_id: str | None,
+    position_group: str | None,
+) -> dict[str, Any] | None:
+    """Create the tracklet-level body-orientation proxy metric."""
+    summary = summarize_body_orientation(kp_seq)
+    if summary is None:
+        return None
+
+    reason_codes = list(summary.get("reason_codes", []))
+    if player_id is None:
+        reason_codes.append("anonymous_track")
+
+    metric_value = {
+        **summary,
+        "track_id": tracklet_id,
+        "player_id": player_id,
+        "position_group": position_group,
+        "proxy_kind": "body_orientation_proxy",
+        "reason_codes": sorted(set(reason_codes)),
+    }
+    return {
+        "tracklet_id": tracklet_id,
+        "metric_name": "pose_body_orientation_proxy",
+        "metric_value": metric_value,
+        "unit": "degrees",
+        "confidence": summary.get("confidence"),
+    }

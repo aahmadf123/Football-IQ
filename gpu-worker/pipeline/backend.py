@@ -314,6 +314,8 @@ def create_metric(
     experimental_flag: bool = False,
     analytics_safe: bool = False,
     confidence: float | None = None,
+    effort_zscore: float | None = None,
+    loaf_flag: bool | None = None,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/metrics and return the created metric dict."""
@@ -336,6 +338,10 @@ def create_metric(
         payload["analytics_safe"] = analytics_safe
     if confidence is not None:
         payload["confidence"] = confidence
+    if effort_zscore is not None:
+        payload["effort_zscore"] = effort_zscore
+    if loaf_flag is not None:
+        payload["loaf_flag"] = loaf_flag
     if job_id is not None:
         payload["job_id"] = job_id
     with _client() as c:
