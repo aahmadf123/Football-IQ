@@ -87,6 +87,27 @@ class PipelineMode(enum.StrEnum):
     nightly = "nightly"
 
 
+class ClipResultState(enum.StrEnum):
+    """Quality tier of a clip's analysis results (Issue #147).
+
+    ``preliminary`` — produced by the same-session lightweight path during the
+        period-break window. Detections / tracks / labels exist but the clip has
+        not yet been through nightly full-quality post-processing, so the coach
+        sees a "Preliminary" badge.
+    ``final`` — produced or upgraded by the nightly full-quality path. The
+        nightly run replaces the preliminary results in place (see the
+        ``/clips/finalize`` endpoint), flipping the clip to ``final``.
+
+    Stored as a plain ``String`` (mirrors ``ProcessingJob.pipeline_mode``) rather
+    than a DB enum so the column is additive and migrations stay simple. A NULL
+    value means "legacy / unknown" — such clips predate the same-session split
+    and are not treated as preliminary.
+    """
+
+    preliminary = "preliminary"
+    final = "final"
+
+
 class ModelStage(enum.StrEnum):
     experimental = "experimental"
     staging = "staging"
@@ -410,6 +431,13 @@ class Clip(Base):
     uncertainty_calibrated: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+
+    # ── Same-session result tier (Issue #147) ─────────────────────────────────
+    # Whether this clip's analysis is a same-session ``preliminary`` first pass
+    # or a nightly-upgraded ``final`` result. NULL = legacy/unknown (predates the
+    # same-session split). Indexed so the Practice Inbox can count/filter clips
+    # still awaiting their nightly upgrade. See ``ClipResultState``.
+    result_state: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

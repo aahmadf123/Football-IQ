@@ -46,6 +46,13 @@ export interface ApiVideo {
   storage_uri?: string | null;
 }
 
+// Same-session result tier + derived coach-facing review state (Issue #147).
+// ``preliminary`` = same-session first pass awaiting nightly upgrade; ``final``
+// = nightly full-quality output. The review state distinguishes a clip a coach
+// still has to look at from one flagged low-confidence or already reviewed.
+export type ClipResultState = "preliminary" | "final";
+export type ClipReviewState = "reviewed" | "low_confidence" | "needs_review";
+
 export interface ApiClip {
   id: string;
   video_id: string;
@@ -61,6 +68,11 @@ export interface ApiClip {
   session_kind?: SessionKind | null;
   our_possession?: OurPossession | null;
   side_of_ball?: ApiSideOfBall | null;
+  // Issue #147 — present from backends that expose the same-session result tier;
+  // optional so older payloads (and mocks) stay valid.
+  result_state?: ClipResultState | null;
+  is_preliminary?: boolean;
+  review_state?: ClipReviewState;
   created_at: string;
 }
 

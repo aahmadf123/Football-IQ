@@ -95,8 +95,14 @@ def create_clip(
     boundary_confidence: float | None = None,
     play_number: int | None = None,
     job_id: str | None = None,
+    result_state: str | None = None,
 ) -> dict[str, Any]:
-    """POST /api/v1/videos/{video_id}/clips and return the created clip dict."""
+    """POST /api/v1/videos/{video_id}/clips and return the created clip dict.
+
+    ``result_state`` (Issue #147) marks the clip's quality tier — ``preliminary``
+    for same-session first-pass clips, ``final`` for nightly. Omitted (NULL) when
+    unknown, which the UI treats as not-preliminary.
+    """
     payload: dict[str, Any] = {
         "start_time": start_time,
         "end_time": end_time,
@@ -108,10 +114,32 @@ def create_clip(
         payload["play_number"] = play_number
     if job_id is not None:
         payload["job_id"] = job_id
+    if result_state is not None:
+        payload["result_state"] = result_state
     with _client() as c:
         resp = c.post(f"/api/v1/videos/{video_id}/clips", json=payload)
         resp.raise_for_status()
         return dict(resp.json())
+
+
+def finalize_video_clips(video_id: str) -> int:
+    """Upgrade a video's same-session ``preliminary`` clips to ``final`` (Issue #147).
+
+    Best-effort POST to ``/api/v1/videos/{video_id}/clips/finalize``, called when
+    nightly full-quality processing for the video lands so the coach's
+    "Preliminary" badge clears. Idempotent on the backend. Returns the number of
+    clips upgraded, or 0 when the backend is unset/unreachable.
+    """
+    if not BACKEND_API_URL:
+        return 0
+    try:
+        with _client() as c:
+            resp = c.post(f"/api/v1/videos/{video_id}/clips/finalize")
+            resp.raise_for_status()
+            return int(resp.json().get("finalized_count", 0))
+    except Exception as exc:
+        log.warning("backend_finalize_clips_failed", video_id=video_id, error=str(exc))
+        return 0
 
 
 # ── Calibrations ──────────────────────────────────────────────────────────────

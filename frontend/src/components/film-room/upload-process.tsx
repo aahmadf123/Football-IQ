@@ -2,6 +2,7 @@
 
 import { Trash2, Upload } from "lucide-react";
 import { useCallback, useState } from "react";
+import { PreliminaryBadge } from "@/components/clip-state-badge";
 import {
   requestVideoProcessing,
   WorkloadGatedError,
@@ -295,6 +296,7 @@ function ProcessingRow({
           >
             {badge.label}
           </span>
+          {(item.preliminary_clip_count ?? 0) > 0 && <PreliminaryBadge />}
         </div>
         <div className="kicker" style={{ marginTop: 4 }}>
           {item.video_status === "uploaded" && !isQueued
@@ -309,6 +311,17 @@ function ProcessingRow({
                     ? `Processing failed${item.latest_error_stage ? ` at ${item.latest_error_stage}` : ""}.`
                     : null}
         </div>
+        {(item.preliminary_clip_count ?? 0) > 0 && (
+          <div
+            className="kicker"
+            data-testid={`processing-preliminary-${item.video_id}`}
+            style={{ marginTop: 2 }}
+          >
+            {item.preliminary_clip_count} preliminary clip
+            {item.preliminary_clip_count === 1 ? "" : "s"} — full-quality nightly
+            upgrade pending.
+          </div>
+        )}
         {isFailed && item.latest_error_message && (
           <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
             {item.latest_error_message}

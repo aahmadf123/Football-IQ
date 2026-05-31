@@ -194,6 +194,9 @@ export interface VideoInboxItem {
   succeeded_jobs: number;
   failed_jobs: number;
   clip_count: number;
+  // Clips still on the same-session first pass, awaiting nightly upgrade
+  // (Issue #147). Optional so older backends/mocks stay valid.
+  preliminary_clip_count?: number;
   calibration_safe_pct: number | null;
   latest_error_stage: string | null;
   latest_error_message: string | null;

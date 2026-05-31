@@ -1,20 +1,54 @@
 """Clips router — play segmentation, clip CRUD, and boundary corrections."""
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
-from app.models import CaptureRegime, Clip, Metric, SessionKind, SideOfBall, User, Video
+from app.models import (
+    CaptureRegime,
+    Clip,
+    ClipResultState,
+    Metric,
+    SessionKind,
+    SideOfBall,
+    User,
+    Video,
+)
 
 # Recognized clip-level possession values (must match SideOfBall enum).
 _VALID_SIDES: frozenset[str] = frozenset(s.value for s in SideOfBall)
+
+
+def _derive_review_state(clip: Clip) -> str:
+    """Map a clip's review/confidence signals onto a single coach-facing state.
+
+    Precedence (Issue #147 — distinguish processed / low-confidence / needs-review):
+      ``reviewed``       — a coach has signed off (``is_reviewed``); wins outright.
+      ``low_confidence`` — boundary/label confidence at or below the configured
+                           threshold, or calibrated high uncertainty (Issue #146).
+      ``needs_review``   — a first-pass result nobody has confirmed yet.
+    """
+    if clip.is_reviewed:
+        return "reviewed"
+    threshold = get_settings().clip_low_confidence_threshold
+    if clip.confidence is not None and clip.confidence < threshold:
+        return "low_confidence"
+    if (
+        clip.uncertainty_calibrated
+        and clip.uncertainty_score is not None
+        and clip.uncertainty_score > (1.0 - threshold)
+    ):
+        return "low_confidence"
+    return "needs_review"
+
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["clips"])
@@ -44,6 +78,9 @@ class ClipCreate(BaseModel):
     # Active-learning uncertainty written by the GPU worker (Issues #145/#146).
     uncertainty_score: float | None = Field(default=None, ge=0.0, le=1.0)
     uncertainty_calibrated: bool = False
+    # Same-session result tier (Issue #147): the GPU worker sets this to
+    # ``preliminary`` for same-session first-pass clips, ``final`` for nightly.
+    result_state: ClipResultState | None = None
 
 
 class ClipUpdate(BaseModel):
@@ -61,6 +98,7 @@ class ClipUpdate(BaseModel):
     regime_confidence: float | None = None
     uncertainty_score: float | None = Field(default=None, ge=0.0, le=1.0)
     uncertainty_calibrated: bool | None = None
+    result_state: ClipResultState | None = None
 
 
 class ClipResponse(BaseModel):
@@ -87,6 +125,13 @@ class ClipResponse(BaseModel):
     regime_confidence: float | None
     uncertainty_score: float | None
     uncertainty_calibrated: bool
+    # Same-session result tier + derived coach-facing states (Issue #147).
+    # ``result_state`` is the raw stored value (lenient ``str`` so legacy/unknown
+    # rows never fail serialization); ``is_preliminary`` and ``review_state`` are
+    # derived for the UI.
+    result_state: str | None
+    is_preliminary: bool
+    review_state: str
     created_at: str
 
     @classmethod
@@ -113,6 +158,9 @@ class ClipResponse(BaseModel):
             regime_confidence=c.regime_confidence,
             uncertainty_score=c.uncertainty_score,
             uncertainty_calibrated=c.uncertainty_calibrated,
+            result_state=c.result_state,
+            is_preliminary=c.result_state == ClipResultState.preliminary.value,
+            review_state=_derive_review_state(c),
             created_at=c.created_at.isoformat(),
         )
 
@@ -261,6 +309,7 @@ async def create_clip(
         regime_confidence=regime_confidence,
         uncertainty_score=body.uncertainty_score,
         uncertainty_calibrated=body.uncertainty_calibrated,
+        result_state=body.result_state.value if body.result_state else None,
     )
     db.add(clip)
     await db.flush()
@@ -272,6 +321,50 @@ async def create_clip(
         our_possession=str(clip.our_possession) if clip.our_possession else None,
     )
     return ClipResponse.from_orm_clip(clip)
+
+
+class ClipFinalizeResponse(BaseModel):
+    """Result of upgrading a video's same-session clips to nightly-final."""
+
+    video_id: uuid.UUID
+    finalized_count: int
+
+
+@router.post(
+    "/api/v1/videos/{video_id}/clips/finalize",
+    response_model=ClipFinalizeResponse,
+)
+async def finalize_video_clips(
+    video_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
+) -> ClipFinalizeResponse:
+    """Upgrade a video's ``preliminary`` clips to ``final`` (Issue #147).
+
+    Called by the GPU worker when nightly full-quality processing finishes for a
+    video: the nightly run replaces the same-session first pass in place, so
+    every clip still flagged ``preliminary`` flips to ``final`` and the coach's
+    "Preliminary" badge clears. Idempotent — clips already ``final`` (or legacy
+    NULL) are left untouched, so a re-run finalizes nothing.
+    """
+    vid_result = await db.execute(select(Video).where(Video.id == video_id))
+    if vid_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+
+    result = await db.execute(
+        update(Clip)
+        .where(
+            Clip.video_id == video_id,
+            Clip.result_state == ClipResultState.preliminary.value,
+        )
+        .values(result_state=ClipResultState.final.value)
+    )
+    # ``execute`` is typed ``Result``; an UPDATE returns a ``CursorResult`` whose
+    # ``rowcount`` is the number of clips upgraded.
+    finalized = int(cast("CursorResult[Any]", result).rowcount or 0)
+    await db.flush()
+    log.info("clips_finalized", video_id=str(video_id), finalized_count=finalized)
+    return ClipFinalizeResponse(video_id=video_id, finalized_count=finalized)
 
 
 @router.get("/api/v1/clips/{clip_id}", response_model=ClipResponse)
@@ -339,6 +432,8 @@ async def update_clip(
         clip.uncertainty_score = body.uncertainty_score
     if body.uncertainty_calibrated is not None:
         clip.uncertainty_calibrated = body.uncertainty_calibrated
+    if body.result_state is not None:
+        clip.result_state = body.result_state.value
 
     await db.flush()
     log.info("clip_updated", clip_id=str(clip_id))
