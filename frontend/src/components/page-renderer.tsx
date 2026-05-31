@@ -647,18 +647,19 @@ function PlayerDevelopment() {
   const [correctionState, setCorrectionState] = useState<Record<string, "saving" | "saved" | "error">>({});
 
   useEffect(() => {
-    if (!authToken) {
+    if (!authToken || !selectedPlayer) {
       setDevelopmentMetrics([]);
       setMetricsState("idle");
       setMetricsError(null);
       return;
     }
+    const playerId = selectedPlayer.id;
     let cancelled = false;
     setMetricsState("loading");
     setMetricsError(null);
     Promise.all([
-      fetchMetrics({ metric_name: "effort_review_candidate", limit: 200 }, authToken),
-      fetchMetrics({ metric_name: "pose_body_orientation_proxy", limit: 200 }, authToken),
+      fetchMetrics({ metric_name: "effort_review_candidate", player_id: playerId, limit: 200 }, authToken),
+      fetchMetrics({ metric_name: "pose_body_orientation_proxy", player_id: playerId, limit: 200 }, authToken),
     ])
       .then(([effort, orientation]) => {
         if (cancelled) return;
@@ -674,7 +675,7 @@ function PlayerDevelopment() {
     return () => {
       cancelled = true;
     };
-  }, [authToken]);
+  }, [authToken, selectedPlayer?.id]);
 
   if (!selectedPlayer) {
     return (

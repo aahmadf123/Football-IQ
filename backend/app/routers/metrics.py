@@ -248,6 +248,7 @@ async def list_metrics(
     metric_name: str | None = Query(default=None),
     experimental: bool | None = Query(default=None),
     analytics_safe: bool | None = Query(default=None),
+    player_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> list[MetricResponse]:
@@ -267,6 +268,8 @@ async def list_metrics(
         q = q.where(Metric.experimental_flag == experimental)
     if analytics_safe is not None:
         q = q.where(Metric.analytics_safe == analytics_safe)
+    if player_id is not None:
+        q = q.where(Metric.metric_value["player_id"].as_string() == str(player_id))
 
     # Players must never see experimental metrics regardless of analytics_safe
     if _is_player_role(current_user):

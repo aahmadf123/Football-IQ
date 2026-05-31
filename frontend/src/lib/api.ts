@@ -419,6 +419,7 @@ export interface MetricFilters {
   metric_name?: string;
   experimental?: boolean;
   analytics_safe?: boolean;
+  player_id?: string;
   limit?: number;
   offset?: number;
 }

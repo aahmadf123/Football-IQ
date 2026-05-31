@@ -89,7 +89,7 @@ def evaluate_effort_candidate(
     else:
         threshold = baseline_avg * LOAF_SPEED_RATIO
         low_speed_streak = _low_speed_streak_after_snap(speeds, snap_frame, threshold)
-        loaf_flag = bool(is_skill and low_speed_streak > LOAF_CONSECUTIVE_FRAMES)
+        loaf_flag = bool(is_skill and low_speed_streak >= LOAF_CONSECUTIVE_FRAMES)
         if loaf_flag:
             reason_codes.append("possible_effort_drop")
 
@@ -166,7 +166,7 @@ def _low_speed_streak_after_snap(
     longest = 0
     current = 0
     for frame, speed in speeds:
-        if frame < snap_frame:
+        if frame <= snap_frame:
             continue
         if speed < threshold_yps:
             current += 1

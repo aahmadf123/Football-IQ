@@ -73,7 +73,9 @@ def summarize_body_orientation(
     if not results:
         return None
 
-    avg_yaw = sum(float(r["head_yaw_degrees"]) for r in results) / len(results)
+    sin_sum = sum(math.sin(math.radians(float(r["head_yaw_degrees"]))) for r in results)
+    cos_sum = sum(math.cos(math.radians(float(r["head_yaw_degrees"]))) for r in results)
+    avg_yaw = _normalize_degrees(math.degrees(math.atan2(sin_sum, cos_sum)))
     avg_conf = sum(float(r["confidence"]) for r in results) / len(results)
     class_counts = Counter(str(r["orientation_class"]) for r in results)
     orientation_class = class_counts.most_common(1)[0][0]
