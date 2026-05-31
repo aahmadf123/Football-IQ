@@ -54,7 +54,7 @@ def test_loader_is_tolerant_and_offline(tmp_path: Path) -> None:
     rows = [
         {"sport": "American Football", "level": "L2-rules", "question": "Down and distance?"},
         {"Sport": "Soccer", "difficulty": "L1", "Q": "Offside?"},
-        {"sport": "American Football", "task": "rule-grounding", "image": True},
+        {"sport": "American Football", "task": "rule-grounding", "image": "frame_0123.jpg"},
         "not-json",  # skipped
         {"no_sport": "ignored"},  # skipped (no sport field)
     ]

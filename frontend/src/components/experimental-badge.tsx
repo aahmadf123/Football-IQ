@@ -23,7 +23,7 @@ export function ExperimentalBadge({ label = "Experimental" }: { label?: string }
         textTransform: "uppercase",
         marginLeft: 8,
       }}
-      aria-label="Experimental metric — not a validated result"
+      aria-label={`${label} metric — not a validated result`}
       data-testid="experimental-badge"
     >
       {label}

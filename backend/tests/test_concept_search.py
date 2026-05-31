@@ -116,6 +116,7 @@ def test_concept_predicate_personnel_targets_column() -> None:
     concept = next(c for c in CONCEPTS if c.concept_id == "personnel_11")
     sql = _compile(_concept_predicate(concept))
     assert "personnel_grouping" in sql
+    assert "label_data" not in sql
 
 
 def test_concept_predicate_field_zone_targets_column() -> None:

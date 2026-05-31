@@ -132,7 +132,12 @@ def _row_bool(row: dict[str, object], *keys: str) -> bool:
             if isinstance(value, bool):
                 return value
             if isinstance(value, str):
-                return value.strip().lower() in {"1", "true", "yes"}
+                norm = value.strip().lower()
+                if not norm:
+                    return False
+                if norm in {"0", "false", "no", "none", "null"}:
+                    return False
+                return True
             if value:
                 return True
     return False
@@ -145,30 +150,30 @@ def load_examples_jsonl(path: str | Path, dataset: str) -> list[QAExample]:
     skipped so a partial export degrades gracefully.
     """
     out: list[QAExample] = []
-    text = Path(path).read_text(encoding="utf-8")
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, dict):
-            continue
-        sport = _row_get(row, "sport", "Sport", "sport_type", "category")
-        if not sport:
-            continue
-        out.append(
-            QAExample(
-                dataset=dataset,
-                sport=sport,
-                task=_row_get(row, "task", "level", "difficulty", "split") or "unknown",
-                question=_row_get(row, "question", "Q", "text", "prompt"),
-                has_image=_row_bool(row, "has_image", "image", "has_images"),
-                has_video=_row_bool(row, "has_video", "video", "has_videos"),
+    with Path(path).open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            sport = _row_get(row, "sport", "Sport", "sport_type", "category")
+            if not sport:
+                continue
+            out.append(
+                QAExample(
+                    dataset=dataset,
+                    sport=sport,
+                    task=_row_get(row, "task", "level", "difficulty", "split") or "unknown",
+                    question=_row_get(row, "question", "Q", "text", "prompt"),
+                    has_image=_row_bool(row, "has_image", "image", "has_images"),
+                    has_video=_row_bool(row, "has_video", "video", "has_videos"),
+                )
             )
-        )
     return out
 
 

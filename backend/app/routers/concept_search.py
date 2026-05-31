@@ -110,23 +110,26 @@ class ConceptSearchResponse(BaseModel):
 def _concept_predicate(concept: ConceptDefinition) -> ColumnElement[bool]:
     """SQLAlchemy boolean for one concept over the existing ``clips`` columns.
 
-    ``clips.label_data`` is a generic JSON column, so we match against its
-    serialized text (``CAST(label_data AS TEXT) ILIKE '%term%'``) rather than a
-    Postgres-JSONB ``->>`` path — this stays portable and catches a concept even
-    when it is nested under a non-canonical key. Formation / coverage labels live
-    under ``label_data``; ``personnel_grouping`` / ``field_zone`` are first-class
-    string columns and are matched directly. Runs in Postgres at query time
-    (unit tests mock the session, like ``test_search.py``).
+    Formations / coverages use ``ConceptDefinition.json_path`` for precise JSON
+    matching, plus a serialized ``label_data`` fallback for tolerance when a
+    concept is stored under a non-canonical key. Concepts grounded on first-class
+    clip columns (``personnel_grouping`` / ``field_zone``) match those columns
+    only, avoiding broad JSON-text false positives (e.g. personnel digits).
     """
     label_text = cast(Clip.label_data, Text)
     clauses: list[ColumnElement[bool]] = []
     for term in concept.terms():
         pattern = f"%{term}%"
-        clauses.append(label_text.ilike(pattern))
         if concept.column == "personnel_grouping":
             clauses.append(Clip.personnel_grouping.ilike(pattern))
-        elif concept.column == "field_zone":
+            continue
+        if concept.column == "field_zone":
             clauses.append(Clip.field_zone.ilike(pattern))
+            continue
+        if concept.json_path is not None:
+            path_l1, path_l2 = concept.json_path
+            clauses.append(cast(Clip.label_data[path_l1][path_l2], Text).ilike(pattern))
+        clauses.append(label_text.ilike(pattern))
     return or_(*clauses)
 
 
@@ -283,12 +286,13 @@ async def concept_search(
                         continue
                     seen.add(r.clip_id)
                     experimental = True
+                    similarity = max(-1.0, min(1.0, r.score))
                     results.append(
                         ConceptResult(
                             clip_id=r.clip_id,
                             source="embedding",
-                            confidence=round(r.score, 3),
-                            score=round(r.score, 3),
+                            confidence=round((similarity + 1.0) / 2.0, 3),
+                            score=round(similarity, 3),
                             is_experimental=True,
                             matched_concept_ids=concept_ids,
                             label_data=r.label_data,

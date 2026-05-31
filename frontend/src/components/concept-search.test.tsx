@@ -60,6 +60,7 @@ describe("ConceptSearch", () => {
     setAppState({ authToken: "tok", mockMode: false });
     render(<ConceptSearch />);
     expect(screen.getByText("Approximate")).toBeTruthy();
+    expect(screen.getByLabelText("Approximate metric — not a validated result")).toBeTruthy();
   });
 
   test("searches the backend and labels experimental embedding results", async () => {
