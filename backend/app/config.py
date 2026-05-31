@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # a CFBD call is attempted without a key (see app.cfbd.client).
     cfbd_api_key: str = ""
     cfbd_base_url: str = "https://api.collegefootballdata.com"
+
+    # Kaggle API settings
+    kaggle_username: str = ""
+    kaggle_api_token: str = ""
+
     # Cached CFBD rows older than this are flagged ``stale`` to the UI. College
     # football data refreshes roughly weekly, so the default is 7 days.
     cfbd_cache_stale_after_hours: int = 168
