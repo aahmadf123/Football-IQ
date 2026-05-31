@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     # football data refreshes roughly weekly, so the default is 7 days.
     cfbd_cache_stale_after_hours: int = 168
 
+    # ── Zero-shot concept search (Issue #144) ─────────────────────────────
+    # When true, ``GET /api/v1/concept-search`` may expand its grounded
+    # structured-label matches with an *experimental* pgvector similarity pass
+    # over the existing play embeddings (Issue #8) to surface visually similar
+    # but not-yet-labelled reps. Expansion results are always flagged
+    # experimental/approximate. Set false to restrict concept search to grounded
+    # metadata matches only (no new vector store is ever introduced either way).
+    concept_search_embedding_expansion: bool = True
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:

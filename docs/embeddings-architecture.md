@@ -271,7 +271,10 @@ encoder.
 - **Natural-language text encoder for `/search/text`:** v1 ships the
   endpoint behind an experimental flag using CLIP's text tower for
   rough query-by-text. Outputs are flagged `experimental = true` and
-  do not promote to labels.
+  do not promote to labels. The *zero-shot-first* concept search that
+  actually ships for coaches today (Issue #144) does **not** require this
+  encoder — it grounds on structured labels and expands via the
+  image-derived embeddings; see [`docs/concept-search.md`](concept-search.md).
 
 ---
 

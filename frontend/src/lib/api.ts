@@ -14,6 +14,7 @@ import type {
   CfbdMacBenchmarkResponse,
   CfbdScheduleResponse,
   CfbdTeamResponse,
+  ConceptSearchResponse,
   ClipOverlayPayload,
   OpponentSummary,
   ReportCreateRequest,
@@ -676,6 +677,38 @@ export async function fetchFrontierMetrics(
   const qs = params.toString();
   return getJSON<FrontierMetricsResponse>(
     `${base}/api/v1/analytics/frontier${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+// ── Zero-shot concept search (Issue #144) ────────────────────────────────────
+
+export interface ConceptSearchFilters {
+  k?: number;
+  include_experimental?: boolean;
+  opponent?: string;
+  side_of_ball?: string;
+}
+
+/**
+ * Zero-shot concept search: resolve a free-text football concept query
+ * ("mesh", "cover 3 trips") against the structured labels the backend already
+ * trusts, optionally expanded with EXPERIMENTAL play-embedding similarity.
+ * Results are always approximate — the caller must label them as such.
+ */
+export async function searchConcepts(
+  query: string,
+  filters: ConceptSearchFilters = {},
+  token?: string,
+): Promise<ConceptSearchResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams({ q: query });
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  return getJSON<ConceptSearchResponse>(
+    `${base}/api/v1/concept-search?${params.toString()}`,
     token,
   );
 }
