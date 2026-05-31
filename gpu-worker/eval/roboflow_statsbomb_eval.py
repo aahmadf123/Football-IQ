@@ -112,7 +112,14 @@ def matched_football_iq_class(label: str) -> str | None:
     """Return the Football-IQ class a Roboflow label maps to, or ``None``."""
     norm = normalize_label(label)
     for fiq_class, synonyms in FOOTBALL_IQ_CLASSES.items():
-        if any(syn == norm or syn in norm.split() or syn in norm for syn in synonyms):
+        # Match a whole-word synonym (covers single-word labels and tokens of a
+        # compound label like "away team") or a multi-word synonym appearing as
+        # a phrase. Single-token substring matching is intentionally avoided so
+        # e.g. "ref" cannot match an unrelated label.
+        if any(
+            syn == norm or syn in norm.split() or (" " in syn and syn in norm)
+            for syn in synonyms
+        ):
             return fiq_class
     return None
 
