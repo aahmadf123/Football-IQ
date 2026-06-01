@@ -59,6 +59,7 @@ class Resource(enum.StrEnum):
     CFBD_ANALYTICS = "cfbd_analytics"
     PLAY_PREDICTION = "play_prediction"
     PLAYBOOK = "playbook"
+    COUNTERFACTUAL = "counterfactual"
 
 
 class Action(enum.StrEnum):
@@ -150,6 +151,14 @@ POLICY: dict[tuple[Resource, Action], frozenset[UserRole]] = {
     # mediation), and sports-performance has no tactical-scheme role here.
     (Resource.PLAYBOOK, Action.READ): frozenset({UserRole.admin, UserRole.analyst, UserRole.coach}),
     (Resource.PLAYBOOK, Action.WRITE): frozenset(
+        {UserRole.admin, UserRole.analyst, UserRole.coach}
+    ),
+    # Counterfactual coverage simulator (Issue #141). An offline/backend MVP:
+    # reading the experimental "what-if vs another coverage" surface is
+    # coaching-staff only (tactical scheme), never exposed to player/viewer
+    # accounts, and — like the playbook surface — sports-performance has no
+    # tactical-scheme role here. There is no coach-facing frontend yet.
+    (Resource.COUNTERFACTUAL, Action.READ): frozenset(
         {UserRole.admin, UserRole.analyst, UserRole.coach}
     ),
 }
@@ -543,6 +552,11 @@ _AUDIT_ALLOWED_KEYS: frozenset[str] = frozenset(
         "grade",
         "source",
         "count",
+        # Counterfactual coverage simulator (Issue #141) — route/coverage concept
+        # keys and data-sufficiency tier only, never trajectories or player names.
+        "route_concept",
+        "coverage_type",
+        "data_sufficiency",
     }
 )
 

@@ -295,6 +295,27 @@ variant that needs the GPU must be added to `DEFAULT_ROUTING` +
 use (the "experimental → nightly" rule). See
 [`docs/coverage-pressure-features.md`](coverage-pressure-features.md).
 
+## Not routed: counterfactual coverage simulator (Issue #141)
+
+The MVP counterfactual simulator
+(`gpu-worker/pipeline/counterfactual/lookup_simulator.py`, and the backend port
+`app/analytics/counterfactual.py` behind `POST /api/v1/counterfactuals`) is a
+deterministic lookup + empirical-Bayes regression over historical
+`(route_concept × coverage_type) → yards` observations. It loads **no model
+weights** and runs identical pure-Python math in both priority buckets,
+consuming the *outputs* of the routed stages — so, exactly like the pre-snap
+predictor (#135/#136), frontier analytics (#10), and the coverage/pressure
+classifiers (#139/#140), it registers **no** `model_router` stage and is absent
+from `DEFAULT_ROUTING`. It does not touch `output_artifacts["model_routing"]`.
+
+The V2 diffusion trajectory generator
+(`gpu-worker/pipeline/counterfactual/diffusion_simulator.py`) is a **deferred,
+inert scaffold** — it generates nothing and loads no weights. If it is ever
+promoted to a GPU runtime path, it must be added to `DEFAULT_ROUTING` +
+this doc + `gpu-worker/tests/test_model_router.py` and clear the
+"experimental → nightly" bar first. See
+[`docs/counterfactual-simulator.md`](counterfactual-simulator.md).
+
 ## Unknown stages
 
 `select_model("not-a-stage", priority)` returns the module-level
