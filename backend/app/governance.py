@@ -58,6 +58,7 @@ class Resource(enum.StrEnum):
     HEAVY_WORKLOAD = "heavy_workload"
     CFBD_ANALYTICS = "cfbd_analytics"
     PLAY_PREDICTION = "play_prediction"
+    PLAYBOOK = "playbook"
 
 
 class Action(enum.StrEnum):
@@ -140,6 +141,15 @@ POLICY: dict[tuple[Resource, Action], frozenset[UserRole]] = {
         }
     ),
     (Resource.PLAY_PREDICTION, Action.WRITE): frozenset(
+        {UserRole.admin, UserRole.analyst, UserRole.coach}
+    ),
+    # Playbook overlays & assignment execution scoring (Issue #15). Reading the
+    # overlay/score surface and authoring concepts, links, scores and overrides
+    # are both coaching-staff only — execution scores are never exposed to
+    # player/viewer accounts (Non-Goal: no player-facing scores without coach
+    # mediation), and sports-performance has no tactical-scheme role here.
+    (Resource.PLAYBOOK, Action.READ): frozenset({UserRole.admin, UserRole.analyst, UserRole.coach}),
+    (Resource.PLAYBOOK, Action.WRITE): frozenset(
         {UserRole.admin, UserRole.analyst, UserRole.coach}
     ),
 }
@@ -524,6 +534,15 @@ _AUDIT_ALLOWED_KEYS: frozenset[str] = frozenset(
         "approval_status",
         "generated_by",
         "experimental",
+        # Playbook overlays & assignment scoring (Issue #15) — identifiers and
+        # enums only, never coaching points, comments, or trajectory data.
+        "clip_id",
+        "concept_id",
+        "score_id",
+        "assignment_key",
+        "grade",
+        "source",
+        "count",
     }
 )
 

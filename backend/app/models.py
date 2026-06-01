@@ -1620,3 +1620,149 @@ CfbdDrive = CFBDDrive
 CfbdPlay = CFBDPlay
 CfbdTeamGameStat = CFBDTeamGameStat
 CfbdWinProbability = CFBDWinProbability
+
+
+# ── Phase 4: playbook overlays & assignment scoring (Issue #15) ────────────────
+
+
+class PlaybookConcept(Base):
+    """A coach-authored call-sheet concept and its assignment definitions.
+
+    ``side`` is "offense" or "defense"; ``assignments`` is the JSON list of
+    assignment dicts (key, role, intent, coaching_point, intended_route, rule)
+    that drive both the Film Room overlay and rule-based execution scoring. The
+    table is intentionally light and coach-edited — see ``app.playbook_seed``
+    for the two starter concepts and ``docs/playbook-overlays.md`` for the
+    contract.
+    """
+
+    __tablename__ = "playbook_concepts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    side: Mapped[str] = mapped_column(String(16), nullable=False)
+    structure_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # List of assignment definition dicts (see app.analytics.assignment_scoring).
+    assignments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    coaching_points: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PlayConcept(Base):
+    """Links a concept to the clip (play) on which it was called.
+
+    ``source`` is "coach" (coach confirmed the call) or "model" (auto-identified
+    and therefore unvalidated). ``assignment_player_map`` maps each assignment
+    key to ``{"tracklet_id": ..., "identity_state": ..., "identity_confidence": ...}``
+    so scoring can resolve which tracklet ran each assignment without requiring
+    face recognition. ``validated`` records whether a coach confirmed the
+    concept identification.
+    """
+
+    __tablename__ = "play_concepts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("playbook_concepts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="coach", server_default="coach"
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    assignment_player_map: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    validated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("clip_id", "concept_id", name="play_concepts_clip_concept_uq"),
+    )
+
+    concept: Mapped["PlaybookConcept"] = relationship("PlaybookConcept")
+
+
+class AssignmentScore(Base):
+    """A rule-based execution grade for one assignment on one play (Issue #15).
+
+    ``grade`` is on_assignment / off_assignment / needs_review. A low-confidence
+    identity or missing substrate yields ``needs_review`` (never a negative
+    grade). ``coach_grade`` + ``coach_comment`` capture a coach override, which
+    also writes an ``assignment_execution`` Label so corrections feed the
+    training flywheel. ``experimental`` defaults true until validated.
+    """
+
+    __tablename__ = "assignment_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("playbook_concepts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    grade: Mapped[str] = mapped_column(String(24), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    uncertainty: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, server_default="1"
+    )
+    reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Snapshot of the signal confidences that produced the grade.
+    inputs: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    experimental: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="auto", server_default="auto"
+    )
+    coach_grade: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    coach_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overridden_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    overridden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "clip_id", "concept_id", "assignment_key", name="assignment_scores_unique"
+        ),
+    )

@@ -36,6 +36,7 @@ from app.routers.mlops import router as mlops_router
 from app.routers.opponents import router as opponents_router
 from app.routers.overlays import router as overlays_router
 from app.routers.play_prediction import router as play_prediction_router
+from app.routers.playbook import router as playbook_router
 from app.routers.player_profiles import router as player_profiles_router
 from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
@@ -123,3 +124,4 @@ app.include_router(reports_router)
 app.include_router(cfbd_router)
 app.include_router(play_prediction_router)
 app.include_router(frontier_analytics_router)
+app.include_router(playbook_router)
