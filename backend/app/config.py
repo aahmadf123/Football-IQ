@@ -82,6 +82,18 @@ class Settings(BaseSettings):
     # metadata matches only (no new vector store is ever introduced either way).
     concept_search_embedding_expansion: bool = True
 
+    # ── Playbook overlays & assignment scoring (Issue #15) ────────────────
+    # When false, the playbook router returns 404 for every route so the
+    # feature can be dark-launched without un-mounting the endpoints.
+    playbook_enabled: bool = True
+    # Resolved player identity confidence below this value (or an identity
+    # state that is not known/probable) downgrades an assignment grade to
+    # "needs_review" instead of a negative ("off assignment") grade — a
+    # low-confidence identity is never scored as a wrong assignment.
+    playbook_identity_confidence_threshold: float = 0.6
+    # Upper bound on clips the corpus (re)scoring heavy endpoint will scan.
+    playbook_score_corpus_max_plays: int = 500
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:
