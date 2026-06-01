@@ -45,7 +45,7 @@ SUFF_SPARSE = "sparse"
 SUFF_INSUFFICIENT = "insufficient"
 
 # Label/metric vocabulary the extractors read.
-_ROUTE_LABEL_TYPES = ("play_concept", "route_family", "route_concept")
+_ROUTE_LABEL_TYPES = ("play_concept", "route_concept")
 _COVERAGE_LABEL_TYPES = ("coverage_shell", "defensive_shell", "coverage")
 _OUTCOME_LABEL_TYPES = ("yards_gained", "play_outcome", "play_result")
 _OUTCOME_METRIC_NAMES = ("pre_contact_yards", "post_contact_yards")

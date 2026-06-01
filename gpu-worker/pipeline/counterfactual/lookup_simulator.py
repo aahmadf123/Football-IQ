@@ -340,7 +340,7 @@ class CounterfactualLookup:
     def expected_yards(self, route: str, coverage: str) -> YardsDistribution:
         """Estimate the expected-yards distribution for one cell.
 
-        Sparse cells are shrunk toward the route prior (then the global prior).
+        Sparse cells are shrunk toward the route prior.
         A cell/route with no data at all is reported ``insufficient`` rather than
         invented.
         """
@@ -515,7 +515,7 @@ class CounterfactualLookup:
         if best_n < MIN_SAMPLES_FOR_EMPIRICAL_PERCENTILES:
             return (
                 SUFF_SPARSE,
-                "Sparse sample — estimates lean on the route/global prior. "
+                "Sparse sample — estimates lean on the route prior. "
                 "Experimental, directional only; not a coaching recommendation.",
             )
         return (

@@ -82,6 +82,18 @@ DEFINITIONS: dict[str, str] = {
     ),
 }
 
+_COUNTERFACTUAL_LABEL_TYPES = (
+    "play_concept",
+    "route_concept",
+    "coverage_shell",
+    "defensive_shell",
+    "coverage",
+    "yards_gained",
+    "play_outcome",
+    "play_result",
+)
+_COUNTERFACTUAL_OUTCOME_METRIC_NAMES = ("pre_contact_yards", "post_contact_yards")
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -238,7 +250,16 @@ async def _load_observations(
     clip_ids = [c.id for c in clips]
 
     label_rows = list(
-        (await db.execute(select(Label).where(Label.clip_id.in_(clip_ids)))).scalars().all()
+        (
+            await db.execute(
+                select(Label).where(
+                    Label.clip_id.in_(clip_ids),
+                    Label.label_type.in_(_COUNTERFACTUAL_LABEL_TYPES),
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
     labels_by_clip: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for lbl in label_rows:
@@ -248,7 +269,17 @@ async def _load_observations(
             )
 
     metric_rows = list(
-        (await db.execute(select(Metric).where(Metric.clip_id.in_(clip_ids)))).scalars().all()
+        (
+            await db.execute(
+                select(Metric).where(
+                    Metric.clip_id.in_(clip_ids),
+                    Metric.metric_name.in_(_COUNTERFACTUAL_OUTCOME_METRIC_NAMES),
+                    Metric.is_suppressed.is_(False),
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
     metrics_by_clip: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for m in metric_rows:
