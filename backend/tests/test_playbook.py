@@ -142,6 +142,17 @@ def test_release_direction_no_trajectory_degrades() -> None:
     assert res.reason_codes == [sc.REASON_NO_TRAJECTORY]
 
 
+def test_release_direction_with_field_only_points_degrades() -> None:
+    rule = {"type": "release_direction", "params": {"axis": "y", "sign": -1}}
+    traj = [
+        sc.TrajectoryPoint(None, None, field_x=10.0, field_y=0.0),
+        sc.TrajectoryPoint(None, None, field_x=10.0, field_y=8.0),
+    ]
+    res = _score(_def("k", rule), _good_sub("k", traj, calibration_confidence=0.8))
+    assert res.grade == sc.GRADE_REVIEW
+    assert res.reason_codes == [sc.REASON_NO_TRAJECTORY]
+
+
 def test_zone_landmark_on_and_off() -> None:
     rule = {"type": "zone_landmark", "params": {"region": {"x": [0.0, 0.33], "y": [0.0, 0.35]}}}
     inside = _score(_def("k", rule), _good_sub("k", [sc.TrajectoryPoint(0.2, 0.2)]))
@@ -176,6 +187,13 @@ def test_presence_rule() -> None:
     empty = _score(_def("k", rule), _good_sub("k", []))
     assert empty.grade == sc.GRADE_REVIEW
     assert empty.reason_codes == [sc.REASON_NO_TRAJECTORY]
+
+
+def test_malformed_rule_params_degrade_to_review() -> None:
+    rule = {"type": "zone_landmark", "params": {"region": {"x": [], "y": [0.0, 1.0]}}}
+    res = _score(_def("k", rule), _good_sub("k", [sc.TrajectoryPoint(0.5, 0.5)]))
+    assert res.grade == sc.GRADE_REVIEW
+    assert res.reason_codes == [sc.REASON_UNKNOWN_RULE]
 
 
 # ── Engine: confidence + experimental ───────────────────────────────────────
@@ -403,6 +421,82 @@ def test_create_concept_rejects_soccer() -> None:
     assert resp.json()["detail"]["error_code"] == "soccer_resource_rejected"
 
 
+def test_create_concept_rejects_soccer_in_assignment_text() -> None:
+    app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
+    app.dependency_overrides[get_db] = _mock_db([])
+    body = {
+        "name": "Cover 3 Match",
+        "side": "defense",
+        "structure_kind": "coverage",
+        "assignments": [
+            {
+                "key": "goalkeeper_help",
+                "role": "Nickel",
+                "coaching_point": "wall off the curl",
+                "rule": {"type": "manual_only"},
+            }
+        ],
+    }
+    with TestClient(app) as c:
+        resp = c.post("/api/v1/playbook/concepts", json=body)
+    app.dependency_overrides.clear()
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "soccer_resource_rejected"
+
+
+def test_create_concept_rejects_invalid_rule_schema() -> None:
+    app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
+    app.dependency_overrides[get_db] = _mock_db([])
+    body = {
+        "name": "Zone Match",
+        "side": "defense",
+        "structure_kind": "coverage",
+        "assignments": [
+            {
+                "key": "curl_flat",
+                "role": "Nickel",
+                "rule": {
+                    "type": "zone_landmark",
+                    "params": {"region": {"x": [], "y": [0.0, 0.5]}},
+                },
+            }
+        ],
+    }
+    with TestClient(app) as c:
+        resp = c.post("/api/v1/playbook/concepts", json=body)
+    app.dependency_overrides.clear()
+    assert resp.status_code == 400
+    assert "zone_landmark region.x" in resp.json()["detail"]
+
+
+def test_update_concept_rejects_soccer_in_assignment_text() -> None:
+    concept = MagicMock()
+    concept.id = uuid.uuid4()
+    concept.name = "Cover 3 Sky"
+    concept.structure_kind = "coverage"
+    concept.description = "base coverage"
+    concept.assignments = [{"key": "hook", "role": "Mike", "rule": {"type": "manual_only"}}]
+    concept.coaching_points = ["carry verticals"]
+    concept.is_active = True
+    app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
+    app.dependency_overrides[get_db] = _mock_db([_result(scalar=concept)])
+    body = {
+        "assignments": [
+            {
+                "key": "hook",
+                "role": "goalkeeper",
+                "coaching_point": "carry verticals",
+                "rule": {"type": "manual_only"},
+            }
+        ]
+    }
+    with TestClient(app) as c:
+        resp = c.patch(f"/api/v1/playbook/concepts/{concept.id}", json=body)
+    app.dependency_overrides.clear()
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "soccer_resource_rejected"
+
+
 def test_overlay_no_concept_linked() -> None:
     clip = MagicMock()
     clip.id = uuid.uuid4()
@@ -419,6 +513,70 @@ def test_overlay_no_concept_linked() -> None:
     assert "No playbook concept" in data["reason"]
 
 
+def test_overlay_rolls_up_play_execution_from_coach_overrides() -> None:
+    clip = MagicMock()
+    clip.id = uuid.uuid4()
+    concept = MagicMock()
+    concept.id = uuid.uuid4()
+    concept.name = "Cover 3 Sky"
+    concept.side = "defense"
+    concept.structure_kind = "coverage"
+    concept.coaching_points = []
+    link = MagicMock()
+    link.source = "coach"
+    link.validated = True
+    definition = sc.AssignmentDefinition(
+        key="hook", role="Mike", intent="", coaching_point="", rule={"type": "manual_only"}
+    )
+    auto_result = sc.AssignmentScoreResult(
+        assignment_key="hook",
+        grade=sc.GRADE_OFF,
+        score=0.2,
+        confidence=0.8,
+        uncertainty=0.2,
+        reason_codes=[sc.REASON_DIVERGED],
+        experimental=False,
+        detail={},
+    )
+    play = sc.PlayExecutionResult(
+        play_score=0.2,
+        graded_count=1,
+        on_count=0,
+        off_count=1,
+        needs_review_count=0,
+        confidence=0.8,
+        experimental=False,
+        assignments=[auto_result],
+    )
+    persisted = MagicMock()
+    persisted.id = uuid.uuid4()
+    persisted.status = "coach_overridden"
+    persisted.coach_grade = sc.GRADE_ON
+    persisted.coach_comment = "Corrected by coach"
+    app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
+    app.dependency_overrides[get_db] = _mock_db([_result(scalar=clip)])
+    with (
+        patch(
+            "app.routers.playbook._links_with_concepts",
+            new=AsyncMock(return_value=[(link, concept)]),
+        ),
+        patch("app.routers.playbook._score_link", new=AsyncMock(return_value=(play, [definition]))),
+        patch(
+            "app.routers.playbook._persisted_scores",
+            new=AsyncMock(return_value={"hook": persisted}),
+        ),
+        TestClient(app) as c,
+    ):
+        resp = c.get(f"/api/v1/playbook/clips/{clip.id}/overlay")
+    app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    data = resp.json()["overlays"][0]
+    assert data["assignments"][0]["grade"] == sc.GRADE_ON
+    assert data["play_execution"]["on_count"] == 1
+    assert data["play_execution"]["off_count"] == 0
+    assert data["play_execution"]["play_score"] == 1.0
+
+
 def test_overlay_clip_not_found() -> None:
     app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
     app.dependency_overrides[get_db] = _mock_db([_result(scalar=None)])
@@ -426,6 +584,64 @@ def test_overlay_clip_not_found() -> None:
         resp = c.get(f"/api/v1/playbook/clips/{uuid.uuid4()}/overlay")
     app.dependency_overrides.clear()
     assert resp.status_code == 404
+
+
+def test_score_clip_rolls_up_play_execution_from_coach_overrides() -> None:
+    clip = MagicMock()
+    clip.id = uuid.uuid4()
+    concept = MagicMock()
+    concept.id = uuid.uuid4()
+    link = MagicMock()
+    definition = sc.AssignmentDefinition(
+        key="hook", role="Mike", intent="", coaching_point="", rule={"type": "manual_only"}
+    )
+    auto_result = sc.AssignmentScoreResult(
+        assignment_key="hook",
+        grade=sc.GRADE_OFF,
+        score=0.2,
+        confidence=0.8,
+        uncertainty=0.2,
+        reason_codes=[sc.REASON_DIVERGED],
+        experimental=False,
+        detail={},
+    )
+    play = sc.PlayExecutionResult(
+        play_score=0.2,
+        graded_count=1,
+        on_count=0,
+        off_count=1,
+        needs_review_count=0,
+        confidence=0.8,
+        experimental=False,
+        assignments=[auto_result],
+    )
+    persisted = MagicMock()
+    persisted.id = uuid.uuid4()
+    persisted.status = "coach_overridden"
+    persisted.coach_grade = sc.GRADE_ON
+    persisted.coach_comment = "Corrected by coach"
+    app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
+    app.dependency_overrides[get_db] = _mock_db([_result(scalar=clip)])
+    with (
+        patch(
+            "app.routers.playbook._links_with_concepts",
+            new=AsyncMock(return_value=[(link, concept)]),
+        ),
+        patch("app.routers.playbook._score_link", new=AsyncMock(return_value=(play, [definition]))),
+        patch(
+            "app.routers.playbook._persist_scores",
+            new=AsyncMock(return_value={"hook": persisted}),
+        ),
+        TestClient(app) as c,
+    ):
+        resp = c.post(f"/api/v1/playbook/clips/{clip.id}/score")
+    app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    data = resp.json()[0]
+    assert data["assignments"][0]["grade"] == sc.GRADE_ON
+    assert data["play_execution"]["on_count"] == 1
+    assert data["play_execution"]["off_count"] == 0
+    assert data["play_execution"]["play_score"] == 1.0
 
 
 def test_override_invalid_grade() -> None:

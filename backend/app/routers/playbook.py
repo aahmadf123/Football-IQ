@@ -257,6 +257,98 @@ def _soccer_guard(*texts: str | None) -> None:
         )
 
 
+def _concept_texts(
+    name: str | None,
+    description: str | None,
+    structure_kind: str | None,
+    assignments: list[AssignmentDef] | list[dict[str, Any]] | None,
+    coaching_points: list[str] | None,
+) -> list[str | None]:
+    texts: list[str | None] = [name, description, structure_kind, *(coaching_points or [])]
+    for assignment in assignments or []:
+        if isinstance(assignment, AssignmentDef):
+            texts.extend(
+                [
+                    assignment.key,
+                    assignment.role,
+                    assignment.intent,
+                    assignment.coaching_point,
+                ]
+            )
+            continue
+        texts.extend(
+            [
+                assignment.get("key"),
+                assignment.get("role"),
+                assignment.get("intent"),
+                assignment.get("coaching_point"),
+            ]
+        )
+    return texts
+
+
+def _rule_error(message: str) -> None:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
+
+def _require_rule_number(value: Any, field_name: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        _rule_error(f"Rule {field_name} must be numeric")
+
+
+def _validate_rule(rule: dict[str, Any]) -> None:
+    if not isinstance(rule, dict):
+        _rule_error("Assignment rule must be an object")
+    rule_type = str(rule.get("type", "manual_only"))
+    params = rule.get("params") or {}
+    if not isinstance(params, dict):
+        _rule_error("Rule params must be an object")
+    if "pass_score" in rule:
+        pass_score = _require_rule_number(rule["pass_score"], "pass_score")
+        if not 0.0 <= pass_score <= 1.0:
+            _rule_error("Rule pass_score must be between 0 and 1")
+    if rule_type == "release_direction":
+        axis = str(params.get("axis", "y"))
+        if axis not in {"x", "y"}:
+            _rule_error("release_direction axis must be 'x' or 'y'")
+        if _require_rule_number(params.get("min_delta", 0.05), "release_direction.min_delta") < 0:
+            _rule_error("release_direction min_delta must be non-negative")
+        _require_rule_number(params.get("sign", 1), "release_direction.sign")
+        _require_rule_number(params.get("window", 0.4), "release_direction.window")
+    elif rule_type == "zone_landmark":
+        region = params.get("region")
+        if not isinstance(region, dict):
+            _rule_error("zone_landmark region must be an object with x/y bounds")
+        for axis in ("x", "y"):
+            bounds = region.get(axis)
+            if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                _rule_error(f"zone_landmark region.{axis} must contain exactly two bounds")
+            lower = _require_rule_number(bounds[0], f"zone_landmark.region.{axis}[0]")
+            upper = _require_rule_number(bounds[1], f"zone_landmark.region.{axis}[1]")
+            if lower > upper:
+                _rule_error(f"zone_landmark region.{axis} lower bound must not exceed upper bound")
+        if _require_rule_number(params.get("tolerance", 0.25), "zone_landmark.tolerance") <= 0:
+            _rule_error("zone_landmark tolerance must be positive")
+    elif rule_type == "depth_threshold":
+        if (
+            _require_rule_number(
+                params.get("min_depth_yards", 12.0),
+                "depth_threshold.min_depth_yards",
+            )
+            <= 0
+        ):
+            _rule_error("depth_threshold min_depth_yards must be positive")
+    elif rule_type == "presence":
+        try:
+            min_points = int(params.get("min_points", 3))
+        except (TypeError, ValueError):
+            _rule_error("presence min_points must be an integer")
+        if min_points <= 0:
+            _rule_error("presence min_points must be positive")
+
+
 def _validate_assignments(assignments: list[AssignmentDef]) -> None:
     keys = [a.key for a in assignments]
     if len(keys) != len(set(keys)):
@@ -264,6 +356,8 @@ def _validate_assignments(assignments: list[AssignmentDef]) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Assignment keys must be unique within a concept",
         )
+    for assignment in assignments:
+        _validate_rule(assignment.rule)
 
 
 def _concept_definition(c: PlaybookConcept) -> scoring.ConceptDefinition:
@@ -306,11 +400,8 @@ def _trajectory(tracklet: Tracklet, video: Video | None) -> list[scoring.Traject
             cy = (tp.bbox[1] + tp.bbox[3]) / 2.0
             norm_x = scoring._clamp01(cx / width)
             norm_y = scoring._clamp01(cy / height)
-        if norm_x is None or norm_y is None:
-            if tp.field_x is None and tp.field_y is None:
-                continue
-            norm_x = norm_x if norm_x is not None else 0.0
-            norm_y = norm_y if norm_y is not None else 0.0
+        if norm_x is None and norm_y is None and tp.field_x is None and tp.field_y is None:
+            continue
         points.append(
             scoring.TrajectoryPoint(
                 norm_x=norm_x, norm_y=norm_y, field_x=tp.field_x, field_y=tp.field_y
@@ -447,6 +538,41 @@ def _play_execution_out(play: scoring.PlayExecutionResult) -> PlayExecutionOut:
     )
 
 
+def _effective_assignment_result(
+    result: scoring.AssignmentScoreResult,
+    row: AssignmentScore | None,
+) -> scoring.AssignmentScoreResult:
+    if row is None or row.status != "coach_overridden" or row.coach_grade is None:
+        return result
+    score = None
+    if row.coach_grade == scoring.GRADE_ON:
+        score = 1.0
+    elif row.coach_grade == scoring.GRADE_OFF:
+        score = 0.0
+    return scoring.AssignmentScoreResult(
+        assignment_key=result.assignment_key,
+        grade=row.coach_grade,
+        score=score,
+        confidence=1.0 if row.coach_grade != scoring.GRADE_REVIEW else 0.0,
+        uncertainty=0.0 if row.coach_grade != scoring.GRADE_REVIEW else 1.0,
+        reason_codes=result.reason_codes,
+        experimental=False,
+        detail=result.detail,
+    )
+
+
+def _effective_play_execution(
+    definitions: list[scoring.AssignmentDefinition],
+    results_by_key: dict[str, scoring.AssignmentScoreResult],
+    persisted: dict[str, AssignmentScore],
+) -> PlayExecutionOut:
+    effective_results = [
+        _effective_assignment_result(results_by_key[d.key], persisted.get(d.key))
+        for d in definitions
+    ]
+    return _play_execution_out(scoring.summarize_play(effective_results))
+
+
 async def _score_link(
     db: AsyncSession, clip: Clip, link: PlayConcept, concept: PlaybookConcept
 ) -> tuple[scoring.PlayExecutionResult, list[scoring.AssignmentDefinition]]:
@@ -500,7 +626,15 @@ async def create_concept(
             detail=f"side must be one of {sorted(_VALID_SIDES)}",
         )
     _validate_assignments(body.assignments)
-    _soccer_guard(body.name, body.description, body.structure_kind)
+    _soccer_guard(
+        *_concept_texts(
+            body.name,
+            body.description,
+            body.structure_kind,
+            body.assignments,
+            body.coaching_points,
+        )
+    )
 
     existing = (
         await db.execute(select(PlaybookConcept).where(PlaybookConcept.name == body.name))
@@ -596,18 +730,35 @@ async def update_concept(
     if concept is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Concept not found")
 
+    assignments = (
+        body.assignments if body.assignments is not None else list(concept.assignments or [])
+    )
+    coaching_points = (
+        body.coaching_points
+        if body.coaching_points is not None
+        else list(concept.coaching_points or [])
+    )
+    structure_kind = (
+        body.structure_kind if body.structure_kind is not None else concept.structure_kind
+    )
+    description = body.description if body.description is not None else concept.description
+
     if body.assignments is not None:
         _validate_assignments(body.assignments)
+    _soccer_guard(
+        *_concept_texts(concept.name, description, structure_kind, assignments, coaching_points)
+    )
+
+    if body.assignments is not None:
         concept.assignments = [a.model_dump() for a in body.assignments]
     if body.structure_kind is not None:
-        concept.structure_kind = body.structure_kind
+        concept.structure_kind = structure_kind
     if body.description is not None:
-        concept.description = body.description
+        concept.description = description
     if body.coaching_points is not None:
-        concept.coaching_points = body.coaching_points
+        concept.coaching_points = coaching_points
     if body.is_active is not None:
         concept.is_active = body.is_active
-    _soccer_guard(concept.description, concept.structure_kind)
 
     await db.flush()
     audit_event(
@@ -736,7 +887,8 @@ async def get_overlay(
         assignment_outs = [
             _assignment_overlay(d, result_by_key[d.key], persisted.get(d.key)) for d in definitions
         ]
-        any_experimental = any_experimental or play.experimental
+        play_execution = _effective_play_execution(definitions, result_by_key, persisted)
+        any_experimental = any_experimental or play_execution.experimental
         overlays.append(
             ConceptOverlay(
                 concept_id=concept.id,
@@ -746,7 +898,7 @@ async def get_overlay(
                 coaching_points=list(concept.coaching_points or []),
                 source=link.source,
                 validated=link.validated,
-                play_execution=_play_execution_out(play),
+                play_execution=play_execution,
                 assignments=assignment_outs,
             )
         )
@@ -815,7 +967,7 @@ async def score_clip(
             ScoreOut(
                 clip_id=clip_id,
                 concept_id=concept.id,
-                play_execution=_play_execution_out(play),
+                play_execution=_effective_play_execution(definitions, result_by_key, persisted),
                 assignments=[
                     _assignment_overlay(d, result_by_key[d.key], persisted.get(d.key))
                     for d in definitions
