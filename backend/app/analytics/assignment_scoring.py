@@ -239,17 +239,17 @@ def _rule_release_direction(
     default 0.05), ``window`` (fraction of the trajectory to inspect, default
     0.4). Orientation-agnostic: the coach picks the axis/sign for the look.
     """
-    frame_points = [p for p in traj if p.norm_x is not None and p.norm_y is not None]
-    if len(frame_points) < 2:
+    coords = [(p.norm_x, p.norm_y) for p in traj if p.norm_x is not None and p.norm_y is not None]
+    if len(coords) < 2:
         return None, REASON_NO_TRAJECTORY
     axis = str(params.get("axis", "y"))
     sign = 1.0 if float(params.get("sign", 1)) >= 0 else -1.0
     min_delta = float(params.get("min_delta", 0.05))
     window = _clamp01(float(params.get("window", 0.4)))
-    end_idx = max(1, round(window * (len(frame_points) - 1)))
-    start = frame_points[0]
-    end = frame_points[end_idx]
-    delta = (end.norm_x - start.norm_x) if axis == "x" else (end.norm_y - start.norm_y)
+    end_idx = max(1, round(window * (len(coords) - 1)))
+    start_x, start_y = coords[0]
+    end_x, end_y = coords[end_idx]
+    delta = (end_x - start_x) if axis == "x" else (end_y - start_y)
     signed = delta * sign
     score = signed / (min_delta * 3.0) if min_delta > 0 else 0.0
     return _clamp01(score), {"signed_delta": round(signed, 4), "axis": axis}
@@ -263,19 +263,19 @@ def _rule_zone_landmark(
     params: ``region`` = ``{"x": [lo, hi], "y": [lo, hi]}`` in ``[0, 1]``.
     Score is 1.0 inside the box and falls off linearly with distance outside it.
     """
-    frame_points = [p for p in traj if p.norm_x is not None and p.norm_y is not None]
-    if not frame_points:
+    coords = [(p.norm_x, p.norm_y) for p in traj if p.norm_x is not None and p.norm_y is not None]
+    if not coords:
         return None, REASON_NO_TRAJECTORY
     region = params.get("region") or {}
     rx = region.get("x", [0.0, 1.0])
     ry = region.get("y", [0.0, 1.0])
-    end = frame_points[-1]
-    dx = max(0.0, rx[0] - end.norm_x, end.norm_x - rx[1])
-    dy = max(0.0, ry[0] - end.norm_y, end.norm_y - ry[1])
+    end_x, end_y = coords[-1]
+    dx = max(0.0, rx[0] - end_x, end_x - rx[1])
+    dy = max(0.0, ry[0] - end_y, end_y - ry[1])
     dist = (dx * dx + dy * dy) ** 0.5
     tolerance = float(params.get("tolerance", 0.25))
     score = 1.0 - (dist / tolerance if tolerance > 0 else 1.0)
-    return _clamp01(score), {"end": [round(end.norm_x, 3), round(end.norm_y, 3)]}
+    return _clamp01(score), {"end": [round(end_x, 3), round(end_y, 3)]}
 
 
 def _rule_depth_threshold(

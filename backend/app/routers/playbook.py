@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -287,7 +287,7 @@ def _concept_texts(
     return texts
 
 
-def _rule_error(message: str) -> None:
+def _rule_error(message: str) -> NoReturn:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
 
 
