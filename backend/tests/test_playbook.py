@@ -30,9 +30,7 @@ THRESHOLD = 0.6
 
 
 def _def(key: str, rule: dict[str, Any], role: str = "X") -> sc.AssignmentDefinition:
-    return sc.AssignmentDefinition(
-        key=key, role=role, intent="i", coaching_point="c", rule=rule
-    )
+    return sc.AssignmentDefinition(key=key, role=role, intent="i", coaching_point="c", rule=rule)
 
 
 def _good_sub(
@@ -111,7 +109,9 @@ def test_conflicting_identity_is_needs_review() -> None:
 
 
 def test_manual_only_is_needs_review() -> None:
-    res = _score(_def("qb", {"type": "manual_only"}), _good_sub("qb", [sc.TrajectoryPoint(0.5, 0.5)]))
+    res = _score(
+        _def("qb", {"type": "manual_only"}), _good_sub("qb", [sc.TrajectoryPoint(0.5, 0.5)])
+    )
     assert res.grade == sc.GRADE_REVIEW
     assert res.reason_codes == [sc.REASON_MANUAL_ONLY]
 
@@ -190,8 +190,9 @@ def test_confidence_and_uncertainty_complementary() -> None:
 
 def test_model_concept_is_experimental_with_reason() -> None:
     rule = {"type": "presence", "params": {"min_points": 3}}
-    sub = _good_sub("k", [sc.TrajectoryPoint(0.5, 0.5)] * 4, concept_source="model",
-                    concept_validated=False)
+    sub = _good_sub(
+        "k", [sc.TrajectoryPoint(0.5, 0.5)] * 4, concept_source="model", concept_validated=False
+    )
     res = _score(_def("k", rule), sub)
     assert res.experimental is True
     assert sc.REASON_UNVALIDATED_CONCEPT in res.reason_codes
@@ -227,17 +228,24 @@ def _concept_from_seed(spec: dict[str, Any]) -> sc.ConceptDefinition:
         for a in spec["assignments"]
     ]
     return sc.ConceptDefinition(
-        name=spec["name"], side=spec["side"], structure_kind=spec["structure_kind"],
-        assignments=defs, coaching_points=spec.get("coaching_points", []),
+        name=spec["name"],
+        side=spec["side"],
+        structure_kind=spec["structure_kind"],
+        assignments=defs,
+        coaching_points=spec.get("coaching_points", []),
     )
 
 
 def test_score_play_aggregates_mixed_results() -> None:
     concept = sc.ConceptDefinition(
-        name="t", side="defense", structure_kind="coverage",
+        name="t",
+        side="defense",
+        structure_kind="coverage",
         assignments=[
-            _def("zone", {"type": "zone_landmark",
-                          "params": {"region": {"x": [0.0, 0.5], "y": [0.0, 0.5]}}}),
+            _def(
+                "zone",
+                {"type": "zone_landmark", "params": {"region": {"x": [0.0, 0.5], "y": [0.0, 0.5]}}},
+            ),
             _def("manual", {"type": "manual_only"}),
         ],
     )
@@ -273,8 +281,11 @@ def test_seed_defense_zone_grades_with_substrate() -> None:
 def test_seed_offense_depth_needs_calibration() -> None:
     concept = _concept_from_seed(FOUR_VERTICALS)
     # X vertical with frame-only trajectory → depth rule can't verify yards.
-    subs = {"x_vertical": _good_sub("x_vertical", [sc.TrajectoryPoint(0.1, 0.9 - 0.1 * i)
-                                                   for i in range(6)])}
+    subs = {
+        "x_vertical": _good_sub(
+            "x_vertical", [sc.TrajectoryPoint(0.1, 0.9 - 0.1 * i) for i in range(6)]
+        )
+    }
     play = sc.score_play(concept, subs, identity_confidence_threshold=THRESHOLD)
     x = next(a for a in play.assignments if a.assignment_key == "x_vertical")
     assert x.grade == sc.GRADE_REVIEW
@@ -421,8 +432,6 @@ def test_override_invalid_grade() -> None:
     app.dependency_overrides[get_current_user] = lambda: _user(UserRole.coach)
     app.dependency_overrides[get_db] = _mock_db([])
     with TestClient(app) as c:
-        resp = c.patch(
-            f"/api/v1/playbook/scores/{uuid.uuid4()}", json={"coach_grade": "bogus"}
-        )
+        resp = c.patch(f"/api/v1/playbook/scores/{uuid.uuid4()}", json={"coach_grade": "bogus"})
     app.dependency_overrides.clear()
     assert resp.status_code == 400

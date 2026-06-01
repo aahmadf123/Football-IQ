@@ -172,6 +172,11 @@ Events to expect:
 * `audit.profile.snapshot_created`
 * `audit.profile.snapshot_approval_changed`
 * `audit.profile.snapshot_approval_blocked`
+* `audit.playbook.concept_upserted`
+* `audit.playbook.concept_linked`
+* `audit.playbook.scored`
+* `audit.playbook.score_overridden`
+* `audit.playbook.corpus_scored`
 
 These follow the existing structlog JSON format and can be filtered by
 `event=audit.*` in log aggregators.
@@ -247,6 +252,35 @@ visibility lifecycle and RBAC above. Two tables back it
   `audit.profile.snapshot_approval_changed` or
   `audit.profile.snapshot_approval_blocked`. All carry identifiers/enums only —
   never profile content, metrics, or notes.
+
+## 6d. Playbook overlays & assignment scoring (Issue #15)
+
+The playbook overlay + execution-scoring surface (`app.routers.playbook`,
+`/api/v1/playbook`) builds on the RBAC and workload layers above. See ADR 0004
+and [`docs/playbook-overlays.md`](playbook-overlays.md).
+
+* **Coaching-staff only.** A new `Resource.PLAYBOOK` with `read` and `write`
+  actions is allowed for admin/analyst/coach. Reading the overlay/score surface
+  and authoring concepts/links/scores/overrides are both coaching-staff only —
+  execution scores are **never** exposed to player/viewer accounts (Non-Goal:
+  no player-facing scores without coach mediation), and sports-performance has
+  no tactical-scheme role here. The whole router is additionally guarded by the
+  `PLAYBOOK_ENABLED` feature flag (404 when off).
+* **Identity-safe, experimental-by-default scoring.** The rule-based engine
+  never grades a "wrong assignment" on a low-confidence/conflicting identity (it
+  returns `needs_review`), consumes identity/track/calibration confidence, and
+  flags outputs experimental until the concept is coach-validated on a `known`
+  identity. No face recognition is used.
+* **Heavy endpoint is gated.** `POST /concepts/{id}/score-corpus` uses
+  `require_workload_capacity("playbook.score_corpus")` and returns the standard
+  distinguishable `503 workload_gated` behaviour; per-play scoring is ungated.
+* **Corrections feed training.** A coach override (`PATCH /scores/{id}`) is
+  authoritative on the row and also writes an `assignment_execution` training
+  Label.
+* **Audit.** Events carry identifiers/enums only (clip/concept/score ids,
+  assignment key, grade, source, counts) — never coaching points, comments, or
+  trajectory data: `audit.playbook.concept_upserted` / `concept_linked` /
+  `scored` / `score_overridden` / `corpus_scored`.
 
 ## 7. Integration placeholders
 
