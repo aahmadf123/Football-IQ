@@ -94,6 +94,22 @@ class Settings(BaseSettings):
     # Upper bound on clips the corpus (re)scoring heavy endpoint will scan.
     playbook_score_corpus_max_plays: int = 500
 
+    # ── Counterfactual coverage simulator (Issue #141) ────────────────────
+    # Offline/backend MVP only — there is NO coach-facing "What-if" frontend
+    # yet (blocked until calibrated uncertainty #146 + the IA decisions). When
+    # false the /api/v1/counterfactuals surface 404s entirely (dark-launch
+    # guard); the endpoint is coaching-staff only and every response is
+    # experimental regardless.
+    counterfactual_simulator_enabled: bool = True
+    # Cap on clips the workload-gated simulator will scan when building the
+    # (route × coverage) → expected-yards lookup from the labeled corpus.
+    counterfactual_corpus_max_plays: int = 1000
+    # Caller-supplied input-quality signals (identity / tracking / calibration
+    # confidence) at or below this value force the response to
+    # experimental-only, concept-level language — a low-confidence substrate
+    # never yields trusted coach-facing counterfactual language.
+    counterfactual_input_confidence_threshold: float = 0.6
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:

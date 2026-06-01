@@ -42,6 +42,7 @@ any (resource, action) pair not listed in the table is forbidden.
 | `health_workload`     | `read`     | admin, analyst, sportsperformance             |
 | `heavy_workload`      | `trigger`  | admin, analyst                                |
 | `cfbd_analytics`      | `read`     | admin, analyst, coach, sportsperformance      |
+| `counterfactual`      | `read`     | admin, analyst, coach                         |
 
 Routers enforce policies via `require_policy(resource, action)` where the
 resource/action matrix is applied. Every denial
@@ -177,6 +178,7 @@ Events to expect:
 * `audit.playbook.scored`
 * `audit.playbook.score_overridden`
 * `audit.playbook.corpus_scored`
+* `audit.counterfactual.simulated`
 
 These follow the existing structlog JSON format and can be filtered by
 `event=audit.*` in log aggregators.
@@ -281,6 +283,35 @@ and [`docs/playbook-overlays.md`](playbook-overlays.md).
   assignment key, grade, source, counts) — never coaching points, comments, or
   trajectory data: `audit.playbook.concept_upserted` / `concept_linked` /
   `scored` / `score_overridden` / `corpus_scored`.
+
+## 6e. Counterfactual coverage simulator (Issue #141)
+
+The counterfactual simulator (`app.routers.counterfactuals`,
+`POST /api/v1/counterfactuals`) is an **offline/backend MVP** built on the RBAC
+and workload layers above. There is **no** coach-facing frontend surface — it
+stays blocked until calibrated uncertainty (#146) and the IA decisions
+(#184/#185/#186). See [`docs/counterfactual-simulator.md`](counterfactual-simulator.md).
+
+* **Coaching-staff only.** A new `Resource.COUNTERFACTUAL` with a `read` action is
+  allowed for admin/analyst/coach. The "what-if vs another coverage" surface is
+  tactical scheme — never exposed to player/viewer accounts, and (like the
+  playbook surface) sports-performance has no role here. The whole router is
+  additionally guarded by the `COUNTERFACTUAL_SIMULATOR_ENABLED` dark-launch flag
+  (404 when off).
+* **Experimental, never trusted truth.** Every response is `experimental` with
+  `trusted_for_coaching=false` and prominent uncertainty bands. Caller-supplied
+  low-confidence identity/tracking/calibration (or a sparse sample) is recorded
+  in `low_confidence_inputs` and forces experimental-only, concept-level
+  language — estimates are keyed by route/coverage concepts, never named players.
+* **Honest about data.** A route with no measured reps returns
+  `data_sufficiency="insufficient"` and no outcomes rather than a fabricated
+  number — no mock data is presented as real.
+* **Heavy endpoint is gated.** It scans the labeled corpus, so it uses
+  `require_workload_capacity("counterfactual.simulate")` and returns the standard
+  distinguishable `503 workload_gated` behaviour.
+* **Audit.** `audit.counterfactual.simulated` carries route/coverage concept keys,
+  the candidate count, and the data-sufficiency tier only — never trajectories or
+  player names.
 
 ## 7. Integration placeholders
 

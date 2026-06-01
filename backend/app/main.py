@@ -25,6 +25,7 @@ from app.routers.correction_analytics import (
 )
 from app.routers.correction_sync import router as correction_sync_router
 from app.routers.corrections import router as corrections_router
+from app.routers.counterfactuals import router as counterfactuals_router
 from app.routers.embeddings import router as embeddings_router
 from app.routers.events import router as events_router
 from app.routers.frontier_analytics import router as frontier_analytics_router
@@ -125,3 +126,4 @@ app.include_router(cfbd_router)
 app.include_router(play_prediction_router)
 app.include_router(frontier_analytics_router)
 app.include_router(playbook_router)
+app.include_router(counterfactuals_router)
