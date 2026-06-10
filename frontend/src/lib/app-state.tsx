@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
 import { useMocks } from "./mock-flag";
+import { resolveCurrentRole, type UserRole } from "./roles";
 import {
   fetchInboxStatus,
   fetchPlayers,
@@ -183,6 +184,10 @@ interface AppStateValue {
 
   // Auth
   authToken?: string;
+  // Effective role used for client-side surface gating (Issue #113). Derived
+  // from the JWT role claim, a NEXT_PUBLIC_DEMO_ROLE override, or a safe
+  // "coach" default. Never a security boundary — the backend re-checks.
+  currentRole: UserRole;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -601,6 +606,8 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
 
   const availableDates = useMemo(() => ["", ...buildDates(uploads, data.videos)], [uploads, data.videos]);
 
+  const currentRole = useMemo(() => resolveCurrentRole(authToken), [authToken]);
+
   const value: AppStateValue = {
     sessionType,
     setSessionType,
@@ -631,6 +638,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     inboxItems,
     refreshInbox,
     authToken,
+    currentRole,
   };
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

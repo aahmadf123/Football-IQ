@@ -31,6 +31,7 @@ import {
   type SideOfBall,
 } from "@/lib/app-state";
 import { MockBadge } from "@/components/mock-badge";
+import { canAccessHealthWorkload } from "@/lib/roles";
 
 // Consolidated coach-facing navigation (ADR 0003). Film Room and Scouting are
 // workspace hubs; Analytics is surfaced as "Model Insights". Alerts moved to a
@@ -88,10 +89,17 @@ export function FootballShell({
     uploads,
     filteredPlays,
     apiStatus,
+    currentRole,
   } = useAppState();
 
   const titleEntry = pageTitles[activePage];
   const navActiveKey = COMPAT_ACTIVE[activePage] ?? activePage;
+
+  // Health & Workload is hidden unless the role is approved (Issue #113). The
+  // page itself also gates its content, so a deep link can't bypass this.
+  const visibleNavItems = navItems.filter(
+    (item) => item.key !== "health-workload" || canAccessHealthWorkload(currentRole),
+  );
   const totalPlays = filteredPlays.length;
   const totalClips = data.clips.length + uploads.length;
 
@@ -198,7 +206,7 @@ export function FootballShell({
 
       <aside className="sidebar">
         <nav className="nav-list" aria-label="Football IQ navigation">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive =
               pathname === item.href ||

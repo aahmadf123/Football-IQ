@@ -39,7 +39,8 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
   },
   "health-workload": {
     title: "Health & Workload",
-    subtitle: "Load, readiness, risk flags, and sports performance context",
+    subtitle:
+      "Training-load and wellness context for sports-performance staff — not a medical or injury-risk tool",
   },
   reports: {
     title: "Reports",

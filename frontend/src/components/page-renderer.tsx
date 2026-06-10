@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
-import { FieldStage, HeatMap, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
+import { FieldStage, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
 import { useAppState, SIDE_LABELS, type ApiStatus, type UploadPhase } from "@/lib/app-state";
 import {
   createCorrection,
@@ -30,6 +30,12 @@ import {
   type VideoInboxItem,
 } from "@/lib/api";
 import { MockBadge } from "@/components/mock-badge";
+import { canAccessHealthWorkload } from "@/lib/roles";
+import {
+  HEALTH_WORKLOAD_DISCLAIMER,
+  HEALTH_WORKLOAD_INTEGRATIONS,
+  type HealthWorkloadIntegration,
+} from "@/lib/health-workload";
 import type {
   FootballData,
   PageKey,
@@ -96,7 +102,7 @@ export function PageRenderer({ page }: { page: PageKey }) {
       {page === "video-and-plays" && <VideoAndPlays onUploadClick={handleUploadClick} />}
       {page === "players" && <Players />}
       {page === "player-development" && <PlayerDevelopment />}
-      {page === "health-workload" && <HealthWorkload data={data} />}
+      {page === "health-workload" && <HealthWorkload />}
       {page === "reports" && <Reports data={data} onUploadClick={handleUploadClick} />}
       {page === "clips-highlights" && <ClipsHighlights />}
       {page === "settings" && <SettingsView data={data} />}
@@ -855,40 +861,106 @@ function BodyOrientationRow({ metric }: { metric: ApiMetric }) {
   );
 }
 
-function HealthWorkload({ data }: { data: FootballData }) {
+// Athlete health/workload surface (Issue #113). Role-gated: only
+// sports-performance staff (plus analytics leads / admins) see the surface; a
+// deep link from any other role falls through to a restricted notice. The
+// surface itself is policy-safe groundwork — placeholder integration contracts
+// and clearly-illustrative trends only, with no medical/injury claims and no
+// real athlete data surfaced yet.
+function HealthWorkload() {
+  const { currentRole } = useAppState();
+
+  if (!canAccessHealthWorkload(currentRole)) {
+    return (
+      <div className="content-grid">
+        <section className="panel panel-pad span-12" data-testid="health-workload-restricted">
+          <h2 className="panel-title">Health &amp; Workload — Restricted</h2>
+          <p className="kicker" style={{ marginTop: 8 }}>
+            This surface is limited to sports-performance staff (plus analytics
+            leads and admins). Your role does not have access. Contact an
+            administrator if you believe this is in error.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-5">
-        <h2 className="panel-title">Team Load Trend <MockBadge status="mock" /></h2>
-        {/* Sample trend — real load data lands with the health pipeline. */}
-        <TrendLine data={[28, 42, 39, 58, 64, 57, 73, 80]} />
+    <div className="content-grid" data-testid="health-workload-surface">
+      <section className="panel panel-pad span-12" data-testid="health-workload-disclaimer">
+        <h2 className="panel-title">Sports-Performance Context</h2>
+        <p className="kicker" style={{ marginTop: 8 }}>{HEALTH_WORKLOAD_DISCLAIMER}</p>
       </section>
-      <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Top Load</h2>
-        {data.health.length === 0 ? (
-          <p className="kicker" style={{ marginTop: 12 }}>No health data yet.</p>
-        ) : (
-          <div className="list-stack" style={{ marginTop: 12 }}>
-            {data.health.map((item) => <MetricLine key={item.player} label={item.player} value={item.load} />)}
-          </div>
-        )}
-      </section>
-      <section className="panel panel-pad span-3">
-        <h2 className="panel-title">Readiness <MockBadge status="mock" /></h2>
-        {/* Sample readiness — real value sourced from health pipeline. */}
-        <div className="donut" style={{ margin: "18px auto" }}><div>64%<br /><small>Ready</small></div></div>
-      </section>
+
       <section className="panel panel-pad span-7">
-        <h2 className="panel-title">Accumulation Heatmap</h2>
-        <HeatMap />
-      </section>
-      <section className="panel panel-pad span-5">
-        <h2 className="panel-title">Sports Performance Notes</h2>
+        <h2 className="panel-title">Data Sources</h2>
+        <p className="kicker" style={{ marginTop: 6 }}>
+          No source is connected yet — these are documented integration
+          contracts only. No athlete data is surfaced.
+        </p>
         <div className="list-stack" style={{ marginTop: 12 }}>
-          <Insight title="Skill WR group elevated" detail="Monitor repeated high-speed reps" severity="warning" />
-          <Insight title="#54 C within normal band" detail="Load stable across week" severity="good" />
+          {HEALTH_WORKLOAD_INTEGRATIONS.map((integration) => (
+            <IntegrationRow key={integration.source} integration={integration} />
+          ))}
         </div>
       </section>
+
+      <section className="panel panel-pad span-5">
+        <h2 className="panel-title">Team Load Trend <MockBadge status="mock" /></h2>
+        <p className="kicker" style={{ marginTop: 6 }}>
+          Illustrative shape only — real training-load context lands when a
+          GPS/wearable source is connected.
+        </p>
+        <TrendLine data={[28, 42, 39, 58, 64, 57, 73, 80]} />
+      </section>
+
+      <section className="panel panel-pad span-12">
+        <h2 className="panel-title">About This Surface</h2>
+        <div className="list-stack" style={{ marginTop: 12 }}>
+          <Insight
+            title="Access"
+            detail="Sports-performance staff, analytics leads, and admins only. Every read is audit-logged."
+            severity="info"
+          />
+          <Insight
+            title="Purpose"
+            detail="Training-load and wellness context to support staff planning and conversations."
+            severity="good"
+          />
+          <Insight
+            title="Not for"
+            detail="Medical diagnosis, injury prediction, or return-to-play decisions. This is not a medical device."
+            severity="warning"
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function IntegrationRow({ integration }: { integration: HealthWorkloadIntegration }) {
+  const connected = integration.status === "connected";
+  return (
+    <div
+      className="insight-row"
+      style={{ gridTemplateColumns: "1fr auto" }}
+      data-testid={`hw-integration-${integration.source}`}
+    >
+      <span>
+        <strong>{integration.displayName}</strong>
+        <br />
+        <small style={{ color: "var(--muted)" }}>
+          {integration.description}
+          {" · "}
+          {integration.dataCategories.join(", ")}
+        </small>
+      </span>
+      <span
+        className={`status-pill ${connected ? "" : "warning"}`}
+        style={{ alignSelf: "center", whiteSpace: "nowrap" }}
+      >
+        {connected ? "Connected" : "Not connected"}
+      </span>
     </div>
   );
 }
@@ -1532,6 +1604,10 @@ function PlayerFocus({
 }
 
 function BottomInsights({ data }: { data: FootballData }) {
+  const { currentRole } = useAppState();
+  // The Workload & Health teaser is part of the health/workload surface, so it
+  // follows the same role gate (Issue #113) — hidden for non-approved roles.
+  const showWorkload = canAccessHealthWorkload(currentRole);
   return (
     <section className="panel panel-pad span-12">
       <div className="content-grid">
@@ -1549,10 +1625,12 @@ function BottomInsights({ data }: { data: FootballData }) {
             <Insight title="#3 CB" detail="Eyes in backfield on PA" severity="warning" />
           </div>
         </div>
-        <div className="span-3">
-          <h2 className="panel-title">Workload & Health <MockBadge status="mock" /></h2>
-          <TrendLine data={[24, 38, 34, 48, 56, 52, 64]} />
-        </div>
+        {showWorkload && (
+          <div className="span-3">
+            <h2 className="panel-title">Workload & Health <MockBadge status="mock" /></h2>
+            <TrendLine data={[24, 38, 34, 48, 56, 52, 64]} />
+          </div>
+        )}
         <div className="span-3">
           <h2 className="panel-title">Clip Hub</h2>
           <ClipGrid data={data} compact />
