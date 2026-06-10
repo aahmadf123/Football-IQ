@@ -521,14 +521,18 @@ def fetch_opponent_priors(opponent_team: str | None = None) -> list[dict[str, An
 # ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
 
 
-def fetch_clips_with_labels(
+def _fetch_clips(
     video_id: str | None = None,
     limit: int = 500,
-) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
-    """Fetch clips and their labels for self-scout analysis."""
-    if limit <= 0:
-        return [], {}
+) -> list[dict[str, Any]]:
+    """Fetch clip metadata without labels (clips-only, no per-clip label requests).
 
+    Shared by :func:`fetch_clips_with_labels` and
+    :func:`fetch_clips_for_pairing` so the latter can avoid the extra
+    ``/api/v1/labels`` round-trips it does not need.
+    """
+    if limit <= 0:
+        return []
     clips: list[dict[str, Any]] = []
     with _client() as c:
         if video_id:
@@ -579,8 +583,19 @@ def fetch_clips_with_labels(
                 if len(videos) < video_page_limit:
                     break
                 video_offset += len(videos)
+    return clips
 
-        labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+
+def fetch_clips_with_labels(
+    video_id: str | None = None,
+    limit: int = 500,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Fetch clips and their labels for self-scout analysis."""
+    if limit <= 0:
+        return [], {}
+    clips = _fetch_clips(video_id=video_id, limit=limit)
+    labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+    with _client() as c:
         for clip in clips:
             clip_id = clip.get("id", "")
             try:
@@ -589,5 +604,78 @@ def fetch_clips_with_labels(
                 labels_by_clip[clip_id] = labels_resp.json()
             except Exception:
                 labels_by_clip[clip_id] = []
-
     return clips, labels_by_clip
+
+
+# ── Cross-regime distillation (Issue #150) ────────────────────────────────────
+
+
+def fetch_clips_for_pairing(
+    video_id: str | None = None,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    """GET coach-tagged clip metadata for the play-call aligner.
+
+    Returns clip dicts (carrying ``play_call_id``, ``capture_regime``,
+    ``result_state``, ``is_reviewed``, ``confidence``, ``model_version_id``) that
+    :func:`training.play_call_aligner.align_plays` groups into practice<->game
+    pairs. Returns an empty list when the backend is disabled or the call fails.
+
+    Uses :func:`_fetch_clips` directly to avoid the per-clip label requests that
+    :func:`fetch_clips_with_labels` issues; label data is not needed for pairing.
+    """
+    if not BACKEND_API_URL:
+        return []
+    clips = _fetch_clips(video_id=video_id, limit=limit)
+    return [c for c in clips if c.get("play_call_id")]
+
+
+def register_model_version(
+    *,
+    model_name: str,
+    version: str,
+    model_type: str,
+    artifact_uri: str | None = None,
+    metrics: dict[str, Any] | None = None,
+    training_dataset_id: str | None = None,
+) -> dict[str, Any] | None:
+    """POST /api/v1/mlops/models to register a trained model version.
+
+    Used by the cross-regime distillation trainer to register the distilled
+    DRONE_FOLLOW student (created ``experimental`` with auditable ``metrics``).
+    Best-effort: returns ``None`` and logs when the backend is disabled or the
+    call fails — registration never blocks a completed training run.
+    """
+    if not BACKEND_API_URL:
+        return None
+    payload: dict[str, Any] = {
+        "model_name": model_name,
+        "version": version,
+        "model_type": model_type,
+    }
+    if artifact_uri is not None:
+        payload["artifact_uri"] = artifact_uri
+    if metrics is not None:
+        payload["metrics"] = metrics
+    if training_dataset_id is not None:
+        payload["training_dataset_id"] = training_dataset_id
+    try:
+        with _client() as c:
+            resp = c.post("/api/v1/mlops/models", json=payload)
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            log.info(
+                "model_version_registered",
+                model_name=model_name,
+                version=version,
+                model_version_id=data.get("id"),
+            )
+            return data
+    except Exception as exc:
+        log.warning(
+            "model_version_register_failed",
+            model_name=model_name,
+            version=version,
+            error=str(exc),
+        )
+        return None

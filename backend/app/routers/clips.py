@@ -71,6 +71,9 @@ class ClipCreate(BaseModel):
     start_time: float
     end_time: float
     play_number: int | None = None
+    # Coach-tagged play-call code linking this clip to the same-play clip in the
+    # other capture regime (Issue #150 cross-regime pairing).
+    play_call_id: str | None = None
     label_data: dict[str, Any] | None = None
     confidence: float | None = None
     storage_uri: str | None = None
@@ -95,6 +98,8 @@ class ClipUpdate(BaseModel):
     start_time: float | None = None
     end_time: float | None = None
     play_number: int | None = None
+    # Coach tagging of matched practice <-> game plays (Issue #150).
+    play_call_id: str | None = None
     label_data: dict[str, Any] | None = None
     is_reviewed: bool | None = None
     storage_uri: str | None = None
@@ -117,6 +122,7 @@ class ClipResponse(BaseModel):
     start_time: float
     end_time: float
     play_number: int | None
+    play_call_id: str | None
     confidence: float | None
     is_reviewed: bool
     storage_uri: str | None
@@ -150,6 +156,7 @@ class ClipResponse(BaseModel):
             start_time=c.start_time,
             end_time=c.end_time,
             play_number=c.play_number,
+            play_call_id=c.play_call_id,
             confidence=c.confidence,
             is_reviewed=c.is_reviewed,
             storage_uri=c.storage_uri,
@@ -306,6 +313,7 @@ async def create_clip(
         start_time=body.start_time,
         end_time=body.end_time,
         play_number=body.play_number,
+        play_call_id=body.play_call_id,
         label_data=body.label_data,
         confidence=body.confidence,
         storage_uri=body.storage_uri,
@@ -417,6 +425,8 @@ async def update_clip(
         )
     if body.play_number is not None:
         clip.play_number = body.play_number
+    if body.play_call_id is not None:
+        clip.play_call_id = body.play_call_id
     if body.label_data is not None:
         clip.label_data = body.label_data
     if body.is_reviewed is not None:

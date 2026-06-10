@@ -36,11 +36,13 @@ def _reset_routing(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
     monkeypatch.delenv("ENABLE_SAM3_NIGHTLY", raising=False)
     monkeypatch.delenv("ENABLE_BOTSORT_NIGHTLY", raising=False)
+    monkeypatch.delenv("ENABLE_DRONE_DISTILL_NIGHTLY", raising=False)
     model_router.reload_routing()
     yield
     monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
     monkeypatch.delenv("ENABLE_SAM3_NIGHTLY", raising=False)
     monkeypatch.delenv("ENABLE_BOTSORT_NIGHTLY", raising=False)
+    monkeypatch.delenv("ENABLE_DRONE_DISTILL_NIGHTLY", raising=False)
     model_router.reload_routing()
 
 
