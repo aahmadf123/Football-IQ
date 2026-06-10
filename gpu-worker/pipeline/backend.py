@@ -563,6 +563,7 @@ def _fetch_clips(
                 videos: list[dict[str, Any]] = videos_resp.json()
                 if not videos:
                     break
+
                 for video in videos:
                     vid = video.get("id")
                     if not vid:
@@ -578,6 +579,7 @@ def _fetch_clips(
                         clips.extend(batch[:remaining])
                     if len(clips) >= limit:
                         break
+
                 if len(videos) < video_page_limit:
                     break
                 video_offset += len(videos)

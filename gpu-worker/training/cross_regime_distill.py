@@ -266,7 +266,7 @@ def map50_proxy(
         )
     matched_total = 0
     gt_total = 0
-    for dets, gts in zip(detections_by_image, ground_truth_by_image, strict=True):
+    for dets, gts in zip(detections_by_image, ground_truth_by_image):
         gt_total += len(gts)
         used = [False] * len(gts)
         for det in dets:
