@@ -15,7 +15,8 @@ that is missing one regime, has duplicate regimes, or is mislabeled is skipped
 and logged — a paired play can never silently invert the two-regime design.
 
 This module is intentionally dependency-light (stdlib + structlog): it operates
-on clip-metadata dicts (as returned by ``GET /api/v1/clips`` /
+on clip-metadata dicts (as returned by
+``GET /api/v1/videos/{video_id}/clips`` /
 ``backend.fetch_clips_for_pairing``), never the DB or torch, mirroring the
 gpu-worker "consume payloads, don't hit the DB directly" convention.
 """
@@ -29,9 +30,13 @@ from typing import Any
 
 import structlog
 
-from pipeline.homography.regime_detector import DRONE_FOLLOW, FIXED_SIDELINE
-
 log = structlog.get_logger(__name__)
+
+# Regime string constants mirrored locally so this module stays truly
+# dependency-light (importing pipeline.homography.regime_detector would pull
+# in numpy at import time; these string literals never change independently).
+DRONE_FOLLOW = "drone_follow"
+FIXED_SIDELINE = "fixed_sideline"
 
 # Bump when the manifest record shape changes. Stamped into every manifest.
 SCHEMA_VERSION = 1

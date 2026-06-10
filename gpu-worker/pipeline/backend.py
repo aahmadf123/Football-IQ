@@ -521,14 +521,18 @@ def fetch_opponent_priors(opponent_team: str | None = None) -> list[dict[str, An
 # ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
 
 
-def fetch_clips_with_labels(
+def _fetch_clips(
     video_id: str | None = None,
     limit: int = 500,
-) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
-    """Fetch clips and their labels for self-scout analysis."""
-    if limit <= 0:
-        return [], {}
+) -> list[dict[str, Any]]:
+    """Fetch clip metadata without labels (clips-only, no per-clip label requests).
 
+    Shared by :func:`fetch_clips_with_labels` and
+    :func:`fetch_clips_for_pairing` so the latter can avoid the extra
+    ``/api/v1/labels`` round-trips it does not need.
+    """
+    if limit <= 0:
+        return []
     clips: list[dict[str, Any]] = []
     with _client() as c:
         if video_id:
@@ -559,7 +563,6 @@ def fetch_clips_with_labels(
                 videos: list[dict[str, Any]] = videos_resp.json()
                 if not videos:
                     break
-
                 for video in videos:
                     vid = video.get("id")
                     if not vid:
@@ -575,12 +578,22 @@ def fetch_clips_with_labels(
                         clips.extend(batch[:remaining])
                     if len(clips) >= limit:
                         break
-
                 if len(videos) < video_page_limit:
                     break
                 video_offset += len(videos)
+    return clips
 
-        labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+
+def fetch_clips_with_labels(
+    video_id: str | None = None,
+    limit: int = 500,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Fetch clips and their labels for self-scout analysis."""
+    if limit <= 0:
+        return [], {}
+    clips = _fetch_clips(video_id=video_id, limit=limit)
+    labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+    with _client() as c:
         for clip in clips:
             clip_id = clip.get("id", "")
             try:
@@ -589,7 +602,6 @@ def fetch_clips_with_labels(
                 labels_by_clip[clip_id] = labels_resp.json()
             except Exception:
                 labels_by_clip[clip_id] = []
-
     return clips, labels_by_clip
 
 
@@ -606,10 +618,13 @@ def fetch_clips_for_pairing(
     ``result_state``, ``is_reviewed``, ``confidence``, ``model_version_id``) that
     :func:`training.play_call_aligner.align_plays` groups into practice<->game
     pairs. Returns an empty list when the backend is disabled or the call fails.
+
+    Uses :func:`_fetch_clips` directly to avoid the per-clip label requests that
+    :func:`fetch_clips_with_labels` issues; label data is not needed for pairing.
     """
     if not BACKEND_API_URL:
         return []
-    clips, _ = fetch_clips_with_labels(video_id=video_id, limit=limit)
+    clips = _fetch_clips(video_id=video_id, limit=limit)
     return [c for c in clips if c.get("play_call_id")]
 
 
