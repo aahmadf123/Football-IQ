@@ -44,7 +44,8 @@ out before promoting them to `same_session`.
 
 The router maintains `NIGHTLY_ONLY_VARIANTS` (currently `{"sam3.1",
 "sam3-mask-tracker", "play-embed-clip-vitb32-baseline", "botsort",
-"strongsort", "parseq-ocr"}`). Any routing config — env override or
+"strongsort", "parseq-ocr", "yolov8m-drone-distilled"}`). Any routing config —
+env override or
 otherwise — that tries to place one of these in the same-session bucket
 is rejected at load time and the bucket falls back to the bundled
 default. This is the hard guardrail behind the "experimental models
@@ -177,6 +178,39 @@ SAM 3.1 overrides it. Same-session is never affected by either flag.
 BoT-SORT and StrongSORT must clear the Issue #129 acceptance benchmark
 (ID-switches < 5/play, IDF1 > 75, same-session VRAM < 6 GB) before either is
 promoted to a same-session default; until then they stay nightly-only.
+
+## Regime-gated: distilled DRONE_FOLLOW student (Issue #150)
+
+`yolov8m-drone-distilled` is the cross-regime self-distilled `detect` student:
+the nightly trainer (`gpu-worker/training/cross_regime_distill.py`) distills the
+high-quality FIXED_SIDELINE game pipeline (teacher) into the harder
+`drone_follow` practice regime (student). See
+[`docs/cross-regime-distillation.md`](cross-regime-distillation.md).
+
+Unlike the SAM 3.1 / BoT-SORT nightly swaps, this variant is **not** a
+routing-table swap, because it is **regime-specific** — handing a `fixed_sideline`
+clip a drone-tuned detector would degrade game detection and violate the
+two-regime design. Instead the router exposes a regime-aware resolver:
+
+```python
+model_router.select_detect_variant(priority, capture_regime)
+```
+
+It returns `yolov8m-drone-distilled` **only** when the job is nightly **and**
+`capture_regime == "drone_follow"` **and** `ENABLE_DRONE_DISTILL_NIGHTLY=1`;
+otherwise it delegates to `select_model("detect", priority)`. The detect
+dispatch in `gpu-worker/__main__.py` calls this resolver, so the per-job
+`output_artifacts["model_routing"]["detect"]` records the variant that actually
+ran. `select_model`'s signature is unchanged.
+
+| Stage | Same-session | Nightly `fixed_sideline` | Nightly `drone_follow` + `ENABLE_DRONE_DISTILL_NIGHTLY=1` |
+|---|---|---|---|
+| `detect` | `yolov8n` | `yolov8m` | `yolov8m-drone-distilled` |
+
+The variant is on `NIGHTLY_ONLY_VARIANTS` (never same-session) and the flag is
+off by default: the distilled student must clear a **≥ 5 pp drone-follow
+detection mAP gain** over baseline and be promoted past `experimental` in the
+MLOps registry before it is trusted.
 
 ## Re-ID upgrade: PARSeq + trajectory prior + min-cost flow (Issue #131)
 

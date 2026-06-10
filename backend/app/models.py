@@ -409,6 +409,14 @@ class Clip(Base):
     start_time: Mapped[float] = mapped_column(Float, nullable=False)  # seconds
     end_time: Mapped[float] = mapped_column(Float, nullable=False)  # seconds
     play_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ── Cross-regime pairing (Issue #150) ─────────────────────────────────────
+    # Coach-tagged play-call code shared verbatim between the practice
+    # (``drone_follow``) clip and the game (``fixed_sideline``) clip of the same
+    # play. Two clips form a "paired play" when they carry the same non-null
+    # ``play_call_id``; the cross-regime self-distillation trainer aligns the
+    # game pseudo-labels onto the practice clip via this key. Indexed because the
+    # aligner groups clips by it.
+    play_call_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     label_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

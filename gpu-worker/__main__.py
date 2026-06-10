@@ -204,8 +204,15 @@ def process_job(job: dict[str, Any]) -> None:
                 priority,
             )
         artifacts = dict(artifacts or {})
+        # ``build_routing_artifact`` is a priority-only fallback so every job
+        # records a variant. A stage that already recorded its own routing wins —
+        # e.g. the detect stage records the regime-aware variant actually used
+        # (the distilled DRONE_FOLLOW student, Issue #150), which the regime-blind
+        # fallback would otherwise clobber. So fill missing keys, never overwrite.
         routing = model_router.build_routing_artifact(job_type, priority)
-        artifacts.setdefault("model_routing", {}).update(routing)
+        stage_routing = artifacts.setdefault("model_routing", {})
+        for _stage, _variant in routing.items():
+            stage_routing.setdefault(_stage, _variant)
         if is_same_session:
             artifacts["pipeline_mode"] = "same_session"
         _update_job_status(job_id, "succeeded", output_artifacts=artifacts)
@@ -285,8 +292,10 @@ def _dispatch(
         )
 
     elif job_type == "detect":
-        detect_variant = model_router.select_model("detect", priority)
         capture_regime = input_artifacts.get("capture_regime")
+        # Regime-aware: nightly drone_follow jobs may route to the distilled
+        # student (Issue #150); everything else falls back to the priority table.
+        detect_variant = model_router.select_detect_variant(priority, capture_regime)
         return stage_detect.run(
             video_id,
             input_uri,
