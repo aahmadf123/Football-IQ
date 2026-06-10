@@ -72,7 +72,7 @@ deep link cannot bypass it:
   *restricted* notice instead of the surface when the role is not approved. The
   dashboard "Workload & Health" teaser follows the same gate.
 
-Client-side role is resolved by `src/lib/roles.ts` (`resolveCurrentRole`):
+Client-side role is resolved by `frontend/src/lib/roles.ts` (`resolveCurrentRole`):
 
 1. the JWT `role` claim when signed in (re-verified by the backend on every
    request — the client gate is *display only*, never a security boundary);
@@ -115,7 +115,7 @@ diagnosis, injury-risk, or return-to-play claims.
 * Surface raw athlete health values without an approved role and audit trail.
 
 The disclaimer string lives once in `app/health_workload.py` (backend) and
-`src/lib/health-workload.ts` (frontend) and is shown verbatim.
+`frontend/src/lib/health-workload.ts` (frontend) and is shown verbatim.
 
 ## 4. Placeholder integration contracts
 
@@ -136,8 +136,8 @@ Wellness data is **self-reported context**, never a clinical assessment.
 * Backend — `backend/tests/test_health_workload_surface.py`: RBAC gate
   (approved vs. denied roles), policy-safe payload (no PII), and the three
   contracts all starting `not_connected`.
-* Frontend — `src/app/health-workload/health-workload.test.tsx` and
-  `src/lib/roles.test.ts`: nav + page gating per role and the role-resolution
+* Frontend — `frontend/src/app/health-workload/health-workload.test.tsx` and
+  `frontend/src/lib/roles.test.ts`: nav + page gating per role and the role-resolution
   helpers.
 
 When real endpoints land, add authorization tests for each per-athlete read
