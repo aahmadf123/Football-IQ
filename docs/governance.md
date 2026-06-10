@@ -142,12 +142,28 @@ The gating dependency is intentionally cheap and reusable — apply it to
 additional heavy endpoints (embedding rebuilds, video re-renders, bulk
 exports) as those land.
 
-### Health/workload status surface
+### System workload status surface
 
-`GET /api/v1/health/workload` returns the current snapshot for operators.
-It is restricted to the `health_workload:read` policy (admin / analyst /
-sports-performance) and contains aggregate counters only — no per-player or
-per-job identifiers.
+`GET /api/v1/health/workload` returns the current GPU-queue snapshot for
+operators.  It is restricted to the `health_workload:read` policy (admin /
+analyst / sports-performance) and contains aggregate counters only — no
+per-player or per-job identifiers.
+
+> This is *system capacity*, not athlete health data.  The athlete
+> health/workload product surface (wellness, GPS/wearables, S&C) is a separate
+> concern — see [`health-workload-surface.md`](health-workload-surface.md).
+
+### Athlete health/workload surface (Issue #113)
+
+`GET /api/v1/health-workload/surface` is the role-gated, audit-logged
+groundwork for the athlete health/workload product surface.  It is gated by the
+same `health_workload:read` policy and returns **no athlete data** — only the
+placeholder integration contracts (wellness, GPS/wearables, S&C, all
+`not_connected`), the approved-role list, and a non-medical disclaimer.  The UI
+is hidden for non-approved roles in both the navigation and the page itself.
+The full contract — RBAC, audit events, policy-safe copy rules, and the
+integration contracts — lives in
+[`health-workload-surface.md`](health-workload-surface.md).
 
 ## 5. Audit logging
 
@@ -168,6 +184,7 @@ Events to expect:
 * `audit.gating.allowed`
 * `audit.gating.rejected`
 * `audit.health_workload.read`
+* `audit.health_workload.surface.read`
 * `audit.profile.read`
 * `audit.profile.upserted`
 * `audit.profile.snapshot_created`

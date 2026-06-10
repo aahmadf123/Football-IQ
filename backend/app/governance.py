@@ -535,6 +535,9 @@ _AUDIT_ALLOWED_KEYS: frozenset[str] = frozenset(
         "queue_threshold",
         "endpoint",
         "decision",
+        # Athlete health/workload surface (Issue #113) — a coarse surface label
+        # only (e.g. "status"); never athlete metrics, names, or other PII.
+        "surface",
         # Player development passport (Issue #7) — identifiers/enums only,
         # never profile content, metrics, or notes.
         "season",
