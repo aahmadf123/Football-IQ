@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from collections.abc import Sequence
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, status
@@ -115,11 +115,27 @@ class InjuryHistoryRow(BaseModel):
     source: str = Field(default="manual_csv", max_length=50)
 
 
-RowT = TypeVar("RowT", bound=BaseModel)
+# One concrete batch model per source (rather than a generic) so the module
+# stays importable on Python 3.11 while satisfying ruff's PEP 695 preference
+# on 3.12 — there is no shared generic to modernize.
+class WellnessBatch(BaseModel):
+    rows: list[WellnessRow] = Field(..., max_length=_MAX_ROWS)
 
 
-class _Batch(BaseModel, Generic[RowT]):
-    rows: list[RowT] = Field(..., max_length=_MAX_ROWS)
+class GpsBatch(BaseModel):
+    rows: list[GpsRow] = Field(..., max_length=_MAX_ROWS)
+
+
+class StrengthBatch(BaseModel):
+    rows: list[StrengthRow] = Field(..., max_length=_MAX_ROWS)
+
+
+class AcademicBatch(BaseModel):
+    rows: list[AcademicRow] = Field(..., max_length=_MAX_ROWS)
+
+
+class InjuryHistoryBatch(BaseModel):
+    rows: list[InjuryHistoryRow] = Field(..., max_length=_MAX_ROWS)
 
 
 # ── Upsert helpers ────────────────────────────────────────────────────────────
@@ -166,7 +182,7 @@ def _audit_ingest(user: User, source: str, count: int) -> None:
 
 @router.post("/wellness", status_code=status.HTTP_201_CREATED)
 async def ingest_wellness(
-    body: _Batch[WellnessRow],
+    body: WellnessBatch,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
@@ -178,7 +194,7 @@ async def ingest_wellness(
 
 @router.post("/gps", status_code=status.HTTP_201_CREATED)
 async def ingest_gps(
-    body: _Batch[GpsRow],
+    body: GpsBatch,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
@@ -192,7 +208,7 @@ async def ingest_gps(
 
 @router.post("/strength", status_code=status.HTTP_201_CREATED)
 async def ingest_strength(
-    body: _Batch[StrengthRow],
+    body: StrengthBatch,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
@@ -204,7 +220,7 @@ async def ingest_strength(
 
 @router.post("/academic", status_code=status.HTTP_201_CREATED)
 async def ingest_academic(
-    body: _Batch[AcademicRow],
+    body: AcademicBatch,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
@@ -216,7 +232,7 @@ async def ingest_academic(
 
 @router.post("/injury-history", status_code=status.HTTP_201_CREATED)
 async def ingest_injury_history(
-    body: _Batch[InjuryHistoryRow],
+    body: InjuryHistoryBatch,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
