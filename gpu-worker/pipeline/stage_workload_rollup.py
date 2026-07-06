@@ -30,6 +30,7 @@ import structlog
 
 from alerts import workload_risk_alert
 from pipeline import backend, model_router
+from pipeline.metrics.effort_zscore import LOW_IDENTITY_CONFIDENCE
 from pipeline.metrics.workload_fusion import compute_acwr, compute_injury_risk
 
 log = structlog.get_logger(__name__)
@@ -67,9 +68,21 @@ def run(date: str, job_id: str, *, priority: int = 0) -> dict[str, Any]:
             if day == as_of:
                 today_by_player[player_id] = entry
 
-    # ── 2 + 3. Compute and upsert rows for players with data today ──────────
+    # ── 2 + 3. Compute and upsert rows for identity-confident players ──────────
     rows: list[dict[str, Any]] = []
     for player_id, today in today_by_player.items():
+        # Skip rows that lack sufficient identity confidence — the backend
+        # re-checks at ingest, but we filter early to avoid posting rows that
+        # would be rejected, and to ensure alerts are only fired for rows that
+        # will actually be persisted.
+        conf = today.get("confidence")
+        if conf is None or float(conf) < LOW_IDENTITY_CONFIDENCE:
+            log.debug(
+                "workload_rollup_skipped_low_confidence",
+                player_id=player_id,
+                confidence=conf,
+            )
+            continue
         acwr_result = compute_acwr(daily_loads_by_player.get(player_id, {}), as_of)
         asymmetry = today.get("asymmetry_index")
         risk = compute_injury_risk(acwr_result["acwr"], asymmetry)
@@ -89,7 +102,7 @@ def run(date: str, job_id: str, *, priority: int = 0) -> dict[str, Any]:
                 "risk_reason_codes": reason_codes,
                 "clip_count": today.get("clip_count") or 0,
                 "attribution": "player",
-                "confidence": today.get("confidence"),
+                "confidence": conf,
                 "model_variant": variant,
                 # Not persisted — used by the alert builder below.
                 "position_group": today.get("position_group"),
@@ -97,17 +110,23 @@ def run(date: str, job_id: str, *, priority: int = 0) -> dict[str, Any]:
         )
 
     upserted = 0
+    upsert_ok = False
     if rows:
         try:
             upserted = backend.upsert_workload_daily(
                 [{k: v for k, v in row.items() if k != "position_group"} for row in rows]
             )
+            upsert_ok = True
         except Exception as exc:
             log.warning("workload_rollup_upsert_failed", error=str(exc))
 
     # ── 4. Threshold alerts (sports-performance only) ────────────────────────
-    alert_payloads = workload_risk_alert.run(rows)
-    alerts_created = backend.create_alerts(alert_payloads) if alert_payloads else 0
+    # Only fire alerts when the upsert succeeded — alerts must only reference
+    # rows that were actually persisted.
+    alerts_created = 0
+    if upsert_ok and rows:
+        alert_payloads = workload_risk_alert.run(rows)
+        alerts_created = backend.create_alerts(alert_payloads) if alert_payloads else 0
 
     log.info(
         "stage_workload_rollup_done",

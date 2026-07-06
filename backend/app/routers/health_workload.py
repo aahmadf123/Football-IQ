@@ -128,7 +128,21 @@ async def injury_risk(
     and viewers are denied by the ``health_workload`` policy. Every value is
     an experimental sports-performance indicator, never a diagnosis.
     """
-    as_of = date or datetime.date.today()
+    if date is None:
+        # Use the most recently persisted rollup day rather than today, so the
+        # default response is non-empty even before the current day's nightly
+        # rollup has run.
+        max_date_q = select(func.max(PlayerWorkloadDaily.date))
+        if position_group:
+            max_date_q = (
+                select(func.max(PlayerWorkloadDaily.date))
+                .join(Player, PlayerWorkloadDaily.player_id == Player.id)
+                .where(func.upper(Player.position_group) == position_group.upper())
+            )
+        max_date_result = await db.execute(max_date_q)
+        as_of = max_date_result.scalar_one_or_none() or datetime.date.today()
+    else:
+        as_of = date
     since = as_of - datetime.timedelta(days=days - 1)
 
     q = (
@@ -204,6 +218,7 @@ async def daily_loads(
     q = select(Metric).where(
         Metric.metric_name == "workload_fusion",
         func.date(Metric.created_at) == date,
+        Metric.is_suppressed.is_(False),
     )
     result = await db.execute(q)
     metrics = list(result.scalars().all())
@@ -223,7 +238,8 @@ async def daily_loads(
                 "sprint_count": 0,
                 "max_speed_yps": None,
                 "asymmetry_values": [],
-                "confidence_values": [],
+                "asymmetry_weights": [],
+                "all_confidences": [],
                 "clip_count": 0,
             },
         )
@@ -235,18 +251,29 @@ async def daily_loads(
         if speed is not None:
             entry["max_speed_yps"] = max(entry["max_speed_yps"] or 0.0, float(speed))
         asym = m.asymmetry_index if m.asymmetry_index is not None else value.get("asymmetry_index")
-        conf = m.confidence if m.confidence is not None else value.get("confidence")
+        # Prefer identity_confidence from the metric payload (the CV pipeline
+        # emits it explicitly); fall back to the top-level confidence column.
+        raw_conf = value.get("identity_confidence") or (
+            m.confidence if m.confidence is not None else value.get("confidence")
+        )
         if asym is not None:
             entry["asymmetry_values"].append(float(asym))
-            entry["confidence_values"].append(float(conf) if conf is not None else 0.5)
+            # Keep asymmetry weights aligned with asymmetry_values for the
+            # weighted mean; default to 0.5 when the clip has no confidence.
+            entry["asymmetry_weights"].append(float(raw_conf) if raw_conf is not None else 0.5)
+        if raw_conf is not None:
+            # Collect confidence from every clip so the daily rollup confidence
+            # reflects all workload_fusion clips, not just those with asymmetry.
+            entry["all_confidences"].append(float(raw_conf))
         entry["clip_count"] += 1
 
     players = []
     for entry in by_player.values():
         asyms = entry.pop("asymmetry_values")
-        confs = entry.pop("confidence_values")
-        entry["asymmetry_index"] = _weighted_mean(asyms, confs)
-        entry["confidence"] = round(statistics.mean(confs), 3) if confs else None
+        asym_weights = entry.pop("asymmetry_weights")
+        all_confs = entry.pop("all_confidences")
+        entry["asymmetry_index"] = _weighted_mean(asyms, asym_weights)
+        entry["confidence"] = round(statistics.mean(all_confs), 3) if all_confs else None
         entry["daily_load"] = round(entry["daily_load"], 2)
         players.append(entry)
 

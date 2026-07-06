@@ -59,6 +59,13 @@ REVIEW_CANDIDATE_METRIC_NAMES: frozenset[str] = frozenset(
     {"effort_review_candidate", "pose_body_orientation_proxy", "workload_fusion"}
 )
 
+# Metrics that belong exclusively to the health-workload RBAC surface and must
+# be accessed via /api/v1/health-workload/* endpoints.  The generic GET
+# /metrics read path does not enforce the health-workload policy, so these
+# names are excluded from it entirely to prevent bypassing the sports-
+# performance-only gate added in Issue #149.
+HEALTH_WORKLOAD_ONLY_METRIC_NAMES: frozenset[str] = frozenset({"workload_fusion"})
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
@@ -274,6 +281,10 @@ async def list_metrics(
     """
     q = select(Metric).order_by(Metric.created_at.desc()).limit(limit).offset(offset)
 
+    # Health-workload metrics are only accessible via the /health-workload
+    # surface which enforces full RBAC; exclude them from this endpoint.
+    q = q.where(~Metric.metric_name.in_(HEALTH_WORKLOAD_ONLY_METRIC_NAMES))
+
     if clip_id is not None:
         q = q.where(Metric.clip_id == clip_id)
     if tracklet_id is not None:
@@ -305,6 +316,11 @@ async def get_metric(
     result = await db.execute(select(Metric).where(Metric.id == metric_id))
     metric = result.scalar_one_or_none()
     if metric is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
+
+    # Health-workload metrics must be accessed via /health-workload/* with full
+    # RBAC; return 404 (existence never leaks) to prevent policy bypass.
+    if metric.metric_name in HEALTH_WORKLOAD_ONLY_METRIC_NAMES:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
 
     # Players must never see experimental metrics
