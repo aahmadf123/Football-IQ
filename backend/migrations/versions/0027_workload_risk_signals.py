@@ -46,9 +46,7 @@ def upgrade() -> None:
         sa.Column("injury_risk_score", sa.Float(), nullable=True),
         sa.Column("risk_reason_codes", sa.JSON(), nullable=True),
         sa.Column("clip_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column(
-            "attribution", sa.String(length=20), nullable=False, server_default="player"
-        ),
+        sa.Column("attribution", sa.String(length=20), nullable=False, server_default="player"),
         sa.Column("confidence", sa.Float(), nullable=True),
         sa.Column("model_variant", sa.String(length=50), nullable=True),
         sa.Column(

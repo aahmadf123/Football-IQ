@@ -32,6 +32,13 @@ queue = "video-processing-jobs"
 binding = "NIGHTLY_TRAINING_QUEUE"
 queue = "nightly-training-exports"
 
+# ── Scheduled triggers ────────────────────────────────────────────────────────
+# 08:00 UTC nightly: enqueue the per-player workload rollup (Issue #149).
+# The scheduled() handler in src/index.ts sends a workload_rollup job for
+# yesterday's date onto the nightly video-processing queue.
+[triggers]
+crons = ["0 8 * * *"]
+
 # ── Secrets (set via `wrangler secret put <NAME>`) ────────────────────────────
 # JWT_SECRET
 # DATABASE_URL

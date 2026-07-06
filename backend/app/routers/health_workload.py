@@ -218,6 +218,7 @@ async def daily_loads(
             player_id,
             {
                 "player_id": player_id,
+                "position_group": None,
                 "daily_load": 0.0,
                 "sprint_count": 0,
                 "max_speed_yps": None,
@@ -226,6 +227,8 @@ async def daily_loads(
                 "clip_count": 0,
             },
         )
+        if entry["position_group"] is None and value.get("position_group"):
+            entry["position_group"] = str(value["position_group"]).upper()
         entry["daily_load"] += float(value.get("distance_yards") or 0.0)
         entry["sprint_count"] += int(m.sprint_count or value.get("sprint_count") or 0)
         speed = value.get("max_speed_yps")

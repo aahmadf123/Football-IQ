@@ -1,8 +1,12 @@
-# Health & Workload surface (Issue #113)
+# Health & Workload surface (Issues #113 + #149)
 
-Status: groundwork. The surface is **role-gated, audit-logged, and policy-safe**,
-but **no athlete health or workload data is surfaced yet** — every upstream
-source is a documented contract in `not_connected` state.
+Status: groundwork + CV workload-risk signals. The surface is **role-gated,
+audit-logged, and policy-safe**. Upstream wellness/GPS/S&C sources remain
+documented contracts in `not_connected` state, and Issue #149 added the first
+real data: **experimental CV workload-risk signals** (acute:chronic workload
+ratio, pose-based gait asymmetry, and a deterministic heuristic risk score)
+computed by a nightly rollup — sports-performance indicators for staff review,
+never a diagnosis.
 
 This document is the contract for the athlete health/workload product surface:
 who may see it, what the UI may say, what it audits, and the placeholder
@@ -61,6 +65,57 @@ list, the placeholder integration contracts, and the disclaimer:
 Source of truth: `app/health_workload.py` (contracts + `build_surface_status`)
 and `app/routers/health_workload.py` (the gated route).
 
+### Workload-risk endpoints (Issue #149)
+
+All under the same `health_workload` policy; the injury-risk view additionally
+splits player-level access inside the approved set:
+
+| Endpoint | Gate | Purpose |
+|----------|------|---------|
+| `GET /api/v1/health-workload/injury-risk` | `require_policy(HEALTH_WORKLOAD, READ)`; **player-level rows only for `admin` + `sportsperformance`** — `analyst` receives position-group aggregates with no player ids/names | Nightly per-player ACWR, gait asymmetry index, heuristic risk score, sprint count, trend series |
+| `GET /api/v1/health-workload/daily-loads` | `require_analyst_or_above` (worker read path) | Per-player daily CV load aggregation consumed by the nightly rollup; player-attributed rows only |
+| `POST /api/v1/health-workload/daily` | `require_analyst_or_above` (worker write path) | Bulk upsert of `player_workload_daily` rows; **rejects player-attributed rows with identity confidence < 0.70** |
+
+Identity gating: the gpu-worker anonymizes tracklets below the 0.70
+identity-confidence floor (`attribution="anonymous_track"`, `player_id=null`),
+so low-confidence workload never becomes a named-player row — and the ingest
+endpoint re-checks the floor as defense in depth.
+
+> **Placement note.** Issue #149's original file list named
+> `backend/app/routers/health.py`, which predates the system-vs-athlete split
+> documented above. The athlete injury-risk endpoint deliberately lives here,
+> in `health_workload.py`, with the rest of the athlete surface.
+
+### Nightly rollup + alerts
+
+A Cloudflare cron trigger (`workers/wrangler.toml` `[triggers]`, 08:00 UTC)
+enqueues a `workload_rollup` job on the nightly queue. The gpu-worker stage
+(`pipeline/stage_workload_rollup.py`) recomputes each player's trailing 28-day
+daily loads from persisted `workload_fusion` metrics, computes
+`ACWR = mean(7-day load) / mean(28-day load)` and the
+`acwr-asym-heuristic-v1` risk score (`pipeline/metrics/workload_fusion.py`,
+routed via the model registry per #73), upserts `player_workload_daily`, and
+fires `workload_risk` alerts when **ACWR > 1.5 or asymmetry index > 1.3**.
+
+**Alert visibility matrix for `workload_risk` (stricter than other types):**
+
+| Role | list | get/ack/action | SSE |
+|------|------|----------------|-----|
+| `admin`, `sportsperformance` | ✅ | ✅ | ✅ |
+| `analyst`, `coach` | filtered out | `404` (existence never leaks) | never fanned |
+| `player`, `viewer` | ❌ (all alerts) | ❌ | ❌ |
+
+Enforced in `app/routers/alerts_sse.py` (`RESTRICTED_ALERT_TYPES`,
+`alert_type_visible_to`) and `app/routers/alerts.py`.
+
+### Validation
+
+The Issue #149 correlation criterion (asymmetry index vs athletic-trainer
+reports, >0.4 Pearson on a 30-player sample) runs against **real Toledo
+footage** on staff machines — see
+[`asymmetry-validation-runbook.md`](asymmetry-validation-runbook.md) and
+`gpu-worker/scripts/validate_asymmetry_correlation.py`.
+
 ### Frontend gating
 
 The UI is **hidden unless the role is approved**, enforced in two places so a
@@ -93,6 +148,9 @@ metrics, names, or other PII (the emitter hard-limits its allow-listed keys).
 | Event                                   | When |
 |-----------------------------------------|------|
 | `audit.health_workload.surface.read`    | A `GET /surface` succeeds for an approved role. |
+| `audit.health_workload.injury_risk.read` | A `GET /injury-risk` succeeds (carries `surface`, `date`, `count` — never values). |
+| `audit.health_workload.daily_loads.read` | The rollup input aggregation is read. |
+| `audit.health_workload.daily.write`     | Nightly rollup rows are upserted (carries `count` only). |
 | `audit.access.denied`                   | A non-approved role is rejected by `require_policy`. |
 
 When real data feeds land, each athlete-data read must emit its own
@@ -108,10 +166,17 @@ diagnosis, injury-risk, or return-to-play claims.
 * "Supports staff judgement; it does not replace it."
 * Mark illustrative/sample values with the mock badge.
 * Show the disclaimer (`HEALTH_WORKLOAD_DISCLAIMER`) on the surface.
+* Frame CV workload signals as "experimental sports-performance indicators"
+  and attach `WORKLOAD_RISK_CAVEAT` to every risk value shown
+  ("…not a diagnosis and not a medical prediction of injury").
 
 **Don't**
-* "Injury risk", "readiness score", "return-to-play", "diagnosis", "medical".
-* Imply prediction of injury or a clinical assessment.
+* "Readiness score", "return-to-play", "diagnosis", "medical".
+* Present the workload-risk score as a *prediction* of injury or a clinical
+  assessment — it is a review flag over training-load context. The phrase
+  "injury risk" appears in UI copy **only** inside the experimental,
+  sports-performance-staff-only carve-out with the caveat attached; it is
+  never shown to coaches, players, or viewers.
 * Surface raw athlete health values without an approved role and audit trail.
 
 The disclaimer string lives once in `app/health_workload.py` (backend) and
@@ -136,10 +201,14 @@ Wellness data is **self-reported context**, never a clinical assessment.
 * Backend — `backend/tests/test_health_workload_surface.py`: RBAC gate
   (approved vs. denied roles), policy-safe payload (no PII), and the three
   contracts all starting `not_connected`.
+* Backend — `backend/tests/test_health_workload_risk.py`: the injury-risk role
+  matrix (player-level vs aggregates vs denied), non-diagnostic copy, audit
+  events, and the identity-confidence ingest gate.
+  `backend/tests/test_alerts.py` / `test_alerts_sse.py`: the `workload_risk`
+  visibility matrix.
+* gpu-worker — `tests/test_workload_fusion.py`, `test_gait_asymmetry.py`,
+  `test_stage_workload_rollup.py`, `test_workload_risk_alert.py`,
+  `test_validate_asymmetry_correlation.py`.
 * Frontend — `frontend/src/app/health-workload/health-workload.test.tsx` and
-  `frontend/src/lib/roles.test.ts`: nav + page gating per role and the role-resolution
-  helpers.
-
-When real endpoints land, add authorization tests for each per-athlete read
-(acceptance criterion: "Tests cover authorization behavior once endpoints
-exist").
+  `frontend/src/lib/roles.test.ts`: nav + page gating per role, the
+  workload-risk panel per role, and the role-resolution helpers.

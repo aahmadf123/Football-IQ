@@ -30,6 +30,16 @@ export function canAccessHealthWorkload(role: UserRole | null | undefined): bool
   return role != null && HEALTH_WORKLOAD_ROLES.includes(role);
 }
 
+// Roles approved to see PLAYER-LEVEL workload risk (Issue #149): the
+// sports-performance ("athletic training") track plus admins. Analysts keep
+// surface access but only see position-group aggregates — mirrors the
+// backend's PLAYER_LEVEL_RISK_ROLES in app/routers/health_workload.py.
+export const PLAYER_LEVEL_RISK_ROLES: readonly UserRole[] = ["admin", "sportsperformance"];
+
+export function canSeePlayerLevelRisk(role: UserRole | null | undefined): boolean {
+  return role != null && PLAYER_LEVEL_RISK_ROLES.includes(role);
+}
+
 // Decode the `role` claim from a JWT access token *without* verifying the
 // signature. The browser never trusts this for authorization; it only uses it
 // to decide what to render. Returns null for an absent or malformed token.

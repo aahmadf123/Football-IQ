@@ -46,9 +46,7 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts-sse"])
 # must not reach coaching staff without sports-performance mediation. Defined
 # here (not in the REST router) because the REST router imports this module.
 RESTRICTED_ALERT_TYPES: frozenset[AlertType] = frozenset({AlertType.workload_risk})
-WORKLOAD_ALERT_ROLES: frozenset[UserRole] = frozenset(
-    {UserRole.admin, UserRole.sportsperformance}
-)
+WORKLOAD_ALERT_ROLES: frozenset[UserRole] = frozenset({UserRole.admin, UserRole.sportsperformance})
 
 
 def alert_type_visible_to(role: UserRole, alert_type: AlertType) -> bool:

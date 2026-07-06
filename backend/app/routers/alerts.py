@@ -40,7 +40,6 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 
-
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 

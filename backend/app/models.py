@@ -1481,9 +1481,7 @@ class PlayerWorkloadDaily(Base):
 
     player: Mapped["Player"] = relationship("Player")
 
-    __table_args__ = (
-        UniqueConstraint("player_id", "date", name="player_workload_daily_unique"),
-    )
+    __table_args__ = (UniqueConstraint("player_id", "date", name="player_workload_daily_unique"),)
 
 
 # ── Settings (Issue #112) ─────────────────────────────────────────────────────

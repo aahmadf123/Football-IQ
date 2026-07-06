@@ -84,3 +84,36 @@ describe("Health & Workload surface gating", () => {
     expect(screen.queryByTestId("health-workload-surface")).toBeNull();
   });
 });
+
+describe("Workload risk signals panel (Issue #149)", () => {
+  test("renders with the non-diagnostic caveat for sportsperformance", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "sportsperformance");
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("health-workload-risk")).toBeTruthy();
+    });
+    const caveat = screen.getByTestId("workload-risk-caveat");
+    expect(caveat.textContent).toContain("not a diagnosis");
+    expect(caveat.textContent).toContain("Experimental");
+  });
+
+  test("renders for analyst (aggregate-only role) without player-level table", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "analyst");
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("health-workload-risk")).toBeTruthy();
+    });
+    // No auth token in this test setup → panel is idle; the player-level
+    // table must never render for analyst regardless of state.
+    expect(screen.queryByTestId("workload-risk-table")).toBeNull();
+  });
+
+  test("panel is absent entirely for gated roles", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "coach");
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("health-workload-restricted")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("health-workload-risk")).toBeNull();
+  });
+});
