@@ -375,8 +375,28 @@ def _dispatch(
         analytics_safe: bool = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
         return stage_metrics.run(
-            clip_id, tracklets, events_list, analytics_safe, fps, job_id
+            clip_id,
+            tracklets,
+            events_list,
+            analytics_safe,
+            fps,
+            job_id,
+            pose_metrics=input_artifacts.get("pose_metrics"),
         )
+
+    elif job_type == "workload_rollup":
+        # Nightly per-player workload rollup (Issue #149). Dispatched by the
+        # Cloudflare cron trigger; reads its inputs from the backend API, so
+        # there is no input_uri. Defaults to yesterday (UTC) when the cron
+        # payload somehow lacks a date.
+        from datetime import UTC, datetime, timedelta
+
+        from pipeline import stage_workload_rollup
+
+        rollup_date = input_artifacts.get("date") or (
+            datetime.now(UTC).date() - timedelta(days=1)
+        ).isoformat()
+        return stage_workload_rollup.run(rollup_date, job_id, priority=priority)
 
     elif job_type == "routes":
         tracklets = input_artifacts.get("tracklets", [])

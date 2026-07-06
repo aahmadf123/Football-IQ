@@ -188,6 +188,28 @@ export default {
 
     return withCors(json({ error: "Not found" }, 404), cors);
   },
+
+  /**
+   * Nightly cron (see wrangler.toml [triggers]): enqueue the per-player
+   * workload rollup for yesterday (Issue #149). Goes straight onto the
+   * nightly video-processing queue — no inputUri: the rollup job reads its
+   * inputs from the backend API, not from R2. The REST /api/v1/jobs
+   * inputUri requirement applies only to the HTTP path.
+   */
+  async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const scheduledAt = new Date(controller.scheduledTime);
+    const yesterday = new Date(controller.scheduledTime - 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    await env.VIDEO_PROCESSING_QUEUE.send({
+      jobId: crypto.randomUUID(),
+      jobType: "workload_rollup",
+      priority: 0,
+      pipelineMode: "nightly",
+      inputArtifacts: { date: yesterday },
+      submittedAt: scheduledAt.toISOString(),
+    });
+  },
 };
 
 // ── Stream handler ────────────────────────────────────────────────────────────

@@ -186,6 +186,10 @@ class AlertType(enum.StrEnum):
     # coaching-actionable (season tendency), or an in-game pattern break where
     # the current game diverges sharply from the season baseline.
     formation_tendency = "formation_tendency"
+    # Workload-risk alerts (Issue #149): ACWR > 1.5 or gait asymmetry > 1.3.
+    # Sports-performance staff only — never surfaced to coaches, players, or
+    # viewers (see RESTRICTED_ALERT_TYPES in the alerts router).
+    workload_risk = "workload_risk"
 
 
 class AlertSeverity(enum.StrEnum):
@@ -857,6 +861,12 @@ class Metric(Base):
     # in metric_value.
     effort_zscore: Mapped[float | None] = mapped_column(Float, nullable=True)
     loaf_flag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Workload-fusion scalar fields from Issue #149. Like the effort fields
+    # above these duplicate metric_value keys for indexed/queryable access;
+    # they are experimental sports-performance signals, never a diagnosis.
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    asymmetry_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # URI to the evidence artifact (e.g. annotated frame, track overlay)
     evidence_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full version lineage for every metric
@@ -1329,6 +1339,11 @@ class PlayerProfile(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Per-player overrides of the canonical health-context field→tier mapping
+    # (Issue #9): {"field_or_category": "workload" | "rehab" | "medical"}.
+    # Overrides may only ESCALATE a field to a stricter tier — they can never
+    # widen access (enforced by app.governance.effective_field_tier).
+    restricted_context_flags: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1422,6 +1437,217 @@ class PlayerProfileSnapshot(Base):
     )
 
     profile: Mapped["PlayerProfile"] = relationship("PlayerProfile", back_populates="snapshots")
+
+
+# ── Player workload rollups (Issue #149) ─────────────────────────────────────
+
+
+class PlayerWorkloadDaily(Base):
+    """Nightly per-player workload rollup for the health/workload surface.
+
+    One row per (player, day), written by the nightly ``workload_rollup``
+    job: summed CV daily load, sprint count, max speed, confidence-weighted
+    gait asymmetry, the trailing 7d/28d acute:chronic workload ratio, and the
+    experimental heuristic risk score. Rows are only ever written for
+    identity-confident tracklets (>= 0.70); low-confidence contributions stay
+    per-clip as anonymous-track metric rows and never roll into a named
+    player-day. All values are experimental sports-performance indicators —
+    never a diagnosis — and are read exclusively through the RBAC-gated,
+    audit-logged ``/api/v1/health-workload/*`` endpoints.
+    """
+
+    __tablename__ = "player_workload_daily"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    # Summed CV distance_traveled (yards) across the day's clips.
+    daily_load: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_speed_yps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    asymmetry_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acute_load_7d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chronic_load_28d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acwr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    clip_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    attribution: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="player", server_default="player"
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Model-router variant that produced the risk score (#73 audit trail).
+    model_variant: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    player: Mapped["Player"] = relationship("Player")
+
+    __table_args__ = (UniqueConstraint("player_id", "date", name="player_workload_daily_unique"),)
+
+
+# ── Health data-fusion tables (Issue #9) ─────────────────────────────────────
+# UT-source joins for the athlete health/workload dashboard. All reads go
+# through the RBAC-gated, audit-logged /api/v1/health-workload/* endpoints;
+# writes go through the sportsperformance-gated ingest endpoints. Data is
+# sports-performance context — never a clinical record.
+
+
+class WellnessEntry(Base):
+    """Daily athlete wellness self-report (workload tier).
+
+    Self-reported context only — never a clinical assessment. One row per
+    (player, day); 1–10 subjective scales plus sleep hours.
+    """
+
+    __tablename__ = "wellness_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    soreness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sleep_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sleep_quality: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    energy: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stress: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("player_id", "date", name="wellness_entries_unique"),)
+
+
+class GpsWorkloadDaily(Base):
+    """Daily GPS/wearable movement load (Catapult-style; workload tier)."""
+
+    __tablename__ = "gps_workload_daily"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    session_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="practice", server_default="practice"
+    )
+    total_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_speed_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_speed_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accel_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decel_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    player_load: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "date", "session_type", name="gps_workload_daily_unique"),
+    )
+
+
+class ScSession(Base):
+    """Strength & conditioning session load (workload tier)."""
+
+    __tablename__ = "sc_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    session_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tonnage_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    session_rpe: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("player_id", "date", name="sc_sessions_unique"),)
+
+
+class AcademicCalendarEvent(Base):
+    """Team-level academic-stress overlay (exams, midterms, breaks, travel).
+
+    Deliberately has NO per-player academic data — only calendar context that
+    the dashboard overlays on workload trends.
+    """
+
+    __tablename__ = "academic_calendar_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[Any | None] = mapped_column(Date, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class InjuryHistory(Base):
+    """Coarse injury-history rows (rehab tier — restricted by default).
+
+    NO diagnosis free-text by design: body region, side, coarse status, and
+    days missed only. Restricted to the rehab tier's roles (admin +
+    sportsperformance) at every read path.
+    """
+
+    __tablename__ = "injury_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reported_date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    body_region: Mapped[str] = mapped_column(String(50), nullable=False)
+    side: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active", server_default="active"
+    )
+    days_missed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    restricted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 # ── Settings (Issue #112) ─────────────────────────────────────────────────────

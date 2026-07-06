@@ -441,6 +441,42 @@ export async function fetchMetrics(
   );
 }
 
+// ── Workload risk (Issue #149) ───────────────────────────────────────────────
+
+export interface InjuryRiskFilters {
+  date?: string;
+  days?: number;
+  position_group?: string;
+}
+
+export async function fetchInjuryRisk(
+  filters: InjuryRiskFilters = {},
+  token?: string,
+): Promise<import("./health-workload").InjuryRiskResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON(`${base}/api/v1/health-workload/injury-risk${qs ? `?${qs}` : ""}`, token);
+}
+
+export async function fetchHealthDashboard(
+  filters: InjuryRiskFilters = {},
+  token?: string,
+): Promise<import("./health-workload").HealthDashboardResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON(`${base}/api/v1/health-workload/dashboard${qs ? `?${qs}` : ""}`, token);
+}
+
 export type CorrectionType =
   | "clip_boundary"
   | "player_identity"

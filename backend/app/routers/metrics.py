@@ -56,8 +56,15 @@ HEAD_ORIENTATION_METRIC_NAMES: frozenset[str] = frozenset(
 # experimental surface, exactly like head-orientation metrics.
 FRONTIER_METRIC_NAMES: frozenset[str] = frozenset({"xsep", "xyards", "xpressure"})
 REVIEW_CANDIDATE_METRIC_NAMES: frozenset[str] = frozenset(
-    {"effort_review_candidate", "pose_body_orientation_proxy"}
+    {"effort_review_candidate", "pose_body_orientation_proxy", "workload_fusion"}
 )
+
+# Metrics that belong exclusively to the health-workload RBAC surface and must
+# be accessed via /api/v1/health-workload/* endpoints.  The generic GET
+# /metrics read path does not enforce the health-workload policy, so these
+# names are excluded from it entirely to prevent bypassing the sports-
+# performance-only gate added in Issue #149.
+HEALTH_WORKLOAD_ONLY_METRIC_NAMES: frozenset[str] = frozenset({"workload_fusion"})
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +82,9 @@ class MetricCreate(BaseModel):
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     effort_zscore: float | None = None
     loaf_flag: bool | None = None
+    sprint_count: int | None = Field(default=None, ge=0)
+    asymmetry_index: float | None = Field(default=None, ge=0.0)
+    injury_risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
     evidence_uri: str | None = None
     model_version_id: uuid.UUID | None = None
     calibration_version_id: uuid.UUID | None = None
@@ -99,6 +109,9 @@ class MetricResponse(BaseModel):
     confidence: float | None
     effort_zscore: float | None
     loaf_flag: bool | None
+    sprint_count: int | None
+    asymmetry_index: float | None
+    injury_risk_score: float | None
     evidence_uri: str | None
     model_version_id: uuid.UUID | None
     calibration_version_id: uuid.UUID | None
@@ -121,6 +134,9 @@ class MetricResponse(BaseModel):
             confidence=m.confidence,
             effort_zscore=_optional_float(getattr(m, "effort_zscore", None)),
             loaf_flag=_optional_bool(getattr(m, "loaf_flag", None)),
+            sprint_count=_optional_int(getattr(m, "sprint_count", None)),
+            asymmetry_index=_optional_float(getattr(m, "asymmetry_index", None)),
+            injury_risk_score=_optional_float(getattr(m, "injury_risk_score", None)),
             evidence_uri=m.evidence_uri,
             model_version_id=m.model_version_id,
             calibration_version_id=m.calibration_version_id,
@@ -172,6 +188,10 @@ def _optional_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def _optional_int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -220,6 +240,9 @@ async def create_metric(
         confidence=body.confidence,
         effort_zscore=body.effort_zscore,
         loaf_flag=body.loaf_flag,
+        sprint_count=body.sprint_count,
+        asymmetry_index=body.asymmetry_index,
+        injury_risk_score=body.injury_risk_score,
         evidence_uri=body.evidence_uri,
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
@@ -258,6 +281,10 @@ async def list_metrics(
     """
     q = select(Metric).order_by(Metric.created_at.desc()).limit(limit).offset(offset)
 
+    # Health-workload metrics are only accessible via the /health-workload
+    # surface which enforces full RBAC; exclude them from this endpoint.
+    q = q.where(~Metric.metric_name.in_(HEALTH_WORKLOAD_ONLY_METRIC_NAMES))
+
     if clip_id is not None:
         q = q.where(Metric.clip_id == clip_id)
     if tracklet_id is not None:
@@ -289,6 +316,11 @@ async def get_metric(
     result = await db.execute(select(Metric).where(Metric.id == metric_id))
     metric = result.scalar_one_or_none()
     if metric is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
+
+    # Health-workload metrics must be accessed via /health-workload/* with full
+    # RBAC; return 404 (existence never leaks) to prevent policy bypass.
+    if metric.metric_name in HEALTH_WORKLOAD_ONLY_METRIC_NAMES:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
 
     # Players must never see experimental metrics

@@ -47,6 +47,7 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.metrics.gait_asymmetry import compute_gait_asymmetry
 from pipeline.pose.head_yaw import compute_head_yaw, summarize_body_orientation
 from pipeline.pose_estimator import (
     PoseEstimatorBase,
@@ -140,7 +141,7 @@ def run(
 
     if not frame_keypoints and not tracklets:
         log.info("stage_pose_no_data", clip_id=clip_id)
-        return {"keypoint_count": 0, "metric_count": 0, "metric_ids": []}
+        return {"keypoint_count": 0, "metric_count": 0, "metric_ids": [], "pose_metrics": {}}
 
     # ── Resolve key events ────────────────────────────────────────────────────
     snap_frame = _event_frame(events, "snap")
@@ -150,6 +151,9 @@ def run(
     # ── Per-tracklet processing ───────────────────────────────────────────────
     keypoint_count = 0
     metrics: list[dict[str, Any]] = []
+    # Per-tracklet gait summaries handed to the chained metrics job (#149) so
+    # workload fusion can fold asymmetry in without re-reading keypoints.
+    pose_metrics: dict[str, dict[str, Any]] = {}
 
     for tracklet in tracklets:
         tracklet_id = tracklet.get("id")
@@ -195,6 +199,9 @@ def run(
         stride_metric = _compute_stride_symmetry(kp_seq, fps, tracklet_id)
         if stride_metric:
             metrics.append(stride_metric)
+            gait_summary = stride_metric.get("gait_summary")
+            if tracklet_id is not None and gait_summary:
+                pose_metrics[str(tracklet_id)] = dict(gait_summary)
 
     # ── Biomechanical drift (across all OL tracklets in clip) ─────────────────
     ol_tracklets = [
@@ -219,6 +226,7 @@ def run(
                 "experimental_flag": True,
                 "analytics_safe": False,
                 "confidence": m.get("confidence"),
+                "asymmetry_index": m.get("asymmetry_index"),
                 "job_id": job_id,
             }
             resp = backend.create_metric(**payload)
@@ -236,6 +244,7 @@ def run(
         "keypoint_count": keypoint_count,
         "metric_count": len(metric_ids),
         "metric_ids": metric_ids,
+        "pose_metrics": pose_metrics,
     }
 
 
@@ -1018,66 +1027,26 @@ def _compute_stride_symmetry(
     Left/right stride lengths derived from consecutive ankle-contact events.
     Asymmetry score > 0.15 → injury_risk_flag=True (feeds UT Athletics model).
     """
-    if len(kp_seq) < 4:
+    gait = compute_gait_asymmetry(kp_seq)
+    if gait is None:
         return None
 
-    left_strides: list[float] = []
-    right_strides: list[float] = []
-    prev_la_y: float | None = None
-    prev_ra_y: float | None = None
-    prev_la_x: float | None = None
-    prev_ra_x: float | None = None
-
-    for entry in kp_seq:
-        la = kp(entry["keypoints"], "left_ankle")
-        ra = kp(entry["keypoints"], "right_ankle")
-        if la["confidence"] < 0.3 or ra["confidence"] < 0.3:
-            continue
-
-        if prev_la_y is not None and prev_la_x is not None:
-            left_move = math.sqrt((la["x"] - prev_la_x) ** 2 + (la["y"] - prev_la_y) ** 2)
-            left_strides.append(left_move)
-        if prev_ra_y is not None and prev_ra_x is not None:
-            right_move = math.sqrt((ra["x"] - prev_ra_x) ** 2 + (ra["y"] - prev_ra_y) ** 2)
-            right_strides.append(right_move)
-
-        prev_la_x, prev_la_y = la["x"], la["y"]
-        prev_ra_x, prev_ra_y = ra["x"], ra["y"]
-
-    if not left_strides or not right_strides:
-        return None
-
-    mean_left = statistics.mean(left_strides)
-    mean_right = statistics.mean(right_strides)
-    total = mean_left + mean_right
-    if total < 1e-6:
-        return None
-
-    ratio = mean_left / mean_right if mean_right > 0 else 1.0
-    asymmetry = abs(mean_left - mean_right) / (total / 2.0)
-    injury_risk = asymmetry > _ASYMMETRY_RISK_THRESHOLD
-
-    avg_conf = statistics.mean(
-        min(
-            kp(e["keypoints"], "left_ankle")["confidence"],
-            kp(e["keypoints"], "right_ankle")["confidence"],
-        )
-        for e in kp_seq
-        if min(kp(e["keypoints"], "left_ankle")["confidence"],
-               kp(e["keypoints"], "right_ankle")["confidence"]) >= 0.3
-    ) if kp_seq else 0.5
+    injury_risk = gait["asymmetry_score"] > _ASYMMETRY_RISK_THRESHOLD
 
     return {
         "metric_name": "pose_stride_symmetry",
         "metric_value": {
-            "left_right_ratio": round(ratio, 3),
-            "asymmetry_score": round(asymmetry, 4),
+            "left_right_ratio": gait["left_right_ratio"],
+            "asymmetry_score": gait["asymmetry_score"],
+            "asymmetry_index": gait["asymmetry_index"],
             "injury_risk_flag": injury_risk,
-            "confidence": round(float(avg_conf), 3),
+            "confidence": gait["confidence"],
         },
         "unit": "ratio",
-        "confidence": round(float(avg_conf), 3),
+        "confidence": gait["confidence"],
         "tracklet_id": tracklet_id,
+        "asymmetry_index": gait["asymmetry_index"],
+        "gait_summary": gait,
     }
 
 

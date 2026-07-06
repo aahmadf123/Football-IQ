@@ -257,13 +257,22 @@ function AlertRow({
 }) {
   const color = SEVERITY_COLOR[alert.severity.toLowerCase()] ?? SEVERITY_COLOR.info;
   const isTendency = alert.alert_type === "formation_tendency";
+  // Workload-risk alerts (Issue #149) only ever reach sports-performance
+  // staff + admins — the backend filters them out of the list/SSE for
+  // everyone else. Rendered with explicitly non-diagnostic copy.
+  const isWorkloadRisk = alert.alert_type === "workload_risk";
   const mv = alert.metric_value ?? {};
   const tendencyKind = typeof mv.tendency_kind === "string" ? mv.tendency_kind : null;
   const message = typeof mv.message === "string" ? mv.message : null;
+  const caveat = typeof mv.caveat === "string" ? mv.caveat : null;
   const evidence = Array.isArray(mv.evidence_clip_ids)
     ? (mv.evidence_clip_ids as unknown[]).filter((c): c is string => typeof c === "string")
     : [];
-  const title = isTendency ? "Tendency break" : alert.alert_type;
+  const title = isTendency
+    ? "Tendency break"
+    : isWorkloadRisk
+      ? "Workload review flag"
+      : alert.alert_type;
 
   return (
     <div
@@ -295,7 +304,15 @@ function AlertRow({
             {alert.position_group} · {alert.severity}
           </span>
           {tendencyKind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
+          {isWorkloadRisk && <ExperimentalBadge label="Sports-performance signal" />}
         </div>
+        {isWorkloadRisk && (
+          <p className="kicker" style={{ marginTop: 4 }}>
+            ACWR {typeof mv.acwr === "number" ? mv.acwr : "–"} · asymmetry{" "}
+            {typeof mv.asymmetry_index === "number" ? mv.asymmetry_index : "–"}
+            {caveat ? ` · ${caveat}` : ""}
+          </p>
+        )}
         {isTendency && message ? (
           <p className="kicker" style={{ marginTop: 4 }}>
             {message}

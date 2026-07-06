@@ -134,6 +134,12 @@ NIGHTLY_ONLY_VARIANTS: frozenset[str] = frozenset(
     }
 )
 
+# Deterministic workload-fusion injury-risk heuristic (Issue #149). Nightly-
+# only: the fused score needs multi-day ACWR history that only the nightly
+# rollup has. Registered here so a future learned model swaps in through the
+# routing override file with no code change (#73).
+WORKLOAD_FUSION_HEURISTIC: str = "acwr-asym-heuristic-v1"
+
 # Returned for any stage that is not in the routing table.
 UNKNOWN_STAGE_FALLBACK: str = "default"
 
@@ -180,6 +186,7 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "pose":       {_SAME_SESSION_KEY: RTMPOSE_FAST,        _NIGHTLY_KEY: RTMPOSE_MEDIUM},
     "render":     {_SAME_SESSION_KEY: "ffmpeg-overlay",    _NIGHTLY_KEY: "ffmpeg-overlay"},
     "embeddings": {_SAME_SESSION_KEY: "none",              _NIGHTLY_KEY: PLAY_EMBED_BASELINE},
+    "workload_fusion": {_SAME_SESSION_KEY: "none",         _NIGHTLY_KEY: WORKLOAD_FUSION_HEURISTIC},
 }
 
 

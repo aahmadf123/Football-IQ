@@ -32,11 +32,36 @@ from app.models import UserRole
 # ── Policy-safe copy ─────────────────────────────────────────────────────────
 
 # Shown verbatim by the UI.  Reviewed so the surface never implies a medical
-# device, a diagnosis, or an injury prediction.
+# device, a diagnosis, or an injury prediction.  The workload-risk carve-out
+# (Issue #149) is deliberate: experimental CV workload indicators may be shown
+# to sports-performance staff, but they remain sports-performance context —
+# they never become a diagnosis or a medical prediction.
 SURFACE_DISCLAIMER: str = (
     "Training-load and wellness context for sports-performance staff only. "
     "This surface is not a medical device and does not diagnose injuries or "
-    "predict injury risk. It supports staff judgement; it does not replace it."
+    "predict injury risk. Experimental workload-risk indicators are "
+    "sports-performance signals for staff review — not a diagnosis. "
+    "It supports staff judgement; it does not replace it."
+)
+
+# Per-row caveat attached to every workload-risk value the API returns.
+WORKLOAD_RISK_CAVEAT: str = (
+    "Experimental sports-performance indicator — not a diagnosis and not a "
+    "medical prediction of injury."
+)
+
+# Identity-confidence floor for player-attributed workload rows. Mirrors the
+# gpu-worker's LOW_IDENTITY_CONFIDENCE gate (pipeline/metrics/effort_zscore.py):
+# below this, workload stays on the anonymous track and never becomes a
+# named-player row — enforced again here as defense in depth on ingest.
+MIN_IDENTITY_CONFIDENCE: float = 0.70
+
+# In-app policy statement (Issue #9) — shown on every fused health/workload
+# dashboard view, verbatim.
+POLICY_STATEMENT: str = (
+    "CV outputs are workload/movement context that support staff judgment — "
+    "they are not a medical diagnosis, and no value on this surface is ground "
+    "truth. Staff decisions always take precedence."
 )
 
 
@@ -49,6 +74,8 @@ class IntegrationSource(enum.StrEnum):
     wellness = "wellness"
     gps_wearables = "gps_wearables"
     strength_conditioning = "strength_conditioning"
+    academic_calendar = "academic_calendar"
+    injury_history = "injury_history"
 
 
 class IntegrationStatus(enum.StrEnum):
@@ -150,6 +177,39 @@ INTEGRATION_CONTRACTS: tuple[IntegrationContract, ...] = (
             "Weight-room tracking sheet",
         ),
     ),
+    IntegrationContract(
+        source=IntegrationSource.academic_calendar,
+        display_name="Academic calendar",
+        description=(
+            "Team-level academic-stress overlay (exams, midterms, breaks, "
+            "travel). Calendar context only — no per-player academic data."
+        ),
+        status=IntegrationStatus.not_connected,
+        data_categories=(
+            "exam_periods",
+            "breaks",
+            "travel_windows",
+        ),
+        provider_examples=(
+            "University academic calendar",
+            "Team travel schedule",
+        ),
+    ),
+    IntegrationContract(
+        source=IntegrationSource.injury_history,
+        display_name="Injury history",
+        description=(
+            "Coarse prior-injury context (body region, side, days missed) — "
+            "rehab-tier restricted; no diagnosis text is ever stored."
+        ),
+        status=IntegrationStatus.not_connected,
+        data_categories=(
+            "body_region",
+            "coarse_status",
+            "days_missed",
+        ),
+        provider_examples=("Athletic-training availability log",),
+    ),
 )
 
 
@@ -164,18 +224,31 @@ def approved_roles() -> list[str]:
     return sorted(role.value for role in allowed)
 
 
-def build_surface_status(*, role: UserRole) -> dict[str, Any]:
+def build_surface_status(
+    *, role: UserRole, source_counts: dict[str, int] | None = None
+) -> dict[str, Any]:
     """Return the policy-safe surface status for an authorized caller.
 
     The payload intentionally contains **no athlete data and no PII** — only
     the viewer's role, the integration contracts, the approved-role list, and
-    the disclaimer.  ``data_available`` is ``False`` until a real source is
-    connected.
+    the disclaimer.  ``source_counts`` (source value → persisted row count)
+    lets callers with DB access flip a contract to ``connected`` when real
+    rows exist; without it every contract reports ``not_connected`` and
+    ``data_available`` stays ``False``.
     """
+    counts = source_counts or {}
+    integrations = []
+    any_connected = False
+    for contract in INTEGRATION_CONTRACTS:
+        payload = contract.to_dict()
+        if counts.get(contract.source.value, 0) > 0:
+            payload["status"] = IntegrationStatus.connected.value
+            any_connected = True
+        integrations.append(payload)
     return {
         "role": role.value,
-        "data_available": False,
+        "data_available": any_connected,
         "disclaimer": SURFACE_DISCLAIMER,
         "approved_roles": approved_roles(),
-        "integrations": [contract.to_dict() for contract in INTEGRATION_CONTRACTS],
+        "integrations": integrations,
     }

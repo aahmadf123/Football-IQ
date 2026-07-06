@@ -316,6 +316,9 @@ def create_metric(
     confidence: float | None = None,
     effort_zscore: float | None = None,
     loaf_flag: bool | None = None,
+    sprint_count: int | None = None,
+    asymmetry_index: float | None = None,
+    injury_risk_score: float | None = None,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/metrics and return the created metric dict."""
@@ -342,6 +345,12 @@ def create_metric(
         payload["effort_zscore"] = effort_zscore
     if loaf_flag is not None:
         payload["loaf_flag"] = loaf_flag
+    if sprint_count is not None:
+        payload["sprint_count"] = sprint_count
+    if asymmetry_index is not None:
+        payload["asymmetry_index"] = asymmetry_index
+    if injury_risk_score is not None:
+        payload["injury_risk_score"] = injury_risk_score
     if job_id is not None:
         payload["job_id"] = job_id
     with _client() as c:
@@ -380,6 +389,37 @@ def create_alerts(payloads: list[dict[str, Any]]) -> int:
         if create_alert(payload) is not None:
             created += 1
     return created
+
+
+# ── Player workload rollup (Issue #149) ──────────────────────────────────────
+
+
+def fetch_daily_cv_loads(date: str) -> list[dict[str, Any]]:
+    """GET /api/v1/health-workload/daily-loads for one day.
+
+    Returns the per-player daily CV load aggregation (identity-confident,
+    player-attributed rows only). Empty list when the backend is disabled.
+    """
+    if not BACKEND_API_URL:
+        return []
+    with _client() as c:
+        resp = c.get("/api/v1/health-workload/daily-loads", params={"date": date})
+        resp.raise_for_status()
+        players = resp.json().get("players", [])
+        return list(players)
+
+
+def upsert_workload_daily(rows: list[dict[str, Any]]) -> int:
+    """POST /api/v1/health-workload/daily to bulk-upsert rollup rows.
+
+    Returns the number of rows the backend accepted; 0 when disabled.
+    """
+    if not BACKEND_API_URL or not rows:
+        return 0
+    with _client() as c:
+        resp = c.post("/api/v1/health-workload/daily", json={"rows": rows})
+        resp.raise_for_status()
+        return int(resp.json().get("upserted", 0))
 
 
 # ── Pose Keypoints (Phase 2 / Issue #6) ──────────────────────────────────────

@@ -45,12 +45,14 @@ def _make_user(role: UserRole) -> User:
 # ── Pure surface contract ────────────────────────────────────────────────────
 
 
-def test_integration_contracts_cover_three_sources_and_start_disconnected() -> None:
+def test_integration_contracts_cover_five_sources_and_start_disconnected() -> None:
     sources = {c.source for c in INTEGRATION_CONTRACTS}
     assert sources == {
         IntegrationSource.wellness,
         IntegrationSource.gps_wearables,
         IntegrationSource.strength_conditioning,
+        IntegrationSource.academic_calendar,
+        IntegrationSource.injury_history,
     }
     assert all(c.status == IntegrationStatus.not_connected for c in INTEGRATION_CONTRACTS)
 
@@ -68,7 +70,18 @@ def test_build_surface_status_is_policy_safe() -> None:
     # The surface never carries athlete PII / data keys.
     forbidden = {"player_id", "players", "name", "athlete", "metrics", "health"}
     assert forbidden.isdisjoint(payload.keys())
-    assert len(payload["integrations"]) == 3
+    assert len(payload["integrations"]) == 5
+
+
+def test_build_surface_status_flips_connected_from_source_counts() -> None:
+    payload = build_surface_status(
+        role=UserRole.sportsperformance,
+        source_counts={"wellness": 12, "gps_wearables": 0},
+    )
+    by_source = {i["source"]: i["status"] for i in payload["integrations"]}
+    assert by_source["wellness"] == "connected"
+    assert by_source["gps_wearables"] == "not_connected"
+    assert payload["data_available"] is True
 
 
 # ── RBAC gate ────────────────────────────────────────────────────────────────
@@ -90,6 +103,8 @@ def test_surface_allowed_for_approved_roles(role: UserRole) -> None:
         "wellness",
         "gps_wearables",
         "strength_conditioning",
+        "academic_calendar",
+        "injury_history",
     }
     assert all(i["status"] == "not_connected" for i in body["integrations"])
 

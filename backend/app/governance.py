@@ -115,6 +115,12 @@ POLICY: dict[tuple[Resource, Action], frozenset[UserRole]] = {
     (Resource.HEALTH_WORKLOAD, Action.READ): frozenset(
         {UserRole.admin, UserRole.analyst, UserRole.sportsperformance}
     ),
+    # Writing athlete health/workload data (Issue #9 ingestion endpoints:
+    # wellness, GPS, S&C, academic calendar, injury history) is restricted to
+    # sports-performance staff + admins — analysts read, they never ingest.
+    (Resource.HEALTH_WORKLOAD, Action.WRITE): frozenset(
+        {UserRole.admin, UserRole.sportsperformance}
+    ),
     # Triggering heavy workloads (heavy jobs, embeddings rebuilds, text search):
     # analyst-or-above only.  Subject to additional health/workload gating.
     (Resource.HEAVY_WORKLOAD, Action.TRIGGER): frozenset({UserRole.admin, UserRole.analyst}),
@@ -238,6 +244,69 @@ class VisibilityState(enum.StrEnum):
     player_approved = PlayerVisibilityState.player_approved.value
     recruiting_approved = PlayerVisibilityState.recruiting_approved.value
     archived = PlayerVisibilityState.archived.value
+
+
+# ── Restricted health-context tiers (Issue #9) ────────────────────────────────
+# Which roles may see health-context data of each tier. Deny by default:
+# the "medical" tier is declared but mapped to NO role — the platform stores
+# no medical data and would need an explicit policy change (plus a real
+# medical role) before anything in that tier could ever be surfaced.
+RESTRICTED_CONTEXT_TIERS: tuple[str, ...] = ("workload", "rehab", "medical")
+
+_TIER_ROLES: dict[str, frozenset[UserRole]] = {
+    "workload": frozenset({UserRole.admin, UserRole.analyst, UserRole.sportsperformance}),
+    "rehab": frozenset({UserRole.admin, UserRole.sportsperformance}),
+    "medical": frozenset(),
+}
+
+# Canonical field/category → tier mapping ("define which fields are workload,
+# rehab, or medical restricted"). Per-player escalations live in
+# player_profiles.restricted_context_flags and may only tighten this mapping.
+RESTRICTED_FIELD_TIERS: dict[str, str] = {
+    # CV workload rollup fields (#149)
+    "daily_load": "workload",
+    "acwr": "workload",
+    "asymmetry_index": "workload",
+    "injury_risk_score": "workload",
+    "sprint_count": "workload",
+    # Fusion source categories (#9)
+    "wellness": "workload",
+    "gps": "workload",
+    "strength_conditioning": "workload",
+    "injury_history": "rehab",
+    "rehab_status": "rehab",
+    "medical": "medical",
+}
+
+# Escalation order — a per-player override may move a field DOWN this list
+# (stricter), never up.
+_TIER_STRICTNESS: dict[str, int] = {"workload": 0, "rehab": 1, "medical": 2}
+
+
+def effective_field_tier(field: str, flags: dict[str, Any] | None = None) -> str:
+    """Resolve the tier for a health-context field, honoring escalations only.
+
+    ``flags`` is a player's ``restricted_context_flags`` JSON. An override that
+    names an unknown tier or would *widen* access is ignored — flags can only
+    escalate.
+    """
+    base = RESTRICTED_FIELD_TIERS.get(field, "workload")
+    override = (flags or {}).get(field)
+    if isinstance(override, str) and override in _TIER_STRICTNESS:
+        if _TIER_STRICTNESS[override] > _TIER_STRICTNESS[base]:
+            return override
+    return base
+
+
+def can_view_field(role: UserRole, field: str, flags: dict[str, Any] | None = None) -> bool:
+    """Whether ``role`` may see health-context ``field`` for a player."""
+    tier = effective_field_tier(field, flags)
+    return role in _TIER_ROLES.get(tier, frozenset())
+
+
+def allowed_context_tiers(role: UserRole) -> frozenset[str]:
+    """The health-context tiers whose data ``role`` may see."""
+    return frozenset(tier for tier, roles in _TIER_ROLES.items() if role in roles)
 
 
 # Fields that are *never* exposed to player-facing or recruiting views,
@@ -481,6 +550,9 @@ def shape_player_profile(
             "generated_by": _enum_value(profile.generated_by),
             "approved_by": str(profile.approved_by) if profile.approved_by else None,
             "approved_at": _iso(profile.approved_at),
+            # Health-context tier escalations (Issue #9) — governance metadata
+            # for staff; stripped from every non-staff projection below.
+            "restricted_context_flags": getattr(profile, "restricted_context_flags", None),
             "created_at": _iso(profile.created_at),
             "updated_at": _iso(profile.updated_at),
             "view": VisibilityMode.STAFF.value,
@@ -560,6 +632,17 @@ _AUDIT_ALLOWED_KEYS: frozenset[str] = frozenset(
         "route_concept",
         "coverage_type",
         "data_sufficiency",
+        # Workload-risk surface (Issue #149) — identifiers/enums only: the
+        # requested day, the alert-type enum, the model-router variant string,
+        # and the attribution mode. Never ACWR/asymmetry/risk values.
+        "date",
+        "alert_type",
+        "model_variant",
+        "attribution",
+        # Health-context governance (Issue #9) — the restricted tier name and
+        # the ingest source category. Never row contents.
+        "tier",
+        "ingest_source",
     }
 )
 
