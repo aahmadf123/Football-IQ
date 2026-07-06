@@ -86,6 +86,83 @@ export interface InjuryRiskResponse {
   aggregates?: InjuryRiskAggregate[];
 }
 
+// ── Daily athlete-state dashboard types (Issue #9) ───────────────────────────
+// Shapes returned by GET /api/v1/health-workload/dashboard.
+
+// Mirrors backend `app.health_workload.POLICY_STATEMENT` verbatim.
+export const HEALTH_POLICY_STATEMENT =
+  "CV outputs are workload/movement context that support staff judgment — " +
+  "they are not a medical diagnosis, and no value on this surface is ground " +
+  "truth. Staff decisions always take precedence.";
+
+export interface SourceBlock {
+  source: string;
+  caveat: string;
+  [key: string]: unknown;
+}
+
+export interface DailyAthleteState {
+  player_id: string;
+  name: string;
+  jersey_number: number | null;
+  position_group: string | null;
+  cv_workload: (SourceBlock & {
+    daily_load: number | null;
+    sprint_count: number | null;
+    asymmetry_index: number | null;
+    acwr: number | null;
+    injury_risk_score: number | null;
+    confidence: number | null;
+  }) | null;
+  wellness: SourceBlock | null;
+  gps: SourceBlock | null;
+  strength_conditioning: SourceBlock | null;
+  injury_history: Array<Record<string, unknown>> | null;
+  caveats: string[];
+}
+
+export interface DashboardAggregate {
+  position_group: string;
+  player_count: number;
+  mean_acwr: number | null;
+  mean_asymmetry_index: number | null;
+  mean_daily_load: number | null;
+  caveat: string;
+}
+
+export interface TrendPoint {
+  date: string;
+  mean_acwr: number | null;
+  mean_daily_load: number | null;
+  player_count: number;
+}
+
+export interface FatigueFlag {
+  alert_id: string;
+  player_id: string | null;
+  position_group: string;
+  severity: string;
+  metric_value: Record<string, unknown>;
+  created_at: string;
+  caveat: string;
+}
+
+export interface HealthDashboardResponse {
+  date: string;
+  days: number;
+  role: string;
+  player_level: boolean;
+  policy_statement: string;
+  caveat: string;
+  academic_context: Array<Record<string, unknown>>;
+  source_counts: Record<string, number>;
+  players?: DailyAthleteState[];
+  aggregates?: DashboardAggregate[];
+  trends: Record<string, TrendPoint[]>;
+  fatigue_flags?: FatigueFlag[];
+  integrations: Array<{ source: string; display_name: string; status: string }>;
+}
+
 export const HEALTH_WORKLOAD_INTEGRATIONS: readonly HealthWorkloadIntegration[] = [
   {
     source: "wellness",

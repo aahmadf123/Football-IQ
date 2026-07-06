@@ -45,7 +45,8 @@ from app.health_workload import (
     WORKLOAD_RISK_CAVEAT,
     build_surface_status,
 )
-from app.models import Metric, Player, PlayerWorkloadDaily, User, UserRole
+from app.models import Alert, AlertType, Metric, Player, PlayerWorkloadDaily, User, UserRole
+from app.workload_fusion import fetch_daily_state_inputs, fuse_daily_athlete_state
 
 router = APIRouter(prefix="/api/v1/health-workload", tags=["health-workload"])
 log = structlog.get_logger(__name__)
@@ -202,6 +203,118 @@ async def injury_risk(
     return payload
 
 
+@router.get("/dashboard")
+async def health_dashboard(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[User, Depends(_require_health_read)],
+    date: datetime.date | None = Query(default=None, description="Day (default: latest rollup)"),
+    days: int = Query(default=14, ge=1, le=56, description="Trend window length in days"),
+    position_group: str | None = Query(default=None, max_length=20),
+) -> dict[str, Any]:
+    """Unified daily athlete-state dashboard (Issue #9).
+
+    Fuses the nightly CV workload rollup with the UT sources (wellness, GPS,
+    S&C, academic calendar, rehab-tier injury history). Player-level state is
+    limited to sports-performance staff + admins; analysts receive
+    position-group aggregates. Fatigue flags (unacknowledged workload-risk
+    alerts) are included only for sports-performance staff + admins — never
+    for coaches or analysts. Every value carries its source and caveat; the
+    in-app policy statement ships with every response.
+    """
+    if date is None:
+        latest_result = await db.execute(select(func.max(PlayerWorkloadDaily.date)))
+        latest = latest_result.scalar_one_or_none()
+        as_of = latest if isinstance(latest, datetime.date) else datetime.date.today()
+    else:
+        as_of = date
+
+    inputs = await fetch_daily_state_inputs(db, as_of, position_group=position_group)
+    payload = fuse_daily_athlete_state(inputs, role=user.role)
+
+    # Position-group workload trends over the trailing window.
+    since = as_of - datetime.timedelta(days=days - 1)
+    trend_q = (
+        select(PlayerWorkloadDaily, Player)
+        .join(Player, PlayerWorkloadDaily.player_id == Player.id)
+        .where(PlayerWorkloadDaily.date >= since, PlayerWorkloadDaily.date <= as_of)
+        .order_by(PlayerWorkloadDaily.date.asc())
+    )
+    if position_group:
+        trend_q = trend_q.where(func.upper(Player.position_group) == position_group.upper())
+    trend_rows = list((await db.execute(trend_q)).all())
+    payload["trends"] = _position_group_trends(trend_rows)
+    payload["days"] = days
+
+    # Fatigue flags: unacknowledged workload-risk alerts, S&C staff only.
+    if user.role in PLAYER_LEVEL_RISK_ROLES:
+        flags_result = await db.execute(
+            select(Alert)
+            .where(
+                Alert.alert_type == AlertType.workload_risk,
+                Alert.is_acknowledged.is_(False),
+            )
+            .order_by(Alert.created_at.desc())
+            .limit(50)
+        )
+        payload["fatigue_flags"] = [
+            {
+                "alert_id": str(a.id),
+                "player_id": str(a.player_id) if a.player_id else None,
+                "position_group": a.position_group,
+                "severity": a.severity.value,
+                "metric_value": a.metric_value,
+                "created_at": a.created_at.isoformat(),
+                "caveat": WORKLOAD_RISK_CAVEAT,
+            }
+            for a in flags_result.scalars().all()
+        ]
+
+    # Integration/source status derived from real row counts.
+    payload["integrations"] = build_surface_status(
+        role=user.role, source_counts=inputs.source_counts
+    )["integrations"]
+
+    audit_event(
+        "audit.health_workload.dashboard.read",
+        actor_id=user.id,
+        actor_role=user.role.value,
+        resource=Resource.HEALTH_WORKLOAD.value,
+        action=Action.READ.value,
+        surface="dashboard",
+        date=as_of.isoformat(),
+        count=len(payload.get("players", payload.get("aggregates", []))),
+    )
+    return payload
+
+
+def _position_group_trends(
+    pairs: list[Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """Per-position-group daily mean ACWR / load series for trend charts."""
+    by_group_day: dict[str, dict[str, dict[str, list[float]]]] = {}
+    for row, player in pairs:
+        pg = (player.position_group or "UNKNOWN").upper()
+        day = row.date.isoformat()
+        bucket = by_group_day.setdefault(pg, {}).setdefault(day, {"acwr": [], "daily_load": []})
+        if row.acwr is not None:
+            bucket["acwr"].append(row.acwr)
+        if row.daily_load is not None:
+            bucket["daily_load"].append(row.daily_load)
+
+    trends: dict[str, list[dict[str, Any]]] = {}
+    for pg, days_map in sorted(by_group_day.items()):
+        trends[pg] = [
+            {
+                "date": day,
+                "mean_acwr": _rounded_mean(bucket["acwr"]),
+                "mean_daily_load": _rounded_mean(bucket["daily_load"]),
+                "player_count": max(len(bucket["acwr"]), len(bucket["daily_load"])),
+            }
+            for day, bucket in sorted(days_map.items())
+        ]
+    return trends
+
+
 @router.get("/daily-loads")
 async def daily_loads(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -215,6 +328,8 @@ async def daily_loads(
     below the identity-confidence floor, so anonymous-track rows never roll
     into a named player-day here.
     """
+    # Suppressed rows (calibration-unsafe clips) are excluded: data the
+    # pipeline already marked unsafe must never drive ACWR/risk rollups.
     q = select(Metric).where(
         Metric.metric_name == "workload_fusion",
         func.date(Metric.created_at) == date,

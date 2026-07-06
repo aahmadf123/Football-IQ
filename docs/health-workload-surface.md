@@ -1,4 +1,4 @@
-# Health & Workload surface (Issues #113 + #149)
+# Health & Workload surface (Issues #113 + #149 + #9)
 
 Status: groundwork + CV workload-risk signals. The surface is **role-gated,
 audit-logged, and policy-safe**. Upstream wellness/GPS/S&C sources remain
@@ -115,6 +115,50 @@ reports, >0.4 Pearson on a 30-player sample) runs against **real Toledo
 footage** on staff machines — see
 [`asymmetry-validation-runbook.md`](asymmetry-validation-runbook.md) and
 `gpu-worker/scripts/validate_asymmetry_correlation.py`.
+
+### Data fusion + dashboard (Issue #9)
+
+Issue #9 adds the governance/integration layer on top of the #149 signals:
+
+**Restricted-context tiers** (`app/governance.py`): the canonical
+field→tier mapping (`RESTRICTED_FIELD_TIERS`) defines which health-context
+fields are `workload` (admin/analyst/sportsperformance), `rehab`
+(admin/sportsperformance), or `medical` (mapped to NO role — declared tier,
+no data stored). Per-player escalations live in
+`player_profiles.restricted_context_flags` (JSON, migration `0028`) and may
+only tighten a field's tier — `effective_field_tier` ignores anything that
+would widen access. The flags appear in the staff profile projection only.
+
+**Fusion tables** (migration `0029`, ingest via
+`/api/v1/health-workload/ingest/{wellness,gps,strength,academic,injury-history}`,
+gated `require_policy(HEALTH_WORKLOAD, WRITE)` = admin + sportsperformance,
+every ingest audited with source + count only):
+
+| Table | Tier | Notes |
+|---|---|---|
+| `wellness_entries` | workload | 1–10 self-report scales; never a clinical assessment |
+| `gps_workload_daily` | workload | Catapult-style distances/speeds/accels/player load |
+| `sc_sessions` | workload | S&C volume/tonnage/RPE |
+| `academic_calendar_events` | — (team-level) | exams/breaks/travel overlay; no per-player academics |
+| `injury_history` | rehab | body region/side/status/days missed; **no diagnosis free-text by design** (`extra="forbid"` rejects it on ingest) |
+
+**Dashboard** — `GET /api/v1/health-workload/dashboard` (`app/workload_fusion.py`
+does the fusion): unified daily athlete state (CV rollup LEFT-JOIN wellness ×
+GPS × S&C on (player, day), academic overlay, tier-gated injury history),
+position-group ACWR/load trend series, fatigue flags (unacknowledged
+`workload_risk` alerts — sportsperformance/admin only, never coaches or
+analysts), source connection status derived from real row counts, and the
+in-app policy statement on every response:
+
+> "CV outputs are workload/movement context that support staff judgment —
+> they are not a medical diagnosis, and no value on this surface is ground
+> truth. Staff decisions always take precedence."
+
+Every fused value carries its `source` and a caveat; missing sources are
+explicit `*_:source_unavailable` caveats — never silently absent.
+`workload_fusion` metric rows are additionally excluded from the generic
+`GET /api/v1/metrics` surface entirely (`HEALTH_WORKLOAD_ONLY_METRIC_NAMES`)
+so this RBAC surface is their only read path.
 
 ### Frontend gating
 

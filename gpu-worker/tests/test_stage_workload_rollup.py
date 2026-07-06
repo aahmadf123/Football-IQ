@@ -133,6 +133,58 @@ def test_no_data_today_means_no_rows() -> None:
     assert calls["upserted_rows"] is None
 
 
+def test_low_identity_players_are_skipped_entirely() -> None:
+    # A spiking player with sub-floor identity confidence must produce no
+    # rollup row and no alert — the anonymous track never becomes a named row.
+    days = {
+        (AS_OF - dt.timedelta(days=offset)).isoformat(): [
+            _entry("p1", 100.0),
+            _entry(
+                "shadow",
+                300.0 if offset < 7 else 100.0,
+                confidence=0.4,
+                asymmetry_index=1.6,
+            ),
+        ]
+        for offset in range(28)
+    }
+    result, calls = _run(days)
+
+    assert result["players"] == 1
+    assert result["alerts_created"] == 0
+    assert [r["player_id"] for r in calls["upserted_rows"]] == ["p1"]
+
+
+def test_upsert_failure_suppresses_alerts() -> None:
+    # An alert must never exist without its persisted rollup row.
+    loads = _loads_by_day(spike_recent=250.0)
+    alerts_seen: list[Any] = []
+
+    def _failing_upsert(rows: list[dict[str, Any]]) -> int:
+        raise RuntimeError("backend down")
+
+    with (
+        patch.object(
+            stage_workload_rollup.backend,
+            "fetch_daily_cv_loads",
+            side_effect=lambda date: loads.get(date, []),
+        ),
+        patch.object(
+            stage_workload_rollup.backend, "upsert_workload_daily", side_effect=_failing_upsert
+        ),
+        patch.object(
+            stage_workload_rollup.backend,
+            "create_alerts",
+            side_effect=lambda p: alerts_seen.extend(p) or len(p),
+        ),
+    ):
+        result = stage_workload_rollup.run(AS_OF.isoformat(), job_id="job-1")
+
+    assert result["upserted"] == 0
+    assert result["alerts_created"] == 0
+    assert alerts_seen == []
+
+
 def test_fetch_failure_for_one_day_does_not_abort() -> None:
     loads = _loads_by_day()
     calls_seen: list[str] = []

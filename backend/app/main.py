@@ -29,6 +29,7 @@ from app.routers.counterfactuals import router as counterfactuals_router
 from app.routers.embeddings import router as embeddings_router
 from app.routers.events import router as events_router
 from app.routers.frontier_analytics import router as frontier_analytics_router
+from app.routers.health_ingest import router as health_ingest_router
 from app.routers.health_workload import router as health_workload_router
 from app.routers.inbox_integration import router as inbox_router
 from app.routers.jobs import router as jobs_router
@@ -95,6 +96,7 @@ async def prometheus_metrics() -> Response:
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(health_workload_router)
+app.include_router(health_ingest_router)
 app.include_router(auth_router)
 app.include_router(videos_router)
 app.include_router(clips_router)

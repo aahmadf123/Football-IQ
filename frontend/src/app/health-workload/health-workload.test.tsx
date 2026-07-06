@@ -85,6 +85,29 @@ describe("Health & Workload surface gating", () => {
   });
 });
 
+describe("Daily athlete state dashboard (Issue #9)", () => {
+  test("renders the panel and the policy statement for sportsperformance", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "sportsperformance");
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("health-daily-state")).toBeTruthy();
+    });
+    const policy = screen.getByTestId("health-policy-statement");
+    expect(policy.textContent).toContain("support staff judgment");
+    expect(policy.textContent).toContain("not a medical diagnosis");
+  });
+
+  test("panel is absent for gated roles (coach)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "coach");
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("health-workload-restricted")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("health-daily-state")).toBeNull();
+    expect(screen.queryByTestId("health-policy-statement")).toBeNull();
+  });
+});
+
 describe("Workload risk signals panel (Issue #149)", () => {
   test("renders with the non-diagnostic caveat for sportsperformance", async () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "sportsperformance");

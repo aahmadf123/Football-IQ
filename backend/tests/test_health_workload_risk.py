@@ -179,6 +179,53 @@ def test_injury_risk_emits_audit_event() -> None:
     assert "acwr" not in kwargs and "injury_risk_score" not in kwargs
 
 
+# ── daily-loads aggregation ───────────────────────────────────────────────────
+
+
+def _workload_metric(
+    player_id: str,
+    *,
+    distance: float,
+    identity_confidence: float | None = 0.9,
+    asymmetry: float | None = None,
+) -> Any:
+    m = MagicMock()
+    m.metric_name = "workload_fusion"
+    m.metric_value = {
+        "attribution": "player",
+        "player_id": player_id,
+        "position_group": "WR",
+        "distance_yards": distance,
+        "sprint_count": 2,
+        "max_speed_yps": 7.0,
+        "identity_confidence": identity_confidence,
+        "confidence": 0.6,
+    }
+    m.sprint_count = 2
+    m.asymmetry_index = asymmetry
+    m.confidence = 0.6
+    return m
+
+
+def test_daily_loads_confidence_present_without_asymmetry() -> None:
+    # Regression (PR #239 review): a player-day with load but NO pose
+    # asymmetry must still carry identity-based confidence, or the rollup's
+    # ingest gate would wrongly reject the row.
+    app.dependency_overrides[get_current_user] = lambda: _make_user(UserRole.admin)
+    _override_db(all_rows=[_workload_metric("p1", distance=120.0, asymmetry=None)])
+    try:
+        with TestClient(app) as c:
+            resp = c.get("/api/v1/health-workload/daily-loads", params={"date": "2026-07-01"})
+    finally:
+        _cleanup()
+    assert resp.status_code == 200, resp.text
+    player = resp.json()["players"][0]
+    assert player["asymmetry_index"] is None
+    # Identity confidence (0.9) wins over generic clip confidence (0.6).
+    assert player["confidence"] == 0.9
+    assert player["daily_load"] == 120.0
+
+
 # ── Upsert identity gating ────────────────────────────────────────────────────
 
 

@@ -186,6 +186,28 @@ def test_shape_player_profile_player_view_strips_private_content() -> None:
     assert shaped["view"] == "player"
 
 
+def test_shape_player_profile_flags_staff_only() -> None:
+    # Issue #9: restricted_context_flags are governance metadata — staff
+    # projection only, stripped from player and recruiting views.
+    owner = uuid.uuid4()
+    player = _player(visibility_state=PlayerVisibilityState.recruiting_approved, user_id=owner)
+    profile = _profile(player_id=player.id)
+    profile.restricted_context_flags = {"acwr": "rehab"}
+
+    staff = shape_player_profile(profile, player, VisibilityMode.STAFF)
+    assert staff is not None
+    assert staff["restricted_context_flags"] == {"acwr": "rehab"}
+
+    actor = _user(role=UserRole.player, user_id=owner)
+    player_view = shape_player_profile(profile, player, VisibilityMode.PLAYER, actor=actor)
+    assert player_view is not None
+    assert "restricted_context_flags" not in player_view
+
+    recruiting = shape_player_profile(profile, player, VisibilityMode.RECRUITING)
+    assert recruiting is not None
+    assert "restricted_context_flags" not in recruiting
+
+
 def test_shape_player_profile_recruiting_blocked_until_approved() -> None:
     player = _player(visibility_state=PlayerVisibilityState.staff_only)
     profile = _profile(player_id=player.id)
