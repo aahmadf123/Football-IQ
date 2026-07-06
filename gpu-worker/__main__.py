@@ -375,7 +375,13 @@ def _dispatch(
         analytics_safe: bool = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
         return stage_metrics.run(
-            clip_id, tracklets, events_list, analytics_safe, fps, job_id
+            clip_id,
+            tracklets,
+            events_list,
+            analytics_safe,
+            fps,
+            job_id,
+            pose_metrics=input_artifacts.get("pose_metrics"),
         )
 
     elif job_type == "routes":

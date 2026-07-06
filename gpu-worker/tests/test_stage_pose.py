@@ -504,6 +504,17 @@ def test_stride_symmetry_too_short_returns_none() -> None:
     assert result is None
 
 
+def test_stride_symmetry_carries_asymmetry_index_scalar() -> None:
+    # Issue #149: asymmetry_index (longer/shorter stride ratio) rides both in
+    # metric_value and as a top-level scalar for the metrics-table column.
+    kp_seq = _make_asymmetric_kp_seq(left_stride=13.0, right_stride=10.0)
+    result = _compute_stride_symmetry(kp_seq, fps=30.0, tracklet_id="t1")
+    assert result is not None
+    assert result["metric_value"]["asymmetry_index"] == pytest.approx(1.3, abs=0.01)
+    assert result["asymmetry_index"] == result["metric_value"]["asymmetry_index"]
+    assert result["gait_summary"]["asymmetry_index"] == result["asymmetry_index"]
+
+
 # ── run() integration tests ────────────────────────────────────────────────────
 
 
@@ -639,7 +650,12 @@ def test_run_no_frames_no_tracklets_returns_zeros() -> None:
             job_id="j1",
             model_path=None,
         )
-    assert result == {"keypoint_count": 0, "metric_count": 0, "metric_ids": []}
+    assert result == {
+        "keypoint_count": 0,
+        "metric_count": 0,
+        "metric_ids": [],
+        "pose_metrics": {},
+    }
 
 
 # ── StubPoseEstimator defensive-copy regression ───────────────────────────────
