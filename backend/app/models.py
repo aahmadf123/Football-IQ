@@ -186,6 +186,10 @@ class AlertType(enum.StrEnum):
     # coaching-actionable (season tendency), or an in-game pattern break where
     # the current game diverges sharply from the season baseline.
     formation_tendency = "formation_tendency"
+    # Workload-risk alerts (Issue #149): ACWR > 1.5 or gait asymmetry > 1.3.
+    # Sports-performance staff only — never surfaced to coaches, players, or
+    # viewers (see RESTRICTED_ALERT_TYPES in the alerts router).
+    workload_risk = "workload_risk"
 
 
 class AlertSeverity(enum.StrEnum):
@@ -857,6 +861,12 @@ class Metric(Base):
     # in metric_value.
     effort_zscore: Mapped[float | None] = mapped_column(Float, nullable=True)
     loaf_flag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Workload-fusion scalar fields from Issue #149. Like the effort fields
+    # above these duplicate metric_value keys for indexed/queryable access;
+    # they are experimental sports-performance signals, never a diagnosis.
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    asymmetry_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # URI to the evidence artifact (e.g. annotated frame, track overlay)
     evidence_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full version lineage for every metric
@@ -1422,6 +1432,58 @@ class PlayerProfileSnapshot(Base):
     )
 
     profile: Mapped["PlayerProfile"] = relationship("PlayerProfile", back_populates="snapshots")
+
+
+# ── Player workload rollups (Issue #149) ─────────────────────────────────────
+
+
+class PlayerWorkloadDaily(Base):
+    """Nightly per-player workload rollup for the health/workload surface.
+
+    One row per (player, day), written by the nightly ``workload_rollup``
+    job: summed CV daily load, sprint count, max speed, confidence-weighted
+    gait asymmetry, the trailing 7d/28d acute:chronic workload ratio, and the
+    experimental heuristic risk score. Rows are only ever written for
+    identity-confident tracklets (>= 0.70); low-confidence contributions stay
+    per-clip as anonymous-track metric rows and never roll into a named
+    player-day. All values are experimental sports-performance indicators —
+    never a diagnosis — and are read exclusively through the RBAC-gated,
+    audit-logged ``/api/v1/health-workload/*`` endpoints.
+    """
+
+    __tablename__ = "player_workload_daily"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    # Summed CV distance_traveled (yards) across the day's clips.
+    daily_load: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_speed_yps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    asymmetry_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acute_load_7d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chronic_load_28d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acwr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    clip_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    attribution: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="player", server_default="player"
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Model-router variant that produced the risk score (#73 audit trail).
+    model_variant: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    player: Mapped["Player"] = relationship("Player")
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "date", name="player_workload_daily_unique"),
+    )
 
 
 # ── Settings (Issue #112) ─────────────────────────────────────────────────────

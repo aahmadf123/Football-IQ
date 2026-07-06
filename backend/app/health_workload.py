@@ -32,12 +32,29 @@ from app.models import UserRole
 # ── Policy-safe copy ─────────────────────────────────────────────────────────
 
 # Shown verbatim by the UI.  Reviewed so the surface never implies a medical
-# device, a diagnosis, or an injury prediction.
+# device, a diagnosis, or an injury prediction.  The workload-risk carve-out
+# (Issue #149) is deliberate: experimental CV workload indicators may be shown
+# to sports-performance staff, but they remain sports-performance context —
+# they never become a diagnosis or a medical prediction.
 SURFACE_DISCLAIMER: str = (
     "Training-load and wellness context for sports-performance staff only. "
     "This surface is not a medical device and does not diagnose injuries or "
-    "predict injury risk. It supports staff judgement; it does not replace it."
+    "predict injury risk. Experimental workload-risk indicators are "
+    "sports-performance signals for staff review — not a diagnosis. "
+    "It supports staff judgement; it does not replace it."
 )
+
+# Per-row caveat attached to every workload-risk value the API returns.
+WORKLOAD_RISK_CAVEAT: str = (
+    "Experimental sports-performance indicator — not a diagnosis and not a "
+    "medical prediction of injury."
+)
+
+# Identity-confidence floor for player-attributed workload rows. Mirrors the
+# gpu-worker's LOW_IDENTITY_CONFIDENCE gate (pipeline/metrics/effort_zscore.py):
+# below this, workload stays on the anonymous track and never becomes a
+# named-player row — enforced again here as defense in depth on ingest.
+MIN_IDENTITY_CONFIDENCE: float = 0.70
 
 
 # ── Integration contracts ────────────────────────────────────────────────────

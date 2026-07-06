@@ -560,6 +560,13 @@ _AUDIT_ALLOWED_KEYS: frozenset[str] = frozenset(
         "route_concept",
         "coverage_type",
         "data_sufficiency",
+        # Workload-risk surface (Issue #149) — identifiers/enums only: the
+        # requested day, the alert-type enum, the model-router variant string,
+        # and the attribution mode. Never ACWR/asymmetry/risk values.
+        "date",
+        "alert_type",
+        "model_variant",
+        "attribution",
     }
 )
 
