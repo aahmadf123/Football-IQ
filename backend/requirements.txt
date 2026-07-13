@@ -9,7 +9,7 @@ python-jose[cryptography]==3.4.0
 bcrypt==5.0.0
 python-multipart==0.0.32
 httpx==0.28.1
-structlog==25.5.0
+structlog==26.1.0
 boto3==1.43.18
 psycopg2-binary==2.9.12
 email-validator==2.3.0
