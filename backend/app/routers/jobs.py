@@ -1,12 +1,20 @@
-"""Jobs router — processing job observability and retry."""
+"""Jobs router — processing job observability, retry, and worker claiming.
+
+The ``processing_jobs`` table IS the queue: the GPU worker claims queued
+rows via ``POST /claim`` (single ``UPDATE … WHERE id = (SELECT … FOR UPDATE
+SKIP LOCKED)``) and keeps its lease alive via ``POST /{id}/heartbeat``.
+Expired leases are lazily reclaimed by the next claim call; rows whose
+``attempt_count`` reaches ``max_attempts`` are swept to ``failed``.
+"""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -38,6 +46,19 @@ class JobStatusUpdate(BaseModel):
     error_stage: str | None = None
     error_message: str | None = None
     output_artifacts: dict[str, Any] | None = None
+    progress: dict[str, Any] | None = None
+
+
+class JobClaimRequest(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=128)
+    job_types: list[JobType] | None = None
+    lease_seconds: int = Field(default=600, ge=30, le=3600)
+
+
+class JobHeartbeatRequest(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=128)
+    lease_seconds: int = Field(default=600, ge=30, le=3600)
+    progress: dict[str, Any] | None = None
 
 
 class JobResponse(BaseModel):
@@ -57,6 +78,9 @@ class JobResponse(BaseModel):
     input_artifacts: dict[str, Any] | None
     output_artifacts: dict[str, Any] | None
     model_version_id: uuid.UUID | None
+    progress: dict[str, Any] | None
+    attempt_count: int
+    leased_by: str | None
     started_at: str | None
     finished_at: str | None
     created_at: str
@@ -78,6 +102,10 @@ class JobResponse(BaseModel):
             input_artifacts=j.input_artifacts,
             output_artifacts=j.output_artifacts,
             model_version_id=j.model_version_id,
+            progress=j.progress,
+            # Column defaults apply at flush; a not-yet-flushed row reads None.
+            attempt_count=j.attempt_count or 0,
+            leased_by=j.leased_by,
             started_at=j.started_at.isoformat() if j.started_at else None,
             finished_at=j.finished_at.isoformat() if j.finished_at else None,
             created_at=j.created_at.isoformat(),
@@ -145,6 +173,118 @@ async def create_job(
     return JobResponse.from_orm_job(job)
 
 
+@router.post("/claim", response_model=JobResponse | None)
+async def claim_job(
+    body: JobClaimRequest,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
+) -> JobResponse | None:
+    """Atomically claim the next runnable job for a worker.
+
+    Claimable rows are ``queued`` rows and ``running`` rows whose lease has
+    expired (crashed/stalled worker), ordered by priority then age. Claiming
+    is a single ``UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED)`` so
+    concurrent workers never double-claim. Returns 204 when nothing is
+    runnable.
+    """
+    now = datetime.now(UTC)
+
+    # Sweep: expired-lease rows that exhausted their attempts fail terminally.
+    await db.execute(
+        update(ProcessingJob)
+        .where(
+            ProcessingJob.status == JobStatus.running,
+            ProcessingJob.lease_expires_at.is_not(None),
+            ProcessingJob.lease_expires_at < now,
+            ProcessingJob.attempt_count >= ProcessingJob.max_attempts,
+        )
+        .values(
+            status=JobStatus.failed,
+            error_message="lease expired; attempts exhausted",
+            finished_at=now,
+            leased_by=None,
+            lease_expires_at=None,
+        )
+    )
+
+    claimable = or_(
+        ProcessingJob.status == JobStatus.queued,
+        and_(
+            ProcessingJob.status == JobStatus.running,
+            ProcessingJob.lease_expires_at.is_not(None),
+            ProcessingJob.lease_expires_at < now,
+        ),
+    )
+    candidate = (
+        select(ProcessingJob.id)
+        .where(claimable, ProcessingJob.attempt_count < ProcessingJob.max_attempts)
+        .order_by(ProcessingJob.priority.desc(), ProcessingJob.created_at)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+    if body.job_types:
+        candidate = candidate.where(ProcessingJob.job_type.in_(body.job_types))
+
+    result = await db.execute(
+        update(ProcessingJob)
+        .where(ProcessingJob.id == candidate.scalar_subquery())
+        .values(
+            status=JobStatus.running,
+            leased_by=body.worker_id,
+            lease_expires_at=now + timedelta(seconds=body.lease_seconds),
+            attempt_count=ProcessingJob.attempt_count + 1,
+            started_at=func.coalesce(ProcessingJob.started_at, now),
+        )
+        .returning(ProcessingJob)
+    )
+    job = result.scalar_one_or_none()
+    if job is None:
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+    await db.flush()
+    log.info(
+        "job_claimed",
+        job_id=str(job.id),
+        worker_id=body.worker_id,
+        job_type=job.job_type.value,
+        attempt=job.attempt_count,
+    )
+    return JobResponse.from_orm_job(job)
+
+
+@router.post("/{job_id}/heartbeat", response_model=JobResponse)
+async def heartbeat_job(
+    job_id: uuid.UUID,
+    body: JobHeartbeatRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
+) -> JobResponse:
+    """Extend a claimed job's lease and merge per-stage progress."""
+    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job.status != JobStatus.running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Job is not running (current status: {job.status})",
+        )
+    if job.leased_by is not None and job.leased_by != body.worker_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Job is leased by another worker ({job.leased_by})",
+        )
+
+    job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=body.lease_seconds)
+    if body.progress:
+        merged = dict(job.progress or {})
+        merged.update(body.progress)
+        job.progress = merged
+    await db.flush()
+    return JobResponse.from_orm_job(job)
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: uuid.UUID,
@@ -167,8 +307,6 @@ async def update_job_status(
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     """Update job status — used by GPU worker callbacks."""
-    from datetime import UTC, datetime
-
     result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
     job = result.scalar_one_or_none()
     if job is None:
@@ -179,12 +317,19 @@ async def update_job_status(
         job.started_at = datetime.now(UTC)
     if body.status in (JobStatus.succeeded, JobStatus.failed, JobStatus.cancelled):
         job.finished_at = datetime.now(UTC)
+        # Terminal states release the worker lease.
+        job.leased_by = None
+        job.lease_expires_at = None
     if body.error_stage is not None:
         job.error_stage = body.error_stage
     if body.error_message is not None:
         job.error_message = body.error_message
     if body.output_artifacts is not None:
         job.output_artifacts = body.output_artifacts
+    if body.progress is not None:
+        merged = dict(job.progress or {})
+        merged.update(body.progress)
+        job.progress = merged
 
     await db.flush()
     log.info("job_status_updated", job_id=str(job_id), status=body.status)

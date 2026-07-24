@@ -28,6 +28,13 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
+@pytest.fixture(autouse=True)
+def _enable_cf_queues(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the CF transport, which is opt-in since the
+    DB-as-queue migration — the default (unset) skips CF publishes."""
+    monkeypatch.setenv("CF_QUEUES_ENABLED", "1")
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

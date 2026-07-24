@@ -67,14 +67,20 @@ class JobStatus(enum.StrEnum):
 
 
 class JobType(enum.StrEnum):
+    #: Full chain: ingest → … → render, orchestrated in-process by the GPU
+    #: worker (pipeline.orchestrator). The normal coach-facing job type.
+    pipeline = "pipeline"
     ingest = "ingest"
     segment = "segment"
     calibrate = "calibrate"
     detect = "detect"
     track = "track"
+    reid = "reid"
     pose = "pose"
+    events = "events"
     labels = "labels"
     metrics = "metrics"
+    pressure = "pressure"
     render = "render"
     render_hls = "render_hls"
     routes = "routes"
@@ -82,6 +88,9 @@ class JobType(enum.StrEnum):
     oline = "oline"
     self_scout = "self_scout"
     embeddings = "embeddings"
+    workload_rollup = "workload_rollup"
+    #: Scheduled model retraining from exported coach corrections (P3).
+    train = "train"
 
 
 class PipelineMode(enum.StrEnum):
@@ -551,6 +560,20 @@ class ProcessingJob(Base):
     pipeline_mode: Mapped[str | None] = mapped_column(
         String(20), nullable=True, default=None, index=True
     )
+    # ── DB-as-queue lease fields ──────────────────────────────────────────
+    # The GPU worker claims queued rows via POST /jobs/claim (FOR UPDATE
+    # SKIP LOCKED) and keeps its lease alive via POST /jobs/{id}/heartbeat.
+    # An expired lease makes the row claimable again until attempt_count
+    # reaches max_attempts, at which point the claim sweep fails it.
+    leased_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    #: Per-stage progress map maintained by the orchestrator via heartbeat:
+    #: ``{stage[:clip] : {"status": ..., "at": ..., ...headline numbers}}``.
+    progress: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_stage: Mapped[str | None] = mapped_column(Text, nullable=True)

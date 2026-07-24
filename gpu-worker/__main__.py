@@ -1,22 +1,23 @@
-"""GPU Worker — polls the Cloudflare Queue and processes video jobs.
+"""GPU Worker — claims processing jobs and runs the video pipeline.
 
-Responsibilities:
-  1. Long-poll the video-processing-jobs queue via the Cloudflare Queues HTTP API.
-  2. Download the source video from R2.
-  3. Run the requested processing stage (ingest | segment | calibrate | detect |
-     track | reid | events | labels | metrics | render).
-  4. Upload results back to R2 and update the job status in the database.
+Two queue backends (``QUEUE_BACKEND``):
 
-Environment variables (all required unless noted):
-  CLOUDFLARE_ACCOUNT_ID     — Cloudflare account ID
-  CLOUDFLARE_API_TOKEN      — Cloudflare API token with Queues read permission
-  CF_QUEUE_VIDEO_PROCESSING — queue name (default: video-processing-jobs)
-  R2_ACCESS_KEY_ID          — R2 S3-compat access key
-  R2_SECRET_ACCESS_KEY      — R2 S3-compat secret key
-  R2_ENDPOINT_URL           — R2 S3-compat endpoint
-  R2_BUCKET_NAME            — R2 bucket (default: football-iq)
+  ``db`` (default) — the backend's ``processing_jobs`` table IS the queue.
+      The worker claims runnable rows via ``POST /api/v1/jobs/claim``
+      (FOR UPDATE SKIP LOCKED server-side), heartbeats its lease, and runs
+      ``pipeline`` jobs through :mod:`pipeline.orchestrator` with per-stage
+      progress reported into the job row. No Cloudflare account needed.
+  ``cf`` — legacy: long-poll the Cloudflare Queues HTTP API, one stage per
+      message. Kept for existing deployments during the migration window.
+
+Environment variables:
+  QUEUE_BACKEND             — "db" (default) or "cf"
+  BACKEND_API_URL           — backend base URL (required for db backend)
+  WORKER_EMAIL / WORKER_PASSWORD — seeded service-account credentials
+  WORKER_ID                 — claim identity (default: hostname-pid)
   GPU_WORKER_POLL_INTERVAL  — seconds between queue polls (default: 10)
-  BACKEND_API_URL           — backend base URL for job status callbacks
+  STORAGE_BACKEND / LOCAL_STORAGE_ROOT — see pipeline.storage
+  R2_* / CLOUDFLARE_*       — cloud credentials (cf/r2 modes only)
   MODEL_DETECT_PATH         — path to YOLO weights (default: yolov8n.pt)
   MODEL_POSE_PATH           — path to RTMPose .pth weights (optional; stub used when absent)
 """
@@ -60,16 +61,29 @@ logging.basicConfig(level=logging.INFO)
 log = structlog.get_logger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-ACCOUNT_ID = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-API_TOKEN = os.environ["CLOUDFLARE_API_TOKEN"]
+QUEUE_BACKEND = os.environ.get("QUEUE_BACKEND", "db").strip().lower()
 QUEUE_NAME = os.environ.get("CF_QUEUE_VIDEO_PROCESSING", "video-processing-jobs")
 POLL_INTERVAL = int(os.environ.get("GPU_WORKER_POLL_INTERVAL", "10"))
 BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
+HEARTBEAT_INTERVAL = int(os.environ.get("GPU_WORKER_HEARTBEAT_INTERVAL", "60"))
+LEASE_SECONDS = int(os.environ.get("GPU_WORKER_LEASE_SECONDS", "600"))
 
-CF_QUEUES_URL = (
-    f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}"
-    f"/queues/{QUEUE_NAME}/messages/pull"
-)
+
+def _worker_id() -> str:
+    import socket
+
+    return os.environ.get("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+
+
+def _cf_config() -> tuple[str, str, str]:
+    """Cloudflare Queue credentials — only the cf backend requires them."""
+    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
+    api_token = os.environ["CLOUDFLARE_API_TOKEN"]
+    pull_url = (
+        f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
+        f"/queues/{QUEUE_NAME}/messages/pull"
+    )
+    return account_id, api_token, pull_url
 
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
 _shutdown = False
@@ -85,14 +99,15 @@ signal.signal(signal.SIGTERM, _handle_signal)
 signal.signal(signal.SIGINT, _handle_signal)
 
 
-# ── Queue polling ─────────────────────────────────────────────────────────────
+# ── Cloudflare queue polling (cf backend only) ────────────────────────────────
 
 
 def pull_messages(client: httpx.Client, batch_size: int = 5) -> list[dict[str, Any]]:
     """Pull up to `batch_size` messages from the Cloudflare Queue."""
+    _account_id, api_token, pull_url = _cf_config()
     resp = client.post(
-        CF_QUEUES_URL,
-        headers={"Authorization": f"Bearer {API_TOKEN}"},
+        pull_url,
+        headers={"Authorization": f"Bearer {api_token}"},
         json={"batch_size": batch_size, "visibility_timeout_ms": 60_000},
         timeout=30,
     )
@@ -103,17 +118,190 @@ def pull_messages(client: httpx.Client, batch_size: int = 5) -> list[dict[str, A
 
 def ack_message(client: httpx.Client, lease_id: str) -> None:
     """Acknowledge (delete) a processed message from the queue."""
+    account_id, api_token, _pull_url = _cf_config()
     ack_url = (
-        f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}"
+        f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
         f"/queues/{QUEUE_NAME}/messages/ack"
     )
     resp = client.post(
         ack_url,
-        headers={"Authorization": f"Bearer {API_TOKEN}"},
+        headers={"Authorization": f"Bearer {api_token}"},
         json={"acks": [{"lease_id": lease_id}]},
         timeout=15,
     )
     resp.raise_for_status()
+
+
+# ── DB queue (default backend) ────────────────────────────────────────────────
+
+
+def _auth_headers() -> dict[str, str]:
+    try:
+        from worker import auth as worker_auth
+
+        bearer = worker_auth.token()
+        if bearer:
+            return {"Authorization": f"Bearer {bearer}"}
+    except ImportError:
+        pass
+    return {}
+
+
+def claim_db_job(client: httpx.Client) -> dict[str, Any] | None:
+    """POST /api/v1/jobs/claim — returns the claimed job row or None."""
+    resp = client.post(
+        f"{BACKEND_API_URL}/api/v1/jobs/claim",
+        headers=_auth_headers(),
+        json={"worker_id": _worker_id(), "lease_seconds": LEASE_SECONDS},
+        timeout=30,
+    )
+    if resp.status_code == 204:
+        return None
+    if resp.status_code == 401:
+        from worker import auth as worker_auth
+
+        worker_auth.invalidate()
+        resp = client.post(
+            f"{BACKEND_API_URL}/api/v1/jobs/claim",
+            headers=_auth_headers(),
+            json={"worker_id": _worker_id(), "lease_seconds": LEASE_SECONDS},
+            timeout=30,
+        )
+        if resp.status_code == 204:
+            return None
+    resp.raise_for_status()
+    return dict(resp.json())
+
+
+def heartbeat_db_job(job_id: str, progress: dict[str, Any] | None = None) -> None:
+    """Extend the job lease + merge progress. Best-effort, never raises."""
+    try:
+        resp = httpx.post(
+            f"{BACKEND_API_URL}/api/v1/jobs/{job_id}/heartbeat",
+            headers=_auth_headers(),
+            json={
+                "worker_id": _worker_id(),
+                "lease_seconds": LEASE_SECONDS,
+                "progress": progress or {},
+            },
+            timeout=15,
+        )
+        if resp.status_code == 401:
+            from worker import auth as worker_auth
+
+            worker_auth.invalidate()
+    except Exception as exc:
+        log.warning("heartbeat_failed", job_id=job_id, error=str(exc))
+
+
+def _fetch_video(video_id: str) -> dict[str, Any] | None:
+    """GET /api/v1/videos/{id} — resolve storage_uri for a DB-claimed job."""
+    try:
+        resp = httpx.get(
+            f"{BACKEND_API_URL}/api/v1/videos/{video_id}",
+            headers=_auth_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return dict(resp.json())
+    except Exception as exc:
+        log.warning("video_fetch_failed", video_id=video_id, error=str(exc))
+        return None
+
+
+def _db_row_to_job(row: dict[str, Any]) -> dict[str, Any]:
+    """Map a claimed processing_jobs row onto the legacy job-dict shape."""
+    input_artifacts = dict(row.get("input_artifacts") or {})
+    # cf_trigger-created rows carry the camelCase queue payload in
+    # input_artifacts; backend-created rows may use snake_case.
+    input_uri = str(input_artifacts.get("input_uri") or input_artifacts.get("inputUri") or "")
+    video_id = str(row.get("video_id") or "")
+    if not input_uri and video_id:
+        video = _fetch_video(video_id)
+        if video:
+            input_uri = str(video.get("storage_uri") or "")
+    return {
+        "jobId": str(row.get("id", "")),
+        "jobType": str(row.get("job_type", "")),
+        "videoId": video_id,
+        "clipId": str(row.get("clip_id") or ""),
+        "inputUri": input_uri,
+        "priority": int(row.get("priority") or 0),
+        "inputArtifacts": input_artifacts,
+    }
+
+
+def process_pipeline_job(job: dict[str, Any]) -> None:
+    """Run a full-chain ``pipeline`` job via the orchestrator.
+
+    Per-stage progress flows into the job row through heartbeats; a
+    background thread keeps the lease alive between stage transitions.
+    """
+    import threading
+
+    from pipeline.orchestrator import StorageArtifactSink, run_pipeline
+    from worker.observability import (
+        record_job_failed,
+        record_job_started,
+        record_job_succeeded,
+    )
+
+    job_id = job["jobId"]
+    video_id = job["videoId"]
+    input_uri = job["inputUri"]
+    priority = int(job.get("priority", 0))
+    pipeline_mode = "same_session" if priority >= 10 else "nightly"
+
+    if not input_uri:
+        _update_job_status(job_id, "failed", error_message="no input_uri resolvable")
+        return
+
+    record_job_started("pipeline", pipeline_mode)
+    started = time.time()
+    progress_state: dict[str, Any] = {}
+    progress_lock = threading.Lock()
+    stop_heartbeat = threading.Event()
+
+    def progress_cb(stage: str, clip_id: str | None, status: str, extra: dict[str, Any]) -> None:
+        key = f"{stage}:{clip_id[:8]}" if clip_id else stage
+        with progress_lock:
+            progress_state[key] = {"status": status, **extra}
+            snapshot = dict(progress_state)
+        # Stage transitions double as lease extensions.
+        heartbeat_db_job(job_id, snapshot)
+
+    def heartbeat_loop() -> None:
+        while not stop_heartbeat.wait(HEARTBEAT_INTERVAL):
+            with progress_lock:
+                snapshot = dict(progress_state)
+            heartbeat_db_job(job_id, snapshot)
+
+    hb_thread = threading.Thread(target=heartbeat_loop, name="job-heartbeat", daemon=True)
+    hb_thread.start()
+    try:
+        summary = run_pipeline(
+            video_id,
+            input_uri,
+            priority=priority,
+            job_id=job_id,
+            progress_cb=progress_cb,
+            artifact_sink=StorageArtifactSink(video_id),
+        )
+        _update_job_status(job_id, "succeeded", output_artifacts=summary)
+        record_job_succeeded("pipeline", pipeline_mode, time.time() - started)
+        log.info(
+            "pipeline_job_succeeded",
+            job_id=job_id,
+            clip_count=summary.get("clip_count"),
+            duration_seconds=round(time.time() - started, 2),
+        )
+    except Exception as exc:
+        record_job_failed("pipeline", pipeline_mode)
+        log.error("pipeline_job_failed", job_id=job_id, error=str(exc))
+        _update_job_status(job_id, "failed", error_message=str(exc))
+    finally:
+        stop_heartbeat.set()
+        hb_thread.join(timeout=5)
 
 
 # ── Job processing ────────────────────────────────────────────────────────────
@@ -138,6 +326,12 @@ def process_job(job: dict[str, Any]) -> None:
     priority: int = int(job.get("priority", 0))
     input_artifacts: dict[str, Any] = job.get("inputArtifacts", {})
     is_same_session = model_router.is_same_session(priority)
+
+    if job_type == "pipeline":
+        # Full-chain job: the orchestrator owns stage sequencing, progress,
+        # and terminal status updates.
+        process_pipeline_job(job)
+        return
 
     pipeline_mode = "same_session" if is_same_session else "nightly"
     log.info(
@@ -711,8 +905,14 @@ def _update_job_status(
             payload["error_message"] = error_message
         if output_artifacts:
             payload["output_artifacts"] = output_artifacts
-        with httpx.Client(base_url=BACKEND_API_URL, timeout=10) as c:
-            c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+        with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=_auth_headers()) as c:
+            resp = c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+            if resp.status_code == 401:
+                from worker import auth as worker_auth
+
+                worker_auth.invalidate()
+                c.headers.update(_auth_headers())
+                c.patch(f"/api/v1/jobs/{job_id}", json=payload)
     except Exception as exc:
         log.warning("status_update_failed", job_id=job_id, error=str(exc))
 
@@ -720,24 +920,9 @@ def _update_job_status(
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    from worker.observability import (
-        record_heartbeat,
-        record_queue_poll,
-        set_worker_up,
-        start_metrics_server,
-    )
-
-    metrics_port = int(os.environ.get("GPU_METRICS_PORT", "9090"))
-    try:
-        start_metrics_server(port=metrics_port)
-        log.info("metrics_server_started", port=metrics_port)
-    except Exception as exc:
-        log.warning("metrics_server_start_failed", port=metrics_port, error=str(exc))
-
-    log.info("gpu_worker_starting", queue=QUEUE_NAME, poll_interval=POLL_INTERVAL)
-    set_worker_up(True)
-    record_heartbeat()
+def _run_cf_loop() -> None:
+    """Legacy loop: long-poll Cloudflare Queues, one stage per message."""
+    from worker.observability import record_heartbeat, record_queue_poll
 
     with httpx.Client() as client:
         while not _shutdown:
@@ -766,6 +951,69 @@ def main() -> None:
             if not _shutdown:
                 record_heartbeat()
                 time.sleep(POLL_INTERVAL)
+
+
+def _run_db_loop() -> None:
+    """Default loop: claim jobs from the backend's processing_jobs table."""
+    import random
+
+    from worker.observability import record_heartbeat, record_queue_poll
+
+    if not BACKEND_API_URL:
+        raise SystemExit(
+            "QUEUE_BACKEND=db requires BACKEND_API_URL (set QUEUE_BACKEND=cf for the legacy queue)"
+        )
+
+    with httpx.Client() as client:
+        while not _shutdown:
+            claimed = None
+            try:
+                claimed = claim_db_job(client)
+                record_queue_poll("success", 1 if claimed else 0)
+                record_heartbeat()
+            except Exception as exc:
+                record_queue_poll("error")
+                log.error("db_claim_error", error=str(exc))
+
+            if claimed is not None:
+                job = _db_row_to_job(claimed)
+                try:
+                    process_job(job)
+                except Exception as exc:
+                    # process_job handles its own failures; this is a belt-and-
+                    # braces guard so one bad job never kills the loop.
+                    log.error("job_processing_crashed", job_id=job.get("jobId"), error=str(exc))
+                continue  # drain the queue before sleeping again
+
+            if not _shutdown:
+                record_heartbeat()
+                # ±20% jitter so a worker fleet doesn't thundering-herd claims.
+                time.sleep(POLL_INTERVAL * random.uniform(0.8, 1.2))
+
+
+def main() -> None:
+    from worker.observability import record_heartbeat, set_worker_up, start_metrics_server
+
+    metrics_port = int(os.environ.get("GPU_METRICS_PORT", "9090"))
+    try:
+        start_metrics_server(port=metrics_port)
+        log.info("metrics_server_started", port=metrics_port)
+    except Exception as exc:
+        log.warning("metrics_server_start_failed", port=metrics_port, error=str(exc))
+
+    log.info(
+        "gpu_worker_starting",
+        queue_backend=QUEUE_BACKEND,
+        worker_id=_worker_id(),
+        poll_interval=POLL_INTERVAL,
+    )
+    set_worker_up(True)
+    record_heartbeat()
+
+    if QUEUE_BACKEND == "cf":
+        _run_cf_loop()
+    else:
+        _run_db_loop()
 
     set_worker_up(False)
     log.info("gpu_worker_stopped")

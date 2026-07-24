@@ -18,7 +18,16 @@ BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
 
 
 def _client() -> httpx.Client:
-    return httpx.Client(base_url=BACKEND_API_URL, timeout=30)
+    headers: dict[str, str] = {}
+    try:
+        from worker import auth as worker_auth
+
+        bearer = worker_auth.token()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+    except ImportError:  # CLI contexts without the worker package on the path
+        pass
+    return httpx.Client(base_url=BACKEND_API_URL, timeout=30, headers=headers)
 
 
 def _offline() -> bool:
