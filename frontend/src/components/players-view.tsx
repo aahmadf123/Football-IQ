@@ -1,98 +1,183 @@
 "use client";
 
 /**
- * Players roster view (extracted from the old page-renderer monolith).
+ * Players roster view.
  *
  * Lists the live roster (identity from /api/v1/players via app-state) with a
- * client-side search, plus a focus panel for the hovered/selected player.
- * Performance metrics that are not wired to the live pipeline yet render "—"
- * instead of fabricated numbers (#103).
+ * client-side search and a local position-group filter (which replaced the old
+ * global side-of-ball topbar select), plus a focus panel for the
+ * hovered/selected player. Performance metrics that are not wired to the live
+ * pipeline yet render "—" instead of fabricated numbers (#103).
  */
 
 import Link from "next/link";
 import { Search, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useAppState, type ApiStatus } from "@/lib/app-state";
-import { Metric } from "@/components/shared/metric";
 import { PlayerPortrait } from "@/components/shared/player-portrait";
 import type { PlayerSummary } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { StatChip } from "@/components/composite/stat-chip";
 
 /** Canonical profile link — CSR detail page that works for any real id. */
 export function playerProfileHref(id: string): string {
   return `/players/detail/?id=${encodeURIComponent(id)}`;
 }
 
+const ALL_GROUPS = "__all__";
+
 export function PlayersView() {
-  const { data, filteredPlayers, selectedPlayer, setSelectedPlayerId, playersStatus } = useAppState();
+  const { data, selectedPlayer, setSelectedPlayerId, playersStatus } = useAppState();
   const [query, setQuery] = useState("");
+  const [group, setGroup] = useState<string>(ALL_GROUPS);
+
+  const groups = useMemo(() => {
+    const seen = new Set<string>();
+    for (const p of data.players) seen.add(p.group);
+    return [...seen].sort();
+  }, [data.players]);
 
   const visible = useMemo(() => {
-    const list = filteredPlayers.length ? filteredPlayers : data.players;
     const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(
-      (p) =>
+    return data.players.filter((p) => {
+      if (group !== ALL_GROUPS && p.group !== group) return false;
+      if (!q) return true;
+      return (
         p.name.toLowerCase().includes(q) ||
         p.position.toLowerCase().includes(q) ||
-        p.jersey.includes(q),
-    );
-  }, [filteredPlayers, data.players, query]);
+        p.jersey.includes(q)
+      );
+    });
+  }, [data.players, query, group]);
 
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-8">
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <h2 className="panel-title">Roster Intelligence</h2>
-          <label className="search-inline">
-            <Search size={15} />
-            <input
-              placeholder="Search by name, jersey, or position"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-        </div>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          {visible.length === 0 && (
-            <div className="kicker">
-              {query.trim() ? "No players match the current filter." : rosterEmptyMessage(playersStatus)}
-            </div>
-          )}
-          {visible.map((player) => (
-            <Link
-              key={player.id}
-              href={playerProfileHref(player.id)}
-              className="table-row table-row-link"
-              onMouseEnter={() => setSelectedPlayerId(player.id)}
+    <div className="grid gap-4 lg:grid-cols-3">
+      <Card className="lg:col-span-2">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Roster Intelligence
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <NativeSelect
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              aria-label="Filter by position group"
+              data-testid="players-group-filter"
             >
-              <strong>#{player.jersey} {player.name}</strong>
-              <span>{player.position}</span>
-              <span>{fmtMetric(player.maxSpeed)} MPH</span>
-              <span>{fmtMetric(player.distance)} YDS</span>
-              <span className="status-pill info">{fmtConfidence(player.confidence)}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
-      <section className="panel panel-pad span-4">
-        {selectedPlayer ? (
-          <>
-            <PlayerFocus
-              player={selectedPlayer}
-              allPlayers={visible.length ? visible : data.players}
-              onSelect={setSelectedPlayerId}
-            />
-            <Link href={playerProfileHref(selectedPlayer.id)} className="control-button primary" style={{ marginTop: 12, textDecoration: "none", justifyContent: "center" }}>
-              <UserRound size={15} /> Open Full Profile
-            </Link>
-          </>
-        ) : (
-          <>
-            <h2 className="panel-title">Player Focus</h2>
-            <p className="kicker" style={{ marginTop: 8 }}>{rosterEmptyMessage(playersStatus)}</p>
-          </>
-        )}
-      </section>
+              <option value={ALL_GROUPS}>All groups</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </NativeSelect>
+            <div className="relative">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                className="h-9 w-56 pl-8"
+                placeholder="Name, jersey, or position"
+                aria-label="Search roster"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {visible.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {query.trim() || group !== ALL_GROUPS
+                ? "No players match the current filter."
+                : rosterEmptyMessage(playersStatus)}
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Player</TableHead>
+                  <TableHead>Pos</TableHead>
+                  <TableHead className="text-right">Max speed</TableHead>
+                  <TableHead className="text-right">Distance</TableHead>
+                  <TableHead className="text-right">Identity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visible.map((player) => (
+                  <TableRow
+                    key={player.id}
+                    className="cursor-pointer"
+                    onMouseEnter={() => setSelectedPlayerId(player.id)}
+                  >
+                    <TableCell className="font-medium">
+                      <Link
+                        href={playerProfileHref(player.id)}
+                        className="flex items-center gap-2 hover:text-primary"
+                      >
+                        <span data-numeric className="font-mono text-muted-foreground">
+                          #{player.jersey}
+                        </span>
+                        {player.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{player.position}</TableCell>
+                    <TableCell data-numeric className="text-right font-mono text-xs">
+                      {fmtMetric(player.maxSpeed)} MPH
+                    </TableCell>
+                    <TableCell data-numeric className="text-right font-mono text-xs">
+                      {fmtMetric(player.distance)} YDS
+                    </TableCell>
+                    <TableCell data-numeric className="text-right font-mono text-xs">
+                      {fmtConfidence(player.confidence)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          {selectedPlayer ? (
+            <>
+              <PlayerFocus
+                player={selectedPlayer}
+                allPlayers={visible.length ? visible : data.players}
+                onSelect={setSelectedPlayerId}
+              />
+              <Button asChild className="mt-4 w-full">
+                <Link href={playerProfileHref(selectedPlayer.id)}>
+                  <UserRound className="size-4" /> Open Full Profile
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <>
+              <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+                Player Focus
+              </h2>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {rosterEmptyMessage(playersStatus)}
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -115,26 +200,30 @@ export function PlayerFocus({
 }) {
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <h2 className="panel-title">Player Focus</h2>
-        <select
-          className="inline-select"
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          Player Focus
+        </h2>
+        <NativeSelect
           value={player.id}
           onChange={(e) => onSelect(e.target.value)}
           aria-label="Choose player"
+          className="max-w-44"
         >
           {allPlayers.map((p) => (
-            <option key={p.id} value={p.id}>#{p.jersey} {p.name}</option>
+            <option key={p.id} value={p.id}>
+              #{p.jersey} {p.name}
+            </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
-      <Link href={playerProfileHref(player.id)} style={{ textDecoration: "none", color: "inherit", display: "block", marginTop: 6 }}>
+      <Link href={playerProfileHref(player.id)} className="mt-2 block">
         <PlayerPortrait player={player} compact={compact} />
       </Link>
-      <div className="metric-grid" style={{ marginTop: compact ? 8 : 12, gridTemplateColumns: "repeat(3, 1fr)" }}>
-        <Metric label="Distance" value={fmtMetric(player.distance)} unit="YDS" />
-        <Metric label="Max Speed" value={fmtMetric(player.maxSpeed)} unit="MPH" />
-        <Metric label="Avg Sep" value={fmtMetric(player.separation)} unit="YDS" />
+      <div className={`grid grid-cols-3 gap-2 ${compact ? "mt-2" : "mt-3"}`}>
+        <StatChip label="Distance" value={fmtMetric(player.distance)} hint="YDS" />
+        <StatChip label="Max Speed" value={fmtMetric(player.maxSpeed)} hint="MPH" />
+        <StatChip label="Avg Sep" value={fmtMetric(player.separation)} hint="YDS" />
       </div>
     </>
   );
@@ -145,7 +234,7 @@ export function rosterEmptyMessage(status: ApiStatus): string {
     case "loading":
       return "Loading roster…";
     case "offline":
-      return "Roster unavailable — could not reach /api/v1/players.";
+      return "Roster unavailable — not connected to the team server.";
     case "live":
       return "Roster is empty. Add players from Settings to populate this view.";
     case "mock":

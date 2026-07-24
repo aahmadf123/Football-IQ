@@ -4,22 +4,36 @@
  */
 
 import type { PlayerSummary } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-export function PlayerPortrait({ player, compact = false }: { player: PlayerSummary; compact?: boolean }) {
+export function PlayerPortrait({
+  player,
+  compact = false,
+}: {
+  player: PlayerSummary;
+  compact?: boolean;
+}) {
   return (
     <div
-      style={{
-        minHeight: compact ? 84 : 124,
-        borderRadius: 7,
-        border: "1px solid var(--line-soft)",
-        background: "linear-gradient(135deg, oklch(0.2 0.05 252), oklch(0.33 0.09 252))",
-        padding: compact ? 10 : 14,
-        display: "grid",
-        alignContent: "end",
-      }}
+      className={cn(
+        "grid content-end rounded-lg border border-border-soft bg-gradient-to-br from-[oklch(0.2_0.05_252)] to-[oklch(0.33_0.09_252)]",
+        compact ? "min-h-21 p-2.5" : "min-h-31 p-3.5",
+      )}
     >
-      <strong style={{ fontSize: compact ? "1.45rem" : "2.1rem", lineHeight: 1 }}>#{player.jersey}</strong>
-      <span style={{ color: "var(--muted)", fontWeight: 800, fontSize: compact ? "0.78rem" : undefined }}>{player.position} · {player.name}</span>
+      <strong
+        data-numeric
+        className={cn("font-mono leading-none", compact ? "text-2xl" : "text-4xl")}
+      >
+        #{player.jersey}
+      </strong>
+      <span
+        className={cn(
+          "mt-1 font-display font-semibold uppercase tracking-wide text-muted-foreground",
+          compact ? "text-[0.78rem]" : "text-sm",
+        )}
+      >
+        {player.position} · {player.name}
+      </span>
     </div>
   );
 }

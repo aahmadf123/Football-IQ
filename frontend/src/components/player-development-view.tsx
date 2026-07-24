@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Player Development (extracted from the old page-renderer monolith).
+ * Player Development.
  *
  * Real surfaces only: the selected player's identity focus, the
  * body-orientation proxy + effort review candidates from /api/v1/metrics, and
@@ -14,14 +14,17 @@ import { CheckCircle2, Pause, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAppState } from "@/lib/app-state";
 import { createCorrection, fetchMetrics, type ApiMetric } from "@/lib/api";
-import { MetricLine } from "@/components/shared/metric";
 import { PlayerPortrait } from "@/components/shared/player-portrait";
 import { TrendLine } from "@/components/shared/trend-line";
 import { PlayerFocus, playerProfileHref } from "@/components/players-view";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { EmptyState } from "@/components/composite/empty-state";
+import { StatLine } from "@/components/composite/stat-chip";
 
 export function PlayerDevelopmentView() {
-  const { data, selectedPlayer, setSelectedPlayerId, filteredPlayers, authToken } = useAppState();
-  const pool = filteredPlayers.length ? filteredPlayers : data.players;
+  const { data, selectedPlayer, setSelectedPlayerId, authToken } = useAppState();
+  const pool = data.players;
   const [developmentMetrics, setDevelopmentMetrics] = useState<ApiMetric[]>([]);
   const [metricsState, setMetricsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [metricsError, setMetricsError] = useState<string | null>(null);
@@ -60,12 +63,11 @@ export function PlayerDevelopmentView() {
 
   if (!selectedPlayer) {
     return (
-      <div className="content-grid">
-        <section className="panel panel-pad span-12">
-          <h2 className="panel-title">Player Development</h2>
-          <p className="kicker" style={{ marginTop: 8 }}>No players yet.</p>
-        </section>
-      </div>
+      <EmptyState
+        icon={UserRound}
+        title="No players yet"
+        hint="Player development surfaces appear once the roster has players."
+      />
     );
   }
 
@@ -103,34 +105,59 @@ export function PlayerDevelopmentView() {
   };
 
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-4">
-        <PlayerFocus player={selectedPlayer} allPlayers={pool} onSelect={setSelectedPlayerId} />
-        <Link href={playerProfileHref(selectedPlayer.id)} className="control-button primary" style={{ marginTop: 12, textDecoration: "none", justifyContent: "center" }}>
-          <UserRound size={15} /> Open Full Profile
-        </Link>
-      </section>
-      <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Body-Orientation Proxy</h2>
-        <PlayerPortrait player={selectedPlayer} />
-        <DevelopmentMetricState
-          authToken={authToken}
-          state={metricsState}
-          error={metricsError}
-          empty={orientationMetrics.length === 0}
-          emptyMessage="No body-orientation review candidates for this player."
-        />
-        {orientationMetrics.slice(0, 3).map((metric) => (
-          <BodyOrientationRow key={metric.id} metric={metric} />
-        ))}
-      </section>
-      <section className="panel panel-pad span-4">
-        <h2 className="panel-title">Trend Lines</h2>
-        <TrendLine data={selectedPlayer.trend} />
-      </section>
-      <section className="panel panel-pad span-12">
-        <h2 className="panel-title">Effort Review Candidates</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardContent>
+            <PlayerFocus player={selectedPlayer} allPlayers={pool} onSelect={setSelectedPlayerId} />
+            <Button asChild className="mt-4 w-full">
+              <Link href={playerProfileHref(selectedPlayer.id)}>
+                <UserRound className="size-4" /> Open Full Profile
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Body-Orientation Proxy
+            </h2>
+          </CardHeader>
+          <CardContent>
+            <PlayerPortrait player={selectedPlayer} compact />
+            <DevelopmentMetricState
+              authToken={authToken}
+              state={metricsState}
+              error={metricsError}
+              empty={orientationMetrics.length === 0}
+              emptyMessage="No body-orientation review candidates for this player."
+            />
+            {orientationMetrics.slice(0, 3).map((metric) => (
+              <BodyOrientationRow key={metric.id} metric={metric} />
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Trend Lines
+            </h2>
+          </CardHeader>
+          <CardContent>
+            <TrendLine data={selectedPlayer.trend} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Effort Review Candidates
+          </h2>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
           <DevelopmentMetricState
             authToken={authToken}
             state={metricsState}
@@ -147,8 +174,8 @@ export function PlayerDevelopmentView() {
               onClear={() => submitEffortCorrection(metric, false)}
             />
           ))}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -167,16 +194,24 @@ function DevelopmentMetricState({
   emptyMessage: string;
 }) {
   if (!authToken) {
-    return <p className="kicker" style={{ marginTop: 8 }}>Sign in to view live review candidates.</p>;
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        Sign in to view live review candidates.
+      </p>
+    );
   }
   if (state === "loading") {
-    return <p className="kicker" style={{ marginTop: 8 }}>Loading review candidates…</p>;
+    return <p className="mt-2 text-xs text-muted-foreground">Loading review candidates…</p>;
   }
   if (state === "error") {
-    return <p className="kicker" style={{ marginTop: 8 }}>{error ?? "Review candidates unavailable."}</p>;
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        {error ?? "Review candidates unavailable."}
+      </p>
+    );
   }
   if (state === "ready" && empty) {
-    return <p className="kicker" style={{ marginTop: 8 }}>{emptyMessage}</p>;
+    return <p className="mt-2 text-xs text-muted-foreground">{emptyMessage}</p>;
   }
   return null;
 }
@@ -196,26 +231,39 @@ function EffortReviewRow({
   const flagged = metric.loaf_flag === true || value.loaf_flag === true;
   const reasonCodes = Array.isArray(value.reason_codes) ? value.reason_codes.join(", ") : "review";
   return (
-    <div className="insight-row" style={{ gridTemplateColumns: "1fr auto" }}>
-      <span>
-        <strong>{flagged ? "Possible effort drop" : "Effort range check"}</strong>
-        <br />
-        <small style={{ color: "var(--muted)" }}>
-          z {formatMaybeNumber(metric.effort_zscore)} · confidence {formatMaybePct(metric.confidence)}
-          {" · "}{reasonCodes}
-        </small>
-      </span>
-      <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <button className="icon-button" aria-label="Confirm effort review candidate" onClick={onConfirm}>
-          <CheckCircle2 size={15} />
-        </button>
-        <button className="icon-button" aria-label="Clear effort review candidate" onClick={onClear}>
-          <Pause size={15} />
-        </button>
-        {status === "saving" && <small className="kicker">Saving</small>}
-        {status === "saved" && <small className="kicker">Saved</small>}
-        {status === "error" && <small className="kicker">Error</small>}
-      </span>
+    <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-2 last:border-b-0 last:pb-0">
+      <div className="min-w-0">
+        <span className="text-[0.85rem] font-semibold">
+          {flagged ? "Possible effort drop" : "Effort range check"}
+        </span>
+        <div data-numeric className="mt-0.5 font-mono text-xs text-muted-foreground">
+          z {formatMaybeNumber(metric.effort_zscore)} · confidence{" "}
+          {formatMaybePct(metric.confidence)} · {reasonCodes}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label="Confirm effort review candidate"
+          onClick={onConfirm}
+        >
+          <CheckCircle2 className="size-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label="Clear effort review candidate"
+          onClick={onClear}
+        >
+          <Pause className="size-4" />
+        </Button>
+        {status === "saving" && <span className="text-xs text-muted-foreground">Saving</span>}
+        {status === "saved" && <span className="text-xs text-status-ok">Saved</span>}
+        {status === "error" && <span className="text-xs text-status-danger">Error</span>}
+      </div>
     </div>
   );
 }
@@ -223,11 +271,11 @@ function EffortReviewRow({
 function BodyOrientationRow({ metric }: { metric: ApiMetric }) {
   const value = metric.metric_value;
   return (
-    <div className="list-stack" style={{ marginTop: 8, gap: 2 }}>
-      <MetricLine label="Proxy class" value={orientationLabel(value.orientation_class)} />
-      <MetricLine label="Head yaw" value={`${formatMaybeNumber(value.head_yaw_deg)}°`} />
-      <MetricLine label="Confidence" value={formatMaybePct(metric.confidence)} />
-      <MetricLine label="Review state" value={String(value.review_state ?? "needs review")} />
+    <div className="mt-2 flex flex-col gap-1">
+      <StatLine label="Proxy class" value={orientationLabel(value.orientation_class)} />
+      <StatLine label="Head yaw" value={`${formatMaybeNumber(value.head_yaw_deg)}°`} />
+      <StatLine label="Confidence" value={formatMaybePct(metric.confidence)} />
+      <StatLine label="Review state" value={String(value.review_state ?? "needs review")} />
     </div>
   );
 }

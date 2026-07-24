@@ -5,13 +5,26 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
 import { FootballShell } from "@/components/football-shell";
-import { Metric, MetricLine } from "@/components/shared/metric";
 import { PlayerPortrait } from "@/components/shared/player-portrait";
 import { TrendLine } from "@/components/shared/trend-line";
 import { fmtMetric, playerProfileHref } from "@/components/players-view";
 import { apiPlayerToSummary, useAppState } from "@/lib/app-state";
 import { fetchPlayer } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/composite/empty-state";
+import { StatChip, StatLine } from "@/components/composite/stat-chip";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type LoadState = "idle" | "loading" | "ready" | "missing" | "error";
 
@@ -39,7 +52,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
         setPlayer(cached);
         setLoadState("ready");
       } else {
-        setErrorMessage("API is not configured (NEXT_PUBLIC_API_URL is unset).");
+        setErrorMessage("Not connected to the team server — player details are unavailable.");
         setLoadState("error");
       }
       return;
@@ -72,13 +85,9 @@ export function PlayerProfileClient({ id }: { id: string }) {
   if (loadState === "loading") {
     return (
       <FootballShell activePage="players">
-        <div className="content-grid">
-          <section className="panel panel-pad span-12">
-            <h2 className="panel-title">Loading player…</h2>
-            <p className="kicker" style={{ marginTop: 8 }}>
-              Fetching player <strong>{id}</strong> from the backend.
-            </p>
-          </section>
+        <div role="status" aria-busy="true" aria-label="Loading player" className="flex flex-col gap-3">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-48 w-full" />
         </div>
       </FootballShell>
     );
@@ -87,17 +96,17 @@ export function PlayerProfileClient({ id }: { id: string }) {
   if (loadState === "error") {
     return (
       <FootballShell activePage="players">
-        <div className="content-grid">
-          <section className="panel panel-pad span-12">
-            <h2 className="panel-title">Could not load player</h2>
-            <p className="kicker" style={{ marginTop: 8 }}>
-              {errorMessage ?? "An unexpected error occurred."}
-            </p>
-            <Link href="/players" className="control-button primary" style={{ marginTop: 12, textDecoration: "none", display: "inline-flex" }}>
-              <ArrowLeft size={15} /> Back to Roster
-            </Link>
-          </section>
-        </div>
+        <EmptyState
+          title="Could not load player"
+          hint={errorMessage ?? "An unexpected error occurred."}
+          action={
+            <Button asChild>
+              <Link href="/players">
+                <ArrowLeft className="size-4" /> Back to Roster
+              </Link>
+            </Button>
+          }
+        />
       </FootballShell>
     );
   }
@@ -105,25 +114,27 @@ export function PlayerProfileClient({ id }: { id: string }) {
   if (!player || loadState === "missing") {
     return (
       <FootballShell activePage="players">
-        <div className="content-grid">
-          <section className="panel panel-pad span-12">
-            <h2 className="panel-title">Player not found</h2>
-            <p className="kicker" style={{ marginTop: 8 }}>
-              We couldn&apos;t find a player with id <strong>{id}</strong>.
-            </p>
-            <Link href="/players" className="control-button primary" style={{ marginTop: 12, textDecoration: "none", display: "inline-flex" }}>
-              <ArrowLeft size={15} /> Back to Roster
-            </Link>
-          </section>
-        </div>
+        <EmptyState
+          title="Player not found"
+          hint={`We couldn't find a player with id ${id}.`}
+          action={
+            <Button asChild>
+              <Link href="/players">
+                <ArrowLeft className="size-4" /> Back to Roster
+              </Link>
+            </Button>
+          }
+        />
       </FootballShell>
     );
   }
 
   const others = data.players.filter((p) => p.id !== player.id);
-  const metricsAvailable = player.maxSpeed != null || player.distance != null || player.separation != null;
+  const metricsAvailable =
+    player.maxSpeed != null || player.distance != null || player.separation != null;
   const trendAvailable = player.trend && player.trend.length > 0;
-  const confidenceLabel = player.confidence != null ? `${Math.round(player.confidence * 100)}%` : "—";
+  const confidenceLabel =
+    player.confidence != null ? `${Math.round(player.confidence * 100)}%` : "—";
 
   const exportProfile = () => {
     const lines = [
@@ -148,84 +159,132 @@ export function PlayerProfileClient({ id }: { id: string }) {
 
   return (
     <FootballShell activePage="players">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
-        <button type="button" className="control-button" onClick={() => router.back()}>
-          <ArrowLeft size={15} /> Back
-        </button>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <label className="inline-select-wrap">
-            <span className="kicker">Switch player</span>
-            <select
-              className="inline-select"
-              value={player.id}
-              onChange={(e) => {
-                setSelectedPlayerId(e.target.value);
-                router.push(playerProfileHref(e.target.value));
-              }}
-            >
-              {data.players.map((p) => (
-                <option key={p.id} value={p.id}>#{p.jersey} {p.name} · {p.position}</option>
-              ))}
-            </select>
-          </label>
-          <button className="control-button primary" onClick={exportProfile}>
-            <Download size={15} /> Export Profile
-          </button>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Button variant="outline" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="size-4" /> Back
+        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <NativeSelect
+            value={player.id}
+            onChange={(e) => {
+              setSelectedPlayerId(e.target.value);
+              router.push(playerProfileHref(e.target.value));
+            }}
+            aria-label="Switch player"
+            className="max-w-64"
+          >
+            {data.players.map((p) => (
+              <option key={p.id} value={p.id}>
+                #{p.jersey} {p.name} · {p.position}
+              </option>
+            ))}
+          </NativeSelect>
+          <Button size="sm" onClick={exportProfile}>
+            <Download className="size-4" /> Export Profile
+          </Button>
         </div>
       </div>
 
-      <div className="content-grid">
-        <section className="panel panel-pad span-4">
-          <h2 className="panel-title">Identity</h2>
-          <PlayerPortrait player={player} />
-          <div className="list-stack" style={{ marginTop: 12 }}>
-            <MetricLine label="Jersey" value={`#${player.jersey}`} />
-            <MetricLine label="Name" value={player.name} />
-            <MetricLine label="Position" value={player.position} />
-            <MetricLine label="Group" value={player.group} />
-            <MetricLine label="Identity Confidence" value={confidenceLabel} />
-          </div>
-        </section>
-
-        <section className="panel panel-pad span-8">
-          <h2 className="panel-title">Performance Metrics</h2>
-          {metricsAvailable ? (
-            <div className="metric-grid" style={{ marginTop: 12 }}>
-              <Metric label="Max Speed" value={fmtMetric(player.maxSpeed)} unit="MPH" />
-              <Metric label="Distance" value={fmtMetric(player.distance)} unit="YDS" />
-              <Metric label="Avg Separation" value={fmtMetric(player.separation)} unit="YDS" />
-              <Metric label="Identity" value={confidenceLabel} unit="" />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Identity
+            </h2>
+          </CardHeader>
+          <CardContent>
+            <PlayerPortrait player={player} />
+            <div className="mt-3 flex flex-col gap-1.5">
+              <StatLine label="Jersey" value={`#${player.jersey}`} />
+              <StatLine label="Name" value={player.name} />
+              <StatLine label="Position" value={player.position} />
+              <StatLine label="Group" value={player.group} />
+              <StatLine label="Identity Confidence" value={confidenceLabel} />
             </div>
-          ) : (
-            <p className="kicker" style={{ marginTop: 10 }}>
-              Performance metrics are not wired to the live pipeline yet. They will surface once per-player tracking metrics land (#100).
-            </p>
-          )}
-          <div style={{ marginTop: 14 }}>
-            <h3 className="panel-title" style={{ fontSize: "0.78rem" }}>Trend</h3>
-            <TrendLine data={player.trend} />
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
-        <section className="panel panel-pad span-12">
-          <h2 className="panel-title">Position Group · Quick Switch</h2>
-          {others.length === 0 ? (
-            <p className="kicker" style={{ marginTop: 8 }}>No other players on the roster yet.</p>
-          ) : (
-            <div className="list-stack" style={{ marginTop: 12 }}>
-              {others.map((p) => (
-                <Link key={p.id} href={playerProfileHref(p.id)} className="table-row table-row-link">
-                  <strong>#{p.jersey} {p.name}</strong>
-                  <span>{p.position}</span>
-                  <span>{fmtMetric(p.maxSpeed)} MPH</span>
-                  <span>{fmtMetric(p.distance)} YDS</span>
-                  <span className="status-pill info">{p.confidence != null ? `${Math.round(p.confidence * 100)}%` : "—"}</span>
-                </Link>
-              ))}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Performance Metrics
+            </h2>
+          </CardHeader>
+          <CardContent>
+            {metricsAvailable ? (
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                <StatChip label="Max Speed" value={fmtMetric(player.maxSpeed)} hint="MPH" />
+                <StatChip label="Distance" value={fmtMetric(player.distance)} hint="YDS" />
+                <StatChip label="Avg Separation" value={fmtMetric(player.separation)} hint="YDS" />
+                <StatChip label="Identity" value={confidenceLabel} />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Performance metrics are not wired to the live pipeline yet. They will surface once
+                per-player tracking metrics land (#100).
+              </p>
+            )}
+            <div className="mt-4">
+              <h3 className="mb-1.5 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Trend
+              </h3>
+              <TrendLine data={player.trend} />
             </div>
-          )}
-        </section>
+          </CardContent>
+        </Card>
       </div>
+
+      <Card className="mt-4">
+        <CardHeader>
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Position Group · Quick Switch
+          </h2>
+        </CardHeader>
+        <CardContent>
+          {others.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No other players on the roster yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Player</TableHead>
+                  <TableHead>Pos</TableHead>
+                  <TableHead className="text-right">Max speed</TableHead>
+                  <TableHead className="text-right">Distance</TableHead>
+                  <TableHead className="text-right">Identity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {others.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={playerProfileHref(p.id)}
+                        className="flex items-center gap-2 hover:text-primary"
+                      >
+                        <span data-numeric className="font-mono text-muted-foreground">
+                          #{p.jersey}
+                        </span>
+                        {p.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{p.position}</TableCell>
+                    <TableCell data-numeric className="text-right font-mono text-xs">
+                      {fmtMetric(p.maxSpeed)} MPH
+                    </TableCell>
+                    <TableCell data-numeric className="text-right font-mono text-xs">
+                      {fmtMetric(p.distance)} YDS
+                    </TableCell>
+                    <TableCell data-numeric className="text-right font-mono text-xs">
+                      {p.confidence != null ? `${Math.round(p.confidence * 100)}%` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </FootballShell>
   );
 }
