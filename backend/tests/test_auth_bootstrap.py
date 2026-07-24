@@ -77,6 +77,36 @@ async def test_first_user_bootstraps_admin_then_viewers(
     assert second.role == UserRole.viewer
 
 
+async def test_email_case_insensitive_signup_and_signin(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    # Register with a mixed-case email; signing in with a different case must
+    # still match (emails are normalized to lowercase at both ends).
+    from app.routers.auth import LoginRequest, login
+
+    async with db() as session:
+        await register(_register_request("Mixed.Case@Example.COM"), session)
+
+    async with db() as session:
+        tokens = await login(
+            LoginRequest(email="mixed.case@example.com", password="pw-123456"), session
+        )
+    assert tokens.access_token and tokens.refresh_token
+
+
+async def test_duplicate_registration_conflicts_case_insensitively(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    async with db() as session:
+        await register(_register_request("dupe@example.com"), session)
+
+    async with db() as session:
+        with pytest.raises(HTTPException) as exc:
+            # Same address, different case — must be rejected as a duplicate.
+            await register(_register_request("Dupe@Example.com"), session)
+    assert exc.value.status_code == 409
+
+
 async def test_admin_can_promote_and_last_admin_protected(
     db: async_sessionmaker[AsyncSession],
 ) -> None:

@@ -91,7 +91,7 @@ Open `http://localhost:3000`, sign in, upload a clip, watch it process.
 
 **Signing in the first time — three options:**
 
-- Seeded admin: `admin@footballiq.local` / `change-me-admin` (override with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` before running the `seed` service).
+- Seeded admin: `admin@example.com` / `change-me-admin` (override with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` before running the `seed` service).
 - Register: the **first user ever registered becomes admin** automatically; everyone after that starts as `viewer` (an admin promotes them via `PATCH /api/v1/auth/users/{id}/role`). Client-supplied roles are ignored.
 - Dev autologin: compose sets `DEV_AUTOLOGIN=1`, enabling `POST /api/v1/auth/dev-login` (development environment only) which the login page surfaces as a one-click dev sign-in.
 
@@ -141,8 +141,8 @@ cp .env.example .env
 | `PUBLIC_API_BASE_URL` | `http://localhost:8000` | Base baked into signed local streaming URLs |
 | `QUEUE_BACKEND` | `db` | Worker job source: `db` (backend queue) or `cf` (legacy Cloudflare pull) |
 | `WORKER_EMAIL` / `WORKER_PASSWORD` | seed defaults | The gpu-worker's service-account login (analyst role) |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@footballiq.local` / `change-me-admin` | `scripts/seed_users.py` inputs |
-| `SEED_WORKER_EMAIL` / `SEED_WORKER_PASSWORD` | `worker@footballiq.local` / `change-me-worker` | Ditto, worker account |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@example.com` / `change-me-admin` | `scripts/seed_users.py` inputs |
+| `SEED_WORKER_EMAIL` / `SEED_WORKER_PASSWORD` | `worker@example.com` / `change-me-worker` | Ditto, worker account |
 | `DEV_AUTOLOGIN` | off | `1` + development env → enables `POST /auth/dev-login` |
 | `PIPELINE_STUB` | `0` | `1` → deterministic stub models (fast wiring checks) |
 | `CF_QUEUES_ENABLED` | off | Opt-in for legacy Cloudflare Queues publishing |
@@ -236,8 +236,8 @@ export STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/footiq-storage
 export PUBLIC_API_BASE_URL=http://localhost:8000
 
 alembic upgrade head
-SEED_ADMIN_EMAIL=admin@footballiq.local SEED_ADMIN_PASSWORD=change-me-admin \
-SEED_WORKER_EMAIL=worker@footballiq.local SEED_WORKER_PASSWORD=change-me-worker \
+SEED_ADMIN_EMAIL=admin@example.com SEED_ADMIN_PASSWORD=change-me-admin \
+SEED_WORKER_EMAIL=worker@example.com SEED_WORKER_PASSWORD=change-me-worker \
   python -m scripts.seed_users
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -260,7 +260,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt        # or requirements-ci.txt for stub mode
 
 export QUEUE_BACKEND=db BACKEND_API_URL=http://localhost:8000
-export WORKER_EMAIL=worker@footballiq.local WORKER_PASSWORD=change-me-worker
+export WORKER_EMAIL=worker@example.com WORKER_PASSWORD=change-me-worker
 export STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/footiq-storage
 python -m __main__ 2>/dev/null || python __main__.py
 ```

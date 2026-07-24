@@ -77,9 +77,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq
       SECRET_KEY: dev-secret-key-not-for-production
-      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@footballiq.local}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-me-admin}
-      SEED_WORKER_EMAIL: ${SEED_WORKER_EMAIL:-worker@footballiq.local}
+      SEED_WORKER_EMAIL: ${SEED_WORKER_EMAIL:-worker@example.com}
       SEED_WORKER_PASSWORD: ${SEED_WORKER_PASSWORD:-change-me-worker}
     command: python -m scripts.seed_users
     profiles:
@@ -98,7 +98,7 @@ services:
     environment:
       QUEUE_BACKEND: db
       BACKEND_API_URL: http://backend:8000
-      WORKER_EMAIL: ${SEED_WORKER_EMAIL:-worker@footballiq.local}
+      WORKER_EMAIL: ${SEED_WORKER_EMAIL:-worker@example.com}
       WORKER_PASSWORD: ${SEED_WORKER_PASSWORD:-change-me-worker}
       STORAGE_BACKEND: local
       LOCAL_STORAGE_ROOT: /data/storage

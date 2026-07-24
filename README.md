@@ -27,7 +27,7 @@ docker compose --profile migrate up migrate seed
 docker compose --profile pipeline up backend frontend gpu-worker
 ```
 
-Open `http://localhost:3000`, sign in (seeded `admin@footballiq.local` / `change-me-admin`, or register — the first user becomes admin), upload a clip, and watch it process: per-stage progress on the dashboard, then clips with bounding-box overlays in Clip Review. Uploads auto-process by default (Settings → "Process film automatically on upload" turns it off).
+Open `http://localhost:3000`, sign in (seeded `admin@example.com` / `change-me-admin`, or register — the first user becomes admin), upload a clip, and watch it process: per-stage progress on the dashboard, then clips with bounding-box overlays in Clip Review. Uploads auto-process by default (Settings → "Process film automatically on upload" turns it off).
 
 **No services at all** — run the pipeline directly on any video file:
 

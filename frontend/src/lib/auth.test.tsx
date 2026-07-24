@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { AuthProvider, useAuth } from "./auth";
@@ -132,6 +133,51 @@ describe("AuthProvider", () => {
     );
     await waitFor(() => expect(screen.getByTestId("token").textContent).toBe("none"));
     expect(window.localStorage.getItem("football-iq-auth-v1")).toBeNull();
+  });
+
+  test("surfaces FastAPI 422 validation messages instead of a generic error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: [
+            { msg: "value is not a valid email address", loc: ["body", "email"] },
+            { msg: "String should have at least 8 characters", loc: ["body", "password"] },
+          ],
+        }),
+      })),
+    );
+
+    function ErrProbe() {
+      const { register } = useAuth();
+      const [err, setErr] = useState("none");
+      return (
+        <>
+          <span data-testid="err">{err}</span>
+          <button
+            data-testid="reg"
+            onClick={() => register("bad", "short", "N").catch((e) => setErr(e.message))}
+          />
+        </>
+      );
+    }
+
+    render(
+      <AuthProvider>
+        <ErrProbe />
+      </AuthProvider>,
+    );
+    await act(async () => {
+      screen.getByTestId("reg").click();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("err").textContent).toContain("valid email address"),
+    );
+    // Both validation reasons are surfaced, not a bare "Request failed (422)".
+    expect(screen.getByTestId("err").textContent).toContain("at least 8 characters");
+    expect(screen.getByTestId("err").textContent).not.toContain("Request failed");
   });
 
   test("mock mode (no API base) does not require auth", async () => {
