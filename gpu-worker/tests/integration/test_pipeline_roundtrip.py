@@ -175,6 +175,25 @@ def _load_worker_main():  # noqa: ANN202 — module type
     return module
 
 
+def _poll(fetch, accept, *, timeout: float = 30.0, interval: float = 0.25):  # noqa: ANN001,ANN202
+    """Poll an eventually-consistent read until ``accept`` is satisfied.
+
+    The backend commits in the ``get_db`` dependency's teardown — i.e. after
+    the response is sent — so an immediate read-after-write can legitimately
+    observe stale data (a ``POST /videos`` can return 201 before its own row
+    is visible; a worker's ``PATCH … succeeded`` returns 200 before the commit
+    lands). The real frontend polls for exactly this reason; the round trip
+    must too, or it races the commit and flakes on fast machines. Returns the
+    last value so the caller's assertion can still produce a useful message.
+    """
+    deadline = time.monotonic() + timeout
+    value = fetch()
+    while not accept(value) and time.monotonic() < deadline:
+        time.sleep(interval)
+        value = fetch()
+    return value
+
+
 def test_full_round_trip(backend: str, tmp_path: Path) -> None:
     client = httpx.Client(base_url=backend, timeout=120)
 
@@ -207,8 +226,12 @@ def test_full_round_trip(backend: str, tmp_path: Path) -> None:
     register.raise_for_status()
     video_id = register.json()["id"]
 
-    # auto_process_on_upload (default ON) must have enqueued the pipeline job.
-    jobs = client.get(f"/api/v1/videos/{video_id}/jobs", headers=auth).json()
+    # auto_process_on_upload (default ON) must have enqueued the pipeline job
+    # (the enqueue commits in teardown, so poll rather than read once).
+    jobs = _poll(
+        lambda: client.get(f"/api/v1/videos/{video_id}/jobs", headers=auth).json(),
+        lambda j: isinstance(j, list) and bool(j),
+    )
     assert jobs and jobs[0]["job_type"] == "pipeline", jobs
     job_id = jobs[0]["id"]
 
@@ -219,22 +242,34 @@ def test_full_round_trip(backend: str, tmp_path: Path) -> None:
     assert claimed is not None and str(claimed["id"]) == str(job_id)
     worker_main.process_job(worker_main._db_row_to_job(claimed))
 
-    job = client.get(f"/api/v1/jobs/{job_id}", headers=auth).json()
+    # The worker's terminal PATCH returns 200 before its commit is visible, so
+    # poll for a terminal state instead of reading once.
+    job = _poll(
+        lambda: client.get(f"/api/v1/jobs/{job_id}", headers=auth).json(),
+        lambda j: j.get("status") in ("succeeded", "failed"),
+    )
     assert job["status"] == "succeeded", job.get("error_message")
     assert job["progress"], "per-stage progress missing"
     assert any(k.startswith("detect") for k in job["progress"])
     assert (job["output_artifacts"] or {}).get("clip_count", 0) >= 1
 
-    clips = client.get(f"/api/v1/videos/{video_id}/clips", headers=auth).json()
+    clips = _poll(
+        lambda: client.get(f"/api/v1/videos/{video_id}/clips", headers=auth).json(),
+        lambda c: isinstance(c, list) and bool(c),
+    )
     assert clips, "no clips created"
 
     overlays = client.get(f"/api/v1/clips/{clips[0]['id']}/overlays", headers=auth).json()
     assert "calibration" in overlays
     assert overlays["layers_available"]["tracklets"] in (True, False)
-    tracklet_total = sum(
-        len(client.get(f"/api/v1/clips/{c['id']}/overlays", headers=auth).json()["tracklets"])
-        for c in clips
-    )
+
+    def _tracklet_total() -> int:
+        return sum(
+            len(client.get(f"/api/v1/clips/{c['id']}/overlays", headers=auth).json()["tracklets"])
+            for c in clips
+        )
+
+    tracklet_total = _poll(_tracklet_total, lambda n: n > 0)
     assert tracklet_total > 0, "no tracklets persisted"
 
     _ = uuid.UUID(video_id)  # ids are real UUIDs end-to-end
