@@ -2,9 +2,13 @@
 
 Usage (env-driven so compose can run it unattended):
 
-    SEED_ADMIN_EMAIL=coach@example.edu SEED_ADMIN_PASSWORD=... \\
-    SEED_WORKER_EMAIL=worker@system.local SEED_WORKER_PASSWORD=... \\
+    SEED_ADMIN_EMAIL=admin@example.com SEED_ADMIN_PASSWORD=... \\
+    SEED_WORKER_EMAIL=worker@example.com SEED_WORKER_PASSWORD=... \\
     python -m scripts.seed_users
+
+Use a routable domain: the login endpoint validates emails with
+``EmailStr``, which REJECTS reserved special-use domains like ``.local`` —
+an account seeded at ``worker@footballiq.local`` could never authenticate.
 
 Existing accounts are left untouched (their passwords are NOT rotated) —
 re-running is always safe. The worker account gets the ``analyst`` role,
@@ -22,7 +26,7 @@ import structlog
 from app.auth import hash_password
 from app.config import get_settings
 from app.models import User, UserRole
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 log = structlog.get_logger(__name__)
@@ -32,7 +36,11 @@ async def _ensure_user(
     session: AsyncSession, email: str, password: str, full_name: str, role: UserRole
 ) -> bool:
     """Create the account if absent; return True when created."""
-    existing = await session.execute(select(User).where(User.email == email))
+    # Store the canonical (lowercased) email so it matches the login
+    # endpoint's normalization — otherwise a seeded "Admin@X" never matches
+    # a sign-in as "admin@x".
+    email = email.strip().lower()
+    existing = await session.execute(select(User).where(func.lower(User.email) == email))
     if existing.scalar_one_or_none() is not None:
         log.info("seed_user_exists", email=email)
         return False

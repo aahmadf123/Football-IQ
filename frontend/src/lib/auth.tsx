@@ -97,7 +97,18 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     let detail = `Request failed (${res.status})`;
     try {
       const data = (await res.json()) as { detail?: unknown };
-      if (typeof data.detail === "string") detail = data.detail;
+      if (typeof data.detail === "string") {
+        detail = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        // FastAPI 422 validation errors are a list of {msg, loc, ...}. Surface
+        // the actual reasons ("value is not a valid email address", "String
+        // should have at least 8 characters") so users can self-correct
+        // instead of seeing an opaque "Request failed (422)".
+        const msgs = data.detail
+          .map((e) => (e && typeof e === "object" ? (e as { msg?: unknown }).msg : null))
+          .filter((m): m is string => typeof m === "string");
+        if (msgs.length) detail = msgs.join(". ");
+      }
     } catch {
       // fall through with the generic message
     }

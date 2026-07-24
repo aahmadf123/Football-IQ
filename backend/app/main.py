@@ -90,9 +90,28 @@ app = FastAPI(
 app.add_middleware(PrometheusMiddleware)
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
+# A deployed frontend served from its real origin is blocked from the API
+# unless that origin is allowed here, which manifests as "login doesn't work"
+# (the preflight/POST is rejected before it reaches the endpoint). Warn loudly
+# when a non-development deployment still only allows localhost.
+if (
+    _env != "development"
+    and settings.cors_origins_list == ["http://localhost:3000"]
+    and (not settings.cors_origin_regex)
+):
+    log.warning(
+        "cors_origins_localhost_only",
+        message=(
+            "CORS_ORIGINS still only allows http://localhost:3000 outside development — "
+            "the deployed frontend origin will be blocked. Set CORS_ORIGINS (and/or "
+            "CORS_ORIGIN_REGEX) to the frontend's real origin(s)."
+        ),
+        environment=_env,
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

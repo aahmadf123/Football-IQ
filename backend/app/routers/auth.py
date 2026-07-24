@@ -13,8 +13,9 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
@@ -33,16 +34,40 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
+def _normalize_email(email: str) -> str:
+    """Case-fold emails so sign-up and sign-in always match.
+
+    ``EmailStr`` lowercases the domain but preserves the local part, so
+    registering ``Coach@utoledo.edu`` and later signing in as
+    ``coach@utoledo.edu`` would otherwise miss and 401. Store and look up a
+    single canonical (lowercased) form everywhere.
+    """
+    return email.strip().lower()
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
-    full_name: str
+    # Min 8 mirrors the frontend input. A too-short password now returns a
+    # clear 422 instead of being silently accepted.
+    password: str = Field(min_length=8)
+    full_name: str = Field(min_length=1)
     # Accepted for wire compatibility but IGNORED — roles are assigned
     # server-side (first user = admin, everyone else = viewer).
     role: UserRole = UserRole.viewer
+
+    @field_validator("password")
+    @classmethod
+    def _within_bcrypt_limit(cls, value: str) -> str:
+        # bcrypt only hashes the first 72 bytes. REJECT longer passwords at
+        # registration rather than silently truncating, so a user never
+        # unknowingly sets a password whose tail is ignored (a multi-byte
+        # password reaches 72 bytes in fewer than 72 characters).
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes long")
+        return value
 
 
 class RoleUpdateRequest(BaseModel):
@@ -88,7 +113,8 @@ async def register(
     account bootstraps as ``admin``; all later accounts start as ``viewer``
     and are promoted by an admin.
     """
-    existing = await db.execute(select(User).where(User.email == body.email))
+    email = _normalize_email(body.email)
+    existing = await db.execute(select(User).where(func.lower(User.email) == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
@@ -101,13 +127,24 @@ async def register(
 
     user = User(
         id=uuid.uuid4(),
-        email=body.email,
+        email=email,
         hashed_password=hash_password(body.password),
         full_name=body.full_name,
         role=assigned_role,
     )
     db.add(user)
-    await db.flush()
+    try:
+        # Commit here rather than leaving it to the get_db teardown (which runs
+        # *after* the response is sent): the client's follow-up login/authed
+        # request must find this row, and a same-email race that slipped past
+        # the check above must surface as a clean 409, not a 500.
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+        ) from exc
+    await db.refresh(user)
     log.info(
         "user_registered",
         user_id=str(user.id),
@@ -124,7 +161,8 @@ async def login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
     """Authenticate and return JWT access + refresh tokens."""
-    result = await db.execute(select(User).where(User.email == body.email))
+    normalized = _normalize_email(body.email)
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
