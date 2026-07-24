@@ -96,6 +96,56 @@ describe("FilmRoomPage", () => {
     });
   });
 
+  test("review tab lists a video's real clips linking to /clip-review", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const respond = (body: unknown) =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      }) as Response;
+    const video = {
+      id: "v-1",
+      filename: "practice.mp4",
+      status: "ready",
+      created_at: "2026-07-20T10:00:00Z",
+    };
+    const clip = {
+      id: "c-1",
+      video_id: "v-1",
+      start_time: 12.0,
+      end_time: 18.5,
+      play_number: 1,
+      confidence: 0.92,
+      is_reviewed: false,
+      our_possession: "offense",
+      session_kind: "practice",
+      result_state: "preliminary",
+      is_preliminary: true,
+      review_state: "needs_review",
+      created_at: "2026-07-20T10:00:00Z",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/v1/videos/v-1/clips")) return respond([clip]);
+        if (url.includes("/api/v1/videos")) return respond([video]);
+        return respond([]);
+      }),
+    );
+    nav.tab = "review";
+    await renderHub();
+
+    const row = await screen.findByTestId("review-clip-c-1");
+    expect(row.getAttribute("href")).toBe("/clip-review/?clipId=c-1");
+    expect(row.textContent).toContain("Play #1");
+    // Same-session result tier + review state surface as badges.
+    expect(screen.getByTestId("preliminary-badge")).toBeTruthy();
+    expect(screen.getByTestId("review-state-needs_review")).toBeTruthy();
+  });
+
   test("upload tab renders the explicit Upload & Process Film view", async () => {
     nav.tab = "upload";
     await renderHub();
