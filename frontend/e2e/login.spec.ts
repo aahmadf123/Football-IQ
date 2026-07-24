@@ -23,7 +23,7 @@ const postLoginRoutes = {
   "GET /api/v1/inbox/status": [],
 };
 
-test("sign-in form: valid credentials redirect to dashboard", async ({ page }) => {
+test("sign-in form: valid credentials redirects to dashboard", async ({ page }) => {
   await mockBackendNoAuth(page, {
     "POST /api/v1/auth/login": {
       access_token: makeE2eJwt("coach"),
@@ -73,7 +73,7 @@ test("sign-in form: invalid credentials show an error", async ({ page }) => {
   await expect(page).toHaveURL(/\/login\//);
 });
 
-test("create-account tab: registration + auto-login redirect to dashboard", async ({ page }) => {
+test("create-account tab: registration + auto-login redirects to dashboard", async ({ page }) => {
   await mockBackendNoAuth(page, {
     "POST /api/v1/auth/register": {
       id: "u-new",
