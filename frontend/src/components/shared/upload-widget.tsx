@@ -7,7 +7,7 @@
  * `useUploadWidget()` returns:
  *   - `openFilePicker` — hand this to any "Upload Film" button
  *   - `widget`         — render once near the top of the page; it contains the
- *                        hidden `<input type="file">` and the status toast
+ *                        hidden `<input type="file">` and the status notice
  *
  * Uploads flow through `useAppState().addUploads` (Worker upload-url → R2 PUT
  * → backend register), so this widget is purely the trigger + feedback shell.
@@ -15,13 +15,14 @@
 
 import { useRef, useState } from "react";
 import { useAppState } from "@/lib/app-state";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export function useUploadWidget(options?: {
   successMessage?: (count: number) => string;
 }): { openFilePicker: () => void; widget: React.ReactNode } {
   const { addUploads } = useAppState();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<{ text: string; failed: boolean } | null>(null);
 
   const openFilePicker = () => fileInputRef.current?.click();
 
@@ -30,13 +31,18 @@ export function useUploadWidget(options?: {
     if (!files || files.length === 0) return;
     try {
       const created = await addUploads(files);
-      setUploadStatus(
-        options?.successMessage?.(created.length) ??
+      setUploadStatus({
+        text:
+          options?.successMessage?.(created.length) ??
           `Uploaded ${created.length} clip${created.length === 1 ? "" : "s"} — track processing in Film Room → Upload / Process Film.`,
-      );
+        failed: false,
+      });
       setTimeout(() => setUploadStatus(null), 5000);
     } catch (err) {
-      setUploadStatus(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      setUploadStatus({
+        text: `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
+        failed: true,
+      });
     } finally {
       // Reset input so the same file can be re-selected.
       event.target.value = "";
@@ -51,24 +57,23 @@ export function useUploadWidget(options?: {
         onChange={handleFileChange}
         accept="video/*"
         multiple
-        style={{ display: "none" }}
+        className="hidden"
       />
       {uploadStatus && (
-        <div
-          className="upload-toast"
-          style={{
-            marginBottom: 8,
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "1px solid var(--line-soft)",
-            background: "oklch(0.30 0.10 145 / 0.55)",
-            color: "var(--text)",
-            fontSize: "0.78rem",
-            fontWeight: 700,
-          }}
+        <Alert
+          variant={uploadStatus.failed ? "destructive" : "default"}
+          role="status"
+          data-testid="upload-toast"
+          className={
+            uploadStatus.failed
+              ? "mb-3"
+              : "mb-3 border-status-ok/40 bg-status-ok/10 text-status-ok [&>*]:text-status-ok"
+          }
         >
-          {uploadStatus}
-        </div>
+          <AlertDescription className={uploadStatus.failed ? "" : "text-status-ok"}>
+            {uploadStatus.text}
+          </AlertDescription>
+        </Alert>
       )}
     </>
   );

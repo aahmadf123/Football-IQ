@@ -3,11 +3,14 @@
 /**
  * Client-upload status list — the single rendering of in-browser upload
  * progress (previously duplicated between the page shell and the Film Room
- * upload tab). One `phaseLabel` / `phaseColor` mapping lives here.
+ * upload tab). One `phaseLabel` / `phaseTone` mapping lives here.
  */
 
 import { Trash2 } from "lucide-react";
 import { useAppState, type UploadedClip, type UploadPhase } from "@/lib/app-state";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { StatusBadge, type StatusTone } from "@/components/composite/status-badge";
 
 export function phaseLabel(phase: UploadPhase): string {
   switch (phase) {
@@ -26,18 +29,18 @@ export function phaseLabel(phase: UploadPhase): string {
   }
 }
 
-export function phaseColor(phase: UploadPhase): string {
+export function phaseTone(phase: UploadPhase): StatusTone {
   switch (phase) {
     case "done":
-      return "var(--accent-green, #4ade80)";
+      return "ok";
     case "error":
-      return "var(--accent-red, #f87171)";
+      return "danger";
     case "uploading":
     case "registering":
     case "requesting-url":
-      return "var(--accent-amber, #fbbf24)";
+      return "info";
     default:
-      return "var(--text-muted, #94a3b8)";
+      return "neutral";
   }
 }
 
@@ -45,53 +48,46 @@ export function UploadStatusList({ uploads }: { uploads: UploadedClip[] }) {
   const { retryUpload, removeUpload } = useAppState();
   if (uploads.length === 0) return null;
   return (
-    <div className="list-stack" style={{ marginTop: 10 }}>
+    <div className="flex flex-col gap-2">
       {uploads.map((u) => (
         <div
           key={u.id}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr auto auto" }}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-soft p-2.5"
         >
-          <div>
-            <strong>{u.filename}</strong>
-            <div className="kicker">
-              {(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB{" · "}
-              <span style={{ color: phaseColor(u.phase), fontWeight: 700 }}>
+          <div className="min-w-0 flex-1">
+            <span className="text-[0.85rem] font-semibold">{u.filename}</span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span data-numeric className="font-mono">
+                {(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB
+              </span>
+              <StatusBadge tone={phaseTone(u.phase)} dot>
                 {phaseLabel(u.phase)}
                 {u.phase === "uploading" && ` ${u.progress}%`}
-              </span>
+              </StatusBadge>
             </div>
             {u.phase === "uploading" && (
-              <div style={{ height: 3, background: "var(--line-soft, #333)", borderRadius: 2, marginTop: 4 }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${u.progress}%`,
-                    background: "var(--accent-amber, #fbbf24)",
-                    borderRadius: 2,
-                    transition: "width 0.3s",
-                  }}
-                />
-              </div>
+              <Progress value={u.progress} className="mt-2 h-1.5" />
             )}
             {u.phase === "error" && u.error && (
-              <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
-                {u.error}
-              </div>
+              <div className="mt-1 text-xs text-status-danger">{u.error}</div>
             )}
           </div>
-          {u.phase === "error" && (
-            <button className="control-button" onClick={() => retryUpload(u.id)}>
-              Retry upload
-            </button>
-          )}
-          <button
-            className="control-button"
-            onClick={() => removeUpload(u.id)}
-            aria-label={`Remove ${u.filename}`}
-          >
-            <Trash2 size={14} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {u.phase === "error" && (
+              <Button variant="outline" size="sm" onClick={() => retryUpload(u.id)}>
+                Retry upload
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => removeUpload(u.id)}
+              aria-label={`Remove ${u.filename}`}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
         </div>
       ))}
     </div>
