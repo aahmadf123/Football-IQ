@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
+import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import type { FetchState } from "@/lib/fetch-state";
 import {
   actionAlert,
   fetchSelfScoutTendencies,
@@ -12,22 +14,12 @@ import {
   type TendencyBreakAlert,
   type VideoFilters,
 } from "@/lib/api";
-import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
+import type { ApiVideo, SelfScoutResponse } from "@/lib/types";
 import { ExperimentalBadge } from "@/components/experimental-badge";
 
-type ScoutDataState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; data: SelfScoutResponse };
+type ScoutDataState = FetchState<SelfScoutResponse>;
 
-type BreakState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; alerts: TendencyBreakAlert[] };
+type BreakState = FetchState<TendencyBreakAlert[]>;
 
 const ALL_VIDEOS = "__all__";
 
@@ -125,7 +117,7 @@ export function SelfScoutView() {
     try {
       const res = await fetchTendencyBreakAlerts({ limit: 100 }, authToken);
       const list = Array.isArray(res?.alerts) ? res.alerts : [];
-      setBreakState(list.length === 0 ? { kind: "empty" } : { kind: "ready", alerts: list });
+      setBreakState(list.length === 0 ? { kind: "empty" } : { kind: "ready", data: list });
     } catch (err) {
       setBreakState({
         kind: "error",
@@ -162,7 +154,7 @@ export function SelfScoutView() {
           if (cur.kind !== "ready") return cur;
           return {
             kind: "ready",
-            alerts: cur.alerts.map((a) =>
+            data: cur.data.map((a) =>
               a.id === alertId ? { ...a, is_actioned: true } : a,
             ),
           };
@@ -365,7 +357,7 @@ export function SelfScoutView() {
         }
       >
         {breakState.kind === "ready" && (
-          <TendencyBreakList alerts={breakState.alerts} onAction={handleActionBreak} />
+          <TendencyBreakList alerts={breakState.data} onAction={handleActionBreak} />
         )}
       </AnalyticsCard>
     </div>
@@ -414,31 +406,6 @@ function TendencyBreakList({
                 Mark actioned
               </button>
             )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
-  if (entries.length === 0) {
-    return (
-      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
-    );
-  }
-  return (
-    <div className="list-stack" style={{ gap: 4 }}>
-      {entries.map((e) => (
-        <div
-          key={e.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
-        >
-          <strong>{e.grouping_key}</strong>
-          <span>{e.total_plays}</span>
-          <div className="progress">
-            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
           </div>
         </div>
       ))}

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
+import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import type { FetchState } from "@/lib/fetch-state";
 import {
   fetchOpponentTendencies,
   fetchOpponents,
@@ -11,22 +13,12 @@ import type {
   OpponentSummary,
   OpponentVideo,
   SelfScoutResponse,
-  TendencyEntry,
 } from "@/lib/types";
 
-type OpponentListState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; opponents: OpponentSummary[] };
+type OpponentListState = FetchState<OpponentSummary[]>;
 
-type TendencyState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; data: SelfScoutResponse };
+// Adds "idle" (no film selected yet) on top of the shared fetch lifecycle.
+type TendencyState = { kind: "idle" } | FetchState<SelfScoutResponse>;
 
 export function OpponentScoutView() {
   const { authToken, mockMode } = useAppState();
@@ -51,7 +43,7 @@ export function OpponentScoutView() {
       if (opponents.length === 0) {
         setOpponentList({ kind: "empty" });
       } else {
-        setOpponentList({ kind: "ready", opponents });
+        setOpponentList({ kind: "ready", data: opponents });
       }
     } catch (err) {
       setOpponentList({
@@ -69,7 +61,7 @@ export function OpponentScoutView() {
     if (opponentList.kind !== "ready") return null;
     if (!selectedOpponent) return null;
     return (
-      opponentList.opponents.find((o) => o.opponent_team === selectedOpponent) ?? null
+      opponentList.data.find((o) => o.opponent_team === selectedOpponent) ?? null
     );
   }, [opponentList, selectedOpponent]);
 
@@ -148,6 +140,12 @@ export function OpponentScoutView() {
       case "idle":
       case "loading":
         return { kind: "loading", label: "Computing opponent tendencies…" };
+      case "offline":
+        return {
+          kind: "unavailable",
+          reason:
+            "Opponent Scout needs the FastAPI backend. Set NEXT_PUBLIC_API_URL to enable.",
+        };
       case "empty":
         return {
           kind: "empty",
@@ -200,10 +198,10 @@ export function OpponentScoutView() {
             />
           </div>
         </div>
-        {opponentList.kind === "ready" && opponentList.opponents.length > 0 && (
+        {opponentList.kind === "ready" && opponentList.data.length > 0 && (
           <p className="kicker" style={{ marginTop: 8 }}>
-            {opponentList.opponents.length} opponent
-            {opponentList.opponents.length === 1 ? "" : "s"} loaded.
+            {opponentList.data.length} opponent
+            {opponentList.data.length === 1 ? "" : "s"} loaded.
           </p>
         )}
       </section>
@@ -293,7 +291,7 @@ function OpponentPicker({
                   : "Select an opponent"}
         </option>
         {state.kind === "ready" &&
-          state.opponents.map((o) => (
+          state.data.map((o) => (
             <option key={o.opponent_team} value={o.opponent_team}>
               {o.opponent_team} ({o.video_count} video{o.video_count === 1 ? "" : "s"})
             </option>
@@ -337,31 +335,6 @@ function VideoPicker({
         ))}
       </select>
     </label>
-  );
-}
-
-function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
-  if (entries.length === 0) {
-    return (
-      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
-    );
-  }
-  return (
-    <div className="list-stack" style={{ gap: 4 }}>
-      {entries.map((e) => (
-        <div
-          key={e.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
-        >
-          <strong>{e.grouping_key}</strong>
-          <span>{e.total_plays}</span>
-          <div className="progress">
-            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 

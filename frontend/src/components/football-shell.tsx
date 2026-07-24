@@ -33,6 +33,7 @@ import {
   type SideOfBall,
 } from "@/lib/app-state";
 import { MockBadge } from "@/components/mock-badge";
+import { MetricLine } from "@/components/shared/metric";
 import { useOptionalAuth } from "@/lib/auth";
 import { canAccessHealthWorkload } from "@/lib/roles";
 
@@ -359,15 +360,6 @@ export function FootballShell({
           )}
         </section>
       </aside>
-    </div>
-  );
-}
-
-function MetricLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, color: "var(--muted)", fontSize: "0.82rem" }}>
-      <span>{label}</span>
-      <strong style={{ color: "var(--text)" }}>{value}</strong>
     </div>
   );
 }

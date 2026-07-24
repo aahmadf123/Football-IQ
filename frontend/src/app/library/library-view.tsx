@@ -11,32 +11,21 @@ import {
   type PracticeSessionFilters,
   type VideoFilters,
 } from "@/lib/api";
+import type { FetchState } from "@/lib/fetch-state";
+import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import type {
   ApiClip,
   ApiPracticeSessionGroup,
   ApiVideo,
   OurPossession,
-  SessionKind,
 } from "@/lib/types";
 
-type LibraryState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "error"; message: string }
-  | { kind: "empty" }
-  | { kind: "ready"; sessions: ApiPracticeSessionGroup[]; videos: ApiVideo[] };
+interface LibraryData {
+  sessions: ApiPracticeSessionGroup[];
+  videos: ApiVideo[];
+}
 
-const POSSESSION_LABEL: Record<OurPossession, string> = {
-  offense: "Toledo Offense",
-  defense: "Toledo Defense",
-  special_teams: "Special Teams",
-};
-
-const SESSION_KIND_LABEL: Record<SessionKind, string> = {
-  practice: "Practice",
-  scrimmage: "Scrimmage",
-  game: "Game",
-};
+type LibraryState = FetchState<LibraryData>;
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Unknown date";
@@ -100,7 +89,7 @@ export function LibraryView() {
       if (sessions.length === 0 && videos.length === 0) {
         setState({ kind: "empty" });
       } else {
-        setState({ kind: "ready", sessions, videos });
+        setState({ kind: "ready", data: { sessions, videos } });
       }
     } catch (err) {
       setState({
@@ -120,7 +109,7 @@ export function LibraryView() {
     if (state.kind !== "ready") return null;
     const videosForGroup = (group: ApiPracticeSessionGroup): ApiVideo[] => {
       const dateStr = group.session_date;
-      return state.videos.filter((v) => {
+      return state.data.videos.filter((v) => {
         if (group.practice_session_id) {
           if (v.practice_session_id !== group.practice_session_id) return false;
         } else {
@@ -137,7 +126,7 @@ export function LibraryView() {
         return true;
       });
     };
-    const enriched = state.sessions
+    const enriched = state.data.sessions
       .map((s) => ({ session: s, videos: videosForGroup(s) }))
       .filter((g) => g.videos.length > 0 || !possession);
     const practice = enriched.filter(

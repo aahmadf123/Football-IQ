@@ -7,6 +7,7 @@ import { ArrowLeft, Download } from "lucide-react";
 import { FootballShell } from "@/components/football-shell";
 import { HeatMap, PlayerPortrait, TrendLine } from "@/components/visuals";
 import { MockBadge } from "@/components/mock-badge";
+import { Metric, MetricLine } from "@/components/shared/metric";
 import { apiPlayerToSummary, useAppState } from "@/lib/app-state";
 import { fetchPlayer } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
@@ -249,23 +250,4 @@ export function PlayerProfileClient({ id }: { id: string }) {
 
 function fmtMetric(value: number | undefined): string {
   return value == null ? "—" : String(value);
-}
-
-function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {unit && <small>{unit}</small>}
-    </div>
-  );
-}
-
-function MetricLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-      <span className="small-label">{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
 }

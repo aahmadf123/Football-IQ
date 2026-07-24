@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FootballShell } from "./football-shell";
 import { FieldStage, MiniField, PlayerPortrait, TrendLine, VideoControls } from "./visuals";
-import { useAppState, SIDE_LABELS, type ApiStatus, type UploadPhase } from "@/lib/app-state";
+import { useAppState, SIDE_LABELS, type ApiStatus } from "@/lib/app-state";
 import {
   createCorrection,
   createReport,
@@ -33,6 +33,8 @@ import {
 } from "@/lib/api";
 import { MockBadge } from "@/components/mock-badge";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { Metric, MetricLine } from "@/components/shared/metric";
+import { phaseColor, phaseLabel } from "@/components/shared/upload-status-list";
 import { canAccessHealthWorkload, canSeePlayerLevelRisk } from "@/lib/roles";
 import {
   HEALTH_POLICY_STATEMENT,
@@ -443,29 +445,6 @@ function OverlayLayerToggles() {
       ))}
     </div>
   );
-}
-
-function phaseLabel(phase: UploadPhase): string {
-  switch (phase) {
-    case "idle": return "Queued";
-    case "requesting-url": return "Preparing\u2026";
-    case "uploading": return "Uploading\u2026";
-    case "registering": return "Registering\u2026";
-    case "done": return "Complete";
-    case "error": return "Failed";
-  }
-}
-
-function phaseColor(phase: UploadPhase): string {
-  switch (phase) {
-    case "done": return "var(--accent-green, #4ade80)";
-    case "error": return "var(--accent-red, #f87171)";
-    case "uploading":
-    case "registering":
-    case "requesting-url":
-      return "var(--accent-amber, #fbbf24)";
-    default: return "var(--text-muted, #94a3b8)";
-  }
 }
 
 export function VideoAndPlays({ onUploadClick }: { onUploadClick: () => void }) {
@@ -2056,25 +2035,6 @@ function rosterEmptyMessage(status: ApiStatus): string {
     default:
       return "No players yet.";
   }
-}
-
-function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {unit && <small>{unit}</small>}
-    </div>
-  );
-}
-
-function MetricLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 10 }}>
-      <span className="small-label">{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
 }
 
 function PlayRow({ play }: { play: PlaySummary }) {

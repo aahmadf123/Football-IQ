@@ -18,22 +18,9 @@ import type {
   ApiVideo,
   ClipOverlayPayload,
   OverlayLayerKey,
-  OurPossession,
-  SessionKind,
 } from "@/lib/types";
+import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
-
-const POSSESSION_LABEL: Record<OurPossession, string> = {
-  offense: "Toledo Offense",
-  defense: "Toledo Defense",
-  special_teams: "Special Teams",
-};
-
-const SESSION_KIND_LABEL: Record<SessionKind, string> = {
-  practice: "Practice",
-  scrimmage: "Scrimmage",
-  game: "Game",
-};
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "raw", label: "Raw" },
