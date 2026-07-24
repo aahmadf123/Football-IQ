@@ -1,0 +1,22 @@
+- generic [active] [ref=f1e1]:
+  - main [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - img "Toledo Rockets" [ref=f1e5]
+        - heading "Football-IQ" [level=1] [ref=f1e6]
+        - paragraph [ref=f1e7]: See more. Coach smarter. Win together.
+        - paragraph [ref=f1e8]: Toledo Rockets film intelligence
+      - form "Sign in" [ref=f1e11]:
+        - tablist [ref=f1e13]:
+          - tab "Sign in" [selected] [ref=f1e14] [cursor=pointer]
+          - tab "Create account" [ref=f1e15] [cursor=pointer]
+        - generic [ref=f1e16]:
+          - generic [ref=f1e17]: Email
+          - textbox "Email" [ref=f1e18]:
+            - /placeholder: you@utoledo.edu
+        - generic [ref=f1e19]:
+          - generic [ref=f1e20]: Password
+          - textbox "Password" [ref=f1e21]
+        - button "Sign in" [ref=f1e22] [cursor=pointer]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=f1e28] [cursor=pointer]
