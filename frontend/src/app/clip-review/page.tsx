@@ -21,6 +21,7 @@ import type {
   OverlayLayerKey,
 } from "@/lib/types";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
+import { CorrectionsPanel } from "./corrections-panel";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
@@ -424,6 +425,11 @@ function ClipReviewReady({
           overlayState={overlayState}
           showMetrics={activeLayers.has("metrics") && !activeLayers.has("raw")}
           showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
+        />
+
+        <CorrectionsPanel
+          clipId={clip.id}
+          tracklets={overlayPayload?.tracklets ?? []}
         />
 
         <h3 className="panel-title" style={{ marginTop: 16 }}>Storage</h3>
