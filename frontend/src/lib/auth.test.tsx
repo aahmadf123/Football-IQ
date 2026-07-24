@@ -180,6 +180,38 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("err").textContent).not.toContain("Request failed");
   });
 
+  test("replaces browser network failures with actionable guidance", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+
+    function ErrProbe() {
+      const { login } = useAuth();
+      const [err, setErr] = useState("none");
+      return (
+        <>
+          <span data-testid="err">{err}</span>
+          <button
+            data-testid="login"
+            onClick={() => login("coach@example.com", "password").catch((e) => setErr(e.message))}
+          />
+        </>
+      );
+    }
+
+    render(
+      <AuthProvider>
+        <ErrProbe />
+      </AuthProvider>,
+    );
+    await act(async () => {
+      screen.getByTestId("login").click();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("err").textContent).toBe(
+        "Unable to reach the Football-IQ API. Check your connection or contact an administrator.",
+      ),
+    );
+  });
+
   test("mock mode (no API base) does not require auth", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     render(

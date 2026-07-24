@@ -52,7 +52,7 @@ export interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "";
+  return (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 }
 
 function roleFromToken(token: string): string {
@@ -88,11 +88,18 @@ function saveStored(auth: StoredAuth | null): void {
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(
+      "Unable to reach the Football-IQ API. Check your connection or contact an administrator.",
+    );
+  }
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {
