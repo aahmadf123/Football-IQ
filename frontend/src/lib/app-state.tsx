@@ -84,6 +84,19 @@ const GROUP_BY_POSITION: Record<string, string> = {
   RET: "ST",
 };
 
+function looksNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  // Browser fetch/network failures (including CORS-blocked requests) surface
+  // as "Failed to fetch"/"NetworkError" rather than an HTTP status.
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed") ||
+    msg.includes("fetch failed")
+  );
+}
+
 function deriveGroup(position: string | null, positionGroup: string | null): string {
   if (positionGroup) return positionGroup;
   if (position && GROUP_BY_POSITION[position]) return GROUP_BY_POSITION[position];
@@ -325,7 +338,14 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
           jobsRes.status === "fulfilled" ||
           scoutRes.status === "fulfilled";
         if (!anyFulfilled) {
-          setApiStatus("offline");
+          const rejectedReasons = [videosRes, jobsRes, scoutRes]
+            .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+            .map((r) => r.reason);
+          const allNetworkFailures =
+            rejectedReasons.length > 0 && rejectedReasons.every(looksNetworkFailure);
+          // HTTP 4xx/5xx means the backend is reachable (not offline), even if
+          // a specific surface is forbidden or currently erroring.
+          setApiStatus(allNetworkFailures ? "offline" : "live");
           return;
         }
         setData((cur) => ({
@@ -339,8 +359,8 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
           ),
         }));
         setApiStatus("live");
-      } catch {
-        if (!cancelled) setApiStatus("offline");
+      } catch (err) {
+        if (!cancelled) setApiStatus(looksNetworkFailure(err) ? "offline" : "live");
       }
     })();
     return () => {
@@ -370,8 +390,9 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
         const summaries = apiPlayers.map(apiPlayerToSummary);
         setData((cur) => ({ ...cur, players: summaries }));
         setPlayersStatus("live");
-      } catch {
-        if (!cancelled) setPlayersStatus("offline");
+      } catch (err) {
+        // Keep "offline" only for genuine network/CORS failures.
+        if (!cancelled) setPlayersStatus(looksNetworkFailure(err) ? "offline" : "live");
       }
     })();
     return () => {

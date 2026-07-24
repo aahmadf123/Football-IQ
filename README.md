@@ -55,6 +55,29 @@ Verify everything is connected and healthy:
 ./scripts/dev-doctor.ps1 -WithCloudflare
 ```
 
+One-command production repair (deploy + migrate + CORS/API checks):
+
+```powershell
+./scripts/prod-go.ps1
+```
+
+Double-click production launcher (Windows):
+
+```text
+run-prod-fix.cmd
+```
+
+GitHub Actions option (one-click in repo UI):
+
+1. Add repository secret `FLY_API_TOKEN` (Settings → Secrets and variables → Actions).
+2. Open Actions → `Production Repair Check`.
+3. Click `Run workflow` and choose whether to deploy/migrate.
+
+The workflow runs `scripts/prod-go.ps1` in CI and verifies:
+- production health endpoint
+- auth CORS preflight for frontend origins
+- login + core API endpoint smoke checks
+
 ```bash
 cp .env.example .env      # defaults work for local
 

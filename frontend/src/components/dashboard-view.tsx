@@ -449,6 +449,9 @@ function AlertsSummaryCard() {
   const { authToken } = useAppState();
   const fetcher = useCallback(() => fetchAlerts({ limit: 5 }, authToken), [authToken]);
   const { state, reload } = useFetchState(fetcher);
+  const restricted =
+    state.kind === "error" &&
+    /position group access is restricted|\(403\)/i.test(state.message);
 
   return (
     <section className="panel panel-pad span-4" data-testid="dashboard-alerts">
@@ -461,7 +464,11 @@ function AlertsSummaryCard() {
       )}
       {state.kind === "error" && (
         <div style={{ marginTop: 10 }}>
-          <p className="kicker" style={{ color: "var(--accent-red, #f87171)" }}>{state.message}</p>
+          <p className="kicker" style={{ color: "var(--accent-red, #f87171)" }}>
+            {restricted
+              ? "Alerts are restricted for your assigned position group. Sign in with a role that has alerts access to view this panel."
+              : state.message}
+          </p>
           <button className="control-button" style={{ marginTop: 8 }} onClick={reload}>Retry</button>
         </div>
       )}
