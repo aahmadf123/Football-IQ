@@ -4,8 +4,8 @@ import { mockBackend, type Route, sampleInboxItem } from "./helpers";
 /**
  * Film Room consolidation (ADR 0003 / #184) + explicit upload-to-processing
  * (#187). Uploaded film surfaces in Film Room → Upload / Process Film with a
- * clear "Process Film" CTA; clicking it enqueues an ingest job through the
- * backend job API (no auto-enqueue, no Worker/R2 bypass).
+ * clear "Process Film" CTA; clicking it enqueues a full orchestrated
+ * pipeline job through the backend job API (no Worker/R2 bypass).
  */
 test("film room exposes consolidated tabs and an explicit Process Film CTA", async ({
   page,
@@ -34,7 +34,7 @@ test("film room exposes consolidated tabs and an explicit Process Film CTA", asy
         job_type: string;
       };
       expect(body.video_id).toBe("vid-up-1");
-      expect(body.job_type).toBe("ingest");
+      expect(body.job_type).toBe("pipeline");
       return { id: "job-up-1", status: "queued" };
     },
   });

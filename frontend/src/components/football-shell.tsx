@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import {
   Activity,
   BarChart3,
@@ -15,6 +16,7 @@ import {
   HeartPulse,
   Home,
   LineChart,
+  LogOut,
   Radio,
   Settings,
   UserRound,
@@ -31,6 +33,7 @@ import {
   type SideOfBall,
 } from "@/lib/app-state";
 import { MockBadge } from "@/components/mock-badge";
+import { useOptionalAuth } from "@/lib/auth";
 import { canAccessHealthWorkload } from "@/lib/roles";
 
 // Consolidated coach-facing navigation (ADR 0003). Film Room and Scouting are
@@ -91,6 +94,20 @@ export function FootballShell({
     apiStatus,
     currentRole,
   } = useAppState();
+  const auth = useOptionalAuth();
+  const token = auth?.token;
+  const user = auth?.user ?? null;
+
+  // Backend-configured deployments require a session; mock/offline demo mode
+  // (no NEXT_PUBLIC_API_URL) stays browsable without one. A full navigation
+  // (not router.replace) keeps the auth boundary dead simple for the static
+  // export and for tests that render the shell without providers.
+  const mustSignIn = Boolean(auth && auth.ready && auth.authRequired && !auth.token);
+  useEffect(() => {
+    if (mustSignIn && typeof window !== "undefined") {
+      window.location.replace("/login/");
+    }
+  }, [mustSignIn]);
 
   const titleEntry = pageTitles[activePage];
   const navActiveKey = COMPAT_ACTIVE[activePage] ?? activePage;
@@ -200,7 +217,40 @@ export function FootballShell({
             <BellRing size={18} />
           </Link>
 
-          <div className="user-pill" aria-label="User profile">UT</div>
+          <div
+            className="user-pill"
+            aria-label="User profile"
+            title={user ? `${user.email} (${user.role})` : "Not signed in"}
+          >
+            {(user?.email?.[0] ?? "U").toUpperCase()}
+            {(user?.email?.split("@")[0]?.[1] ?? "T").toUpperCase()}
+          </div>
+          {token ? (
+            <button
+              type="button"
+              onClick={() => {
+                auth?.logout();
+                window.location.replace("/login/");
+              }}
+              aria-label="Sign out"
+              title="Sign out"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                border: "1px solid var(--line-soft)",
+                background: "transparent",
+                color: "var(--text)",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <LogOut size={18} />
+            </button>
+          ) : null}
         </div>
       </header>
 

@@ -114,9 +114,10 @@ describe("UploadProcessFilm", () => {
     await waitFor(() => {
       expect(screen.getByTestId("processing-status-vid-1").textContent).toMatch(/Queued/i);
     });
-    // The CTA goes through the sanctioned backend job API with an ingest job.
+    // The CTA goes through the sanctioned backend job API with a full
+    // orchestrated pipeline job.
     expect(postBodies.length).toBeGreaterThan(0);
-    expect(postBodies[0]).toMatchObject({ video_id: "vid-1", job_type: "ingest" });
+    expect(postBodies[0]).toMatchObject({ video_id: "vid-1", job_type: "pipeline" });
     // No longer offering "Process Film" once queued.
     expect(screen.queryByTestId("process-film-vid-1")).toBeNull();
   });

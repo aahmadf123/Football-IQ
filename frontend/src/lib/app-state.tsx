@@ -7,7 +7,10 @@ import { useMocks } from "./mock-flag";
 import { resolveCurrentRole, type UserRole } from "./roles";
 import {
   fetchInboxStatus,
+  fetchJobs,
   fetchPlayers,
+  fetchSelfScoutTendencies,
+  fetchVideos,
   registerVideo,
   requestUploadUrl,
   uploadToR2,
@@ -298,24 +301,23 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     }
     let cancelled = false;
     setApiStatus("loading");
-    const videosParams = new URLSearchParams();
+    const videoFilters: Record<string, string> = {};
     if (selectedDate) {
-      videosParams.set("recorded_after", `${selectedDate}T00:00:00Z`);
-      videosParams.set("recorded_before", `${selectedDate}T23:59:59.999999Z`);
+      videoFilters.recorded_after = `${selectedDate}T00:00:00Z`;
+      videoFilters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
     }
     if (sessionType !== "all") {
-      videosParams.set("session_kind", sessionType);
+      videoFilters.session_kind = sessionType;
     }
-    const videosQs = videosParams.toString();
-    const videosUrl = `${baseUrl}/api/v1/videos${videosQs ? `?${videosQs}` : ""}`;
     (async () => {
       try {
+        // Typed api.ts clients with the auth token — the previous raw
+        // fetch() calls here were the one unauthenticated code path left.
+        const token = tokenRef.current;
         const [videosRes, jobsRes, scoutRes] = await Promise.allSettled([
-          fetch(videosUrl).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`videos ${r.status}`)))),
-          fetch(`${baseUrl}/api/v1/jobs`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`jobs ${r.status}`)))),
-          fetch(`${baseUrl}/api/v1/self-scout/tendencies`).then((r) =>
-            r.ok ? r.json() : Promise.reject(new Error(`self-scout ${r.status}`)),
-          ),
+          fetchVideos(videoFilters, token),
+          fetchJobs({}, token),
+          fetchSelfScoutTendencies(undefined, token),
         ]);
         if (cancelled) return;
         const anyFulfilled =
@@ -344,7 +346,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     return () => {
       cancelled = true;
     };
-  }, [mockMode, selectedDate, sessionType]);
+  }, [mockMode, selectedDate, sessionType, authToken]);
 
   // Fetch the active roster from /api/v1/players on mount and whenever
   // mockMode changes. Roster data is independent of the date/session filters

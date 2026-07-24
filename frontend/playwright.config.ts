@@ -37,7 +37,16 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        // Sandboxes with a system-provided Chromium (and no network path to
+        // Playwright's CDN) set PLAYWRIGHT_EXECUTABLE_PATH instead of running
+        // `npm run e2e:install`. CI leaves it unset and uses the managed
+        // browser download.
+        ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH
+          ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } }
+          : {}),
+      },
     },
   ],
   webServer: {

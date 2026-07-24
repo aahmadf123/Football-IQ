@@ -52,8 +52,27 @@ describe("requestUploadUrl", () => {
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/400/);
   });
 
-  test("throws when NEXT_PUBLIC_WORKER_URL is not set", async () => {
+  test("falls back to the API base when NEXT_PUBLIC_WORKER_URL is not set", async () => {
+    // Local / single-box mode: the backend mirrors the Worker's upload
+    // contract, so an empty worker URL routes upload calls to the API base.
     vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ uploadUrl: "https://api.test/api/v1/videos/upload/raw%2Fx", key: "raw/x" }),
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { requestUploadUrl } = await freshImport();
+    await requestUploadUrl("test.mp4");
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe("https://api.test/api/v1/videos/upload-url");
+  });
+
+  test("throws when neither worker nor API base is configured", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { requestUploadUrl } = await freshImport();
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_WORKER_URL/);
   });
@@ -169,7 +188,7 @@ describe("fetchClipOverlays", () => {
 });
 
 describe("requestVideoProcessing", () => {
-  test("POSTs an ingest job to backend /api/v1/jobs (nightly by default)", async () => {
+  test("POSTs a pipeline job to backend /api/v1/jobs (nightly by default)", async () => {
     const job = { id: "job-1", status: "queued" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -189,7 +208,7 @@ describe("requestVideoProcessing", () => {
     const body = JSON.parse(opts.body as string);
     expect(body).toMatchObject({
       video_id: "vid-1",
-      job_type: "ingest",
+      job_type: "pipeline",
       priority: 0,
       pipeline_mode: "nightly",
     });

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AppStateProvider } from "@/lib/app-state";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Football-IQ | Toledo Football Analytics",
@@ -14,7 +14,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AppStateProvider>{children}</AppStateProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

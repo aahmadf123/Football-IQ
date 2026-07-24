@@ -19,12 +19,53 @@ interface RouteMap {
   [route: string]: unknown | JsonHandler;
 }
 
+/** Build a decodable (unsigned) JWT so roles.ts / auth.tsx can read the role. */
+export function makeE2eJwt(role = "coach"): string {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64");
+  const payload = Buffer.from(
+    JSON.stringify({ sub: "e2e-user", role, type: "access" }),
+  ).toString("base64");
+  return `${header}.${payload}.e2e-signature`;
+}
+
+/**
+ * Seed a signed-in session before the app boots. The shell requires a
+ * session whenever a backend is configured (which the e2e suite always
+ * fakes), so every spec runs as an authenticated coach by default.
+ */
+export async function seedAuthSession(page: Page, role = "coach"): Promise<void> {
+  const token = makeE2eJwt(role);
+  await page.addInitScript(
+    ([storageValue]) => {
+      window.localStorage.setItem("football-iq-auth-v1", storageValue);
+    },
+    [
+      JSON.stringify({
+        token,
+        refreshToken: "e2e-refresh-token",
+        user: { email: "coach@e2e.local", role },
+      }),
+    ],
+  );
+}
+
 /**
  * Register JSON responders for backend endpoints. Any unmatched request to
  * the fake API host returns 404 so unintended calls fail visibly.
+ *
+ * Also seeds an authenticated coach session and a default
+ * `/api/v1/auth/refresh` responder (override by passing your own).
  */
 export async function mockBackend(page: Page, routes: RouteMap): Promise<void> {
-  await mockHost(page, "api.e2e.local", routes);
+  await seedAuthSession(page);
+  const withAuthDefaults: RouteMap = {
+    "POST /api/v1/auth/refresh": {
+      access_token: makeE2eJwt("coach"),
+      refresh_token: "e2e-refresh-token",
+    },
+    ...routes,
+  };
+  await mockHost(page, "api.e2e.local", withAuthDefaults);
 }
 
 /**

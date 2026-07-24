@@ -8,6 +8,7 @@
 
 import type {
   ApiClip,
+  ApiJob,
   ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
@@ -287,6 +288,24 @@ export async function fetchVideo(videoId: string, token?: string): Promise<ApiVi
   const base = apiBase();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiVideo>(`${base}/api/v1/videos/${videoId}`, token);
+}
+
+export interface JobFilters {
+  status?: string;
+  job_type?: string;
+  video_id?: string;
+  limit?: number;
+}
+
+export async function fetchJobs(filters: JobFilters = {}, token?: string): Promise<ApiJob[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<ApiJob[]>(`${base}/api/v1/jobs${qs ? `?${qs}` : ""}`, token);
 }
 
 export async function fetchClipsForVideo(
@@ -569,7 +588,8 @@ export class WorkloadGatedError extends Error {
 }
 
 /**
- * Request processing for an uploaded video by creating an ``ingest`` job
+ * Request processing for an uploaded video by creating a ``pipeline`` job
+ * (the full orchestrated chain: ingest → detect → track → … → render)
  * through the **backend** job API (``POST /api/v1/jobs``). This is the
  * sanctioned, workload-gated entry point — it does not bypass the backend job
  * API or the Worker/R2 flow, and it never calls an external API. Defaults to
@@ -590,7 +610,7 @@ export async function requestVideoProcessing(
     headers: authHeaders(token),
     body: JSON.stringify({
       video_id: videoId,
-      job_type: "ingest",
+      job_type: "pipeline",
       priority,
       pipeline_mode: mode,
     }),
