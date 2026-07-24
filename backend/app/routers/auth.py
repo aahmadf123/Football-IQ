@@ -104,7 +104,7 @@ async def register(
     and are promoted by an admin.
     """
     email = _normalize_email(body.email)
-    existing = await db.execute(select(User).where(User.email == email))
+    existing = await db.execute(select(User).where(func.lower(User.email) == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
@@ -151,7 +151,8 @@ async def login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
     """Authenticate and return JWT access + refresh tokens."""
-    result = await db.execute(select(User).where(User.email == _normalize_email(body.email)))
+    normalized = _normalize_email(body.email)
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
