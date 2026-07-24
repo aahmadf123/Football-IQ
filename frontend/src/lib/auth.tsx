@@ -22,6 +22,8 @@ import React, {
   useState,
 } from "react";
 
+import { apiBase } from "./endpoints";
+
 const STORAGE_KEY = "football-iq-auth-v1";
 const REFRESH_INTERVAL_MS = 40 * 60 * 1000;
 
@@ -50,10 +52,6 @@ export interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
-}
 
 function roleFromToken(token: string): string {
   try {
