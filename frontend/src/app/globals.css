@@ -195,6 +195,22 @@
   }
 }
 
+@layer components {
+  /* Yard-hash rule — the app's one decorative structural device, used under
+     page headers only. Reads as field hash marks at 8% ink. */
+  .hash-rule {
+    height: 6px;
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--foreground) 0,
+      var(--foreground) 1.5px,
+      transparent 1.5px,
+      transparent 14px
+    );
+    opacity: 0.08;
+  }
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
