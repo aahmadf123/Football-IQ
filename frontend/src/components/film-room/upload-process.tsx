@@ -5,7 +5,9 @@ import { useCallback, useState } from "react";
 import { PreliminaryBadge } from "@/components/clip-state-badge";
 import { UploadStatusList } from "@/components/shared/upload-status-list";
 import {
+  fetchJobs,
   requestVideoProcessing,
+  retryJob,
   WorkloadGatedError,
   type VideoInboxItem,
 } from "@/lib/api";
@@ -53,8 +55,8 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
-  const handleProcess = useCallback(
-    async (videoId: string) => {
+  const runRequest = useCallback(
+    async (videoId: string, action: () => Promise<unknown>) => {
       setPending((cur) => ({ ...cur, [videoId]: true }));
       setRequests((cur) => {
         const next = { ...cur };
@@ -62,7 +64,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         return next;
       });
       try {
-        await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+        await action();
         setRequests((cur) => ({ ...cur, [videoId]: { kind: "queued" } }));
         refreshInbox();
       } catch (err) {
@@ -81,7 +83,34 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         setPending((cur) => ({ ...cur, [videoId]: false }));
       }
     },
-    [authToken, refreshInbox],
+    [refreshInbox],
+  );
+
+  const handleProcess = useCallback(
+    (videoId: string) =>
+      runRequest(videoId, () =>
+        requestVideoProcessing(videoId, { mode: "nightly" }, authToken),
+      ),
+    [authToken, runRequest],
+  );
+
+  // Failed videos retry the failed job itself (POST /jobs/{id}/retry) so the
+  // job lineage/attempt counters are preserved; if the failed job row is no
+  // longer visible, fall back to enqueueing a fresh pipeline job.
+  const handleRetry = useCallback(
+    (videoId: string) =>
+      runRequest(videoId, async () => {
+        const failed = await fetchJobs(
+          { video_id: videoId, status: "failed", limit: 1 },
+          authToken,
+        );
+        if (failed.length > 0) {
+          await retryJob(failed[0].id, authToken);
+        } else {
+          await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+        }
+      }),
+    [authToken, runRequest],
   );
 
   const inFlight = uploads.filter((u) => u.phase !== "done");
@@ -129,6 +158,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
           requests={requests}
           pending={pending}
           onProcess={handleProcess}
+          onRetry={handleRetry}
         />
       </section>
     </div>
@@ -142,6 +172,7 @@ function ProcessingList({
   requests,
   pending,
   onProcess,
+  onRetry,
 }: {
   items: VideoInboxItem[];
   apiStatus: ReturnType<typeof useAppState>["apiStatus"];
@@ -149,6 +180,7 @@ function ProcessingList({
   requests: Record<string, RequestState>;
   pending: Record<string, boolean>;
   onProcess: (videoId: string) => void;
+  onRetry: (videoId: string) => void;
 }) {
   if (items.length === 0) {
     const message =
@@ -175,6 +207,7 @@ function ProcessingList({
           request={requests[item.video_id]}
           pending={!!pending[item.video_id]}
           onProcess={onProcess}
+          onRetry={onRetry}
         />
       ))}
     </div>
@@ -186,11 +219,13 @@ function ProcessingRow({
   request,
   pending,
   onProcess,
+  onRetry,
 }: {
   item: VideoInboxItem;
   request: RequestState | undefined;
   pending: boolean;
   onProcess: (videoId: string) => void;
+  onRetry: (videoId: string) => void;
 }) {
   const isQueued = request?.kind === "queued";
   const badge = isQueued
@@ -278,7 +313,7 @@ function ProcessingRow({
         <button
           className="control-button"
           data-testid={`retry-process-${item.video_id}`}
-          onClick={() => onProcess(item.video_id)}
+          onClick={() => onRetry(item.video_id)}
           disabled={pending}
         >
           {pending ? "Starting…" : "Retry processing"}

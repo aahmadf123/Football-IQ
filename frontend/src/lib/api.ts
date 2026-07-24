@@ -980,16 +980,6 @@ export function parseStorageUri(
   return m ? { bucket: m[1], key: m[2] } : null;
 }
 
-/**
- * Extract the R2 key suffix from a backend `storage_uri` of the form
- * `r2://raw-video/raw/<suffix>`. Kept for backward compatibility.
- */
-export function r2KeySuffixFromStorageUri(uri: string | null | undefined): string | null {
-  if (!uri) return null;
-  const m = /^r2:\/\/raw-video\/raw\/(.+)$/.exec(uri);
-  return m ? m[1] : null;
-}
-
 // ── Settings (Issue #112) ────────────────────────────────────────────────────
 
 export async function getSystemSettings(
