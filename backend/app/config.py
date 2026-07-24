@@ -58,10 +58,13 @@ class Settings(BaseSettings):
     # Comma-separated exact allowed origins. A deployed frontend (Cloudflare
     # Pages / Vercel / custom domain) MUST be listed here or every browser
     # call to the API — including login/register — is blocked by CORS.
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,https://football-iq.pages.dev"
     # Optional regex for origins that vary per deploy (e.g. Vercel/CF Pages
     # preview URLs). Example: r"https://football-iq-.*\.vercel\.app".
-    cors_origin_regex: str = ""
+    cors_origin_regex: str = (
+        r"^https://football-iq(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.pages\.dev$"
+        r"|^https://football-iq(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.vercel\.app$"
+    )
 
     # ── Same-session feedback loop (Issue #147) ───────────────────────────
     # Clip ``confidence`` at or below this value is surfaced to coaches as
