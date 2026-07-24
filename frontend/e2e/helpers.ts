@@ -179,6 +179,41 @@ export function sampleClip(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Sample clip-overlays payload matching the backend's ClipOverlayResponse
+ * schema, including the calibration + capture-regime fields (explained
+ * suppression). Defaults to an analytics-safe, empty-layers payload.
+ */
+export function sampleOverlays(overrides: Record<string, unknown> = {}) {
+  return {
+    clip_id: "c-1",
+    capture_regime: "drone_follow",
+    tracklets: [],
+    events: [],
+    labels: [],
+    metrics: [],
+    layers_available: { tracklets: false, events: false, labels: false, metrics: false },
+    calibration: { analytics_safe: true, reason: null, reason_codes: [], confidence: 0.94 },
+    ...overrides,
+  };
+}
+
+/** Sample overlay tracklet for specs that need a pickable track. */
+export function sampleTracklet(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "t-1",
+    player_id: null,
+    start_frame: 0,
+    end_frame: 300,
+    track_confidence: 0.9,
+    team_label: "home",
+    position_group: "Skill",
+    side_of_ball: "offense",
+    track_points: [],
+    ...overrides,
+  };
+}
+
 /** Sample practice-session group. */
 export function samplePracticeSession(overrides: Record<string, unknown> = {}) {
   return {

@@ -28,6 +28,15 @@ export type SourceType = "drone" | "uploaded_clip";
 export type OurPossession = "offense" | "defense" | "special_teams";
 export type ApiSideOfBall = "offense" | "defense" | "special_teams";
 
+// Source-capture regime inferred from pixels at ingest (Issue #126 / ADR
+// 0005). ``unknown`` is reserved for hard analysis failures and rows that
+// predate the column.
+export type CaptureRegime =
+  | "drone_follow"
+  | "fixed_sideline"
+  | "unconstrained"
+  | "unknown";
+
 export interface ApiVideo {
   id: string;
   filename: string;
@@ -73,6 +82,9 @@ export interface ApiClip {
   result_state?: ClipResultState | null;
   is_preliminary?: boolean;
   review_state?: ClipReviewState;
+  // Capture regime the ingest detector picked for this clip's footage.
+  // Optional so older payloads (and mocks) stay valid.
+  capture_regime?: CaptureRegime | null;
   created_at: string;
 }
 
@@ -356,6 +368,16 @@ export interface OverlayLayersAvailable {
   metrics: boolean;
 }
 
+// Field-calibration state for the clip's parent video. ``reason`` is a
+// coach-readable sentence composed server-side whenever spatial metrics are
+// suppressed — suppression is never silent.
+export interface OverlayCalibration {
+  analytics_safe: boolean;
+  reason: string | null;
+  reason_codes: string[];
+  confidence: number | null;
+}
+
 export interface ClipOverlayPayload {
   clip_id: string;
   tracklets: OverlayTracklet[];
@@ -363,6 +385,10 @@ export interface ClipOverlayPayload {
   labels: OverlayLabel[];
   metrics: OverlayMetric[];
   layers_available: OverlayLayersAvailable;
+  // Present from backends that expose calibration-aware overlays (explained
+  // suppression); optional so older payloads (and mocks) stay valid.
+  capture_regime?: CaptureRegime | null;
+  calibration?: OverlayCalibration;
 }
 
 // Layer keys the Clip Review UI exposes as toggles. ``raw`` is the bare video
