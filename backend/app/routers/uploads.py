@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.deps import get_current_user
+from app.deps import get_current_user, require_any_staff
 from app.models import User
 from app.storage import (
     DOWNLOADABLE_BUCKETS,
@@ -47,10 +47,19 @@ class UploadUrlRequest(BaseModel):
     filename: str
 
 
+def _reject_oversize(size: int) -> None:
+    limit = get_settings().max_upload_bytes
+    if size > limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Upload exceeds the {limit} byte limit",
+        )
+
+
 @router.post("/upload-url")
 async def create_upload_url(
     body: UploadUrlRequest,
-    _current_user: Annotated[User, Depends(get_current_user)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, str]:
     """Mint an upload key + proxy URL (Worker parity)."""
     if not body.filename:
@@ -69,36 +78,62 @@ async def create_upload_url(
 async def upload_object(
     key: str,
     request: Request,
-    _current_user: Annotated[User, Depends(get_current_user)],
+    _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, object]:
-    """Stream the request body into raw-video storage (Worker parity)."""
+    """Stream the request body into raw-video storage (Worker parity).
+
+    Guardrails: staff-only (matching video registration), a byte ceiling
+    (``max_upload_bytes`` — checked against Content-Length up front and
+    re-enforced while streaming, since the header can lie), and no
+    overwrite of an existing object (keys are minted per-upload; a PUT to
+    a taken key is a mistake or an attempt to clobber someone's film).
+    """
     if not key or not is_valid_key(key):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing upload key")
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit():
+        _reject_oversize(int(declared))
 
     md5 = hashlib.md5(usedforsecurity=False)
     size = 0
 
     if active_storage_backend() == "local":
         path = local_object_path(_RAW_BUCKET, key)
+        if path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Object already exists"
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("wb") as out:
-            async for chunk in request.stream():
-                out.write(chunk)
-                md5.update(chunk)
-                size += len(chunk)
+        try:
+            with path.open("wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    _reject_oversize(size)
+                    out.write(chunk)
+                    md5.update(chunk)
+        except BaseException:
+            path.unlink(missing_ok=True)  # no partial objects
+            raise
         storage_uri = f"local://{_RAW_BUCKET}/{key}"
     else:
         import tempfile
 
+        client = get_r2_client()
+        exists = await to_thread.run_sync(_r2_object_exists, client, key)
+        if exists:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Object already exists"
+            )
         content_type = request.headers.get("content-type", "video/mp4")
         with tempfile.NamedTemporaryFile() as tmp:
             async for chunk in request.stream():
+                size += len(chunk)
+                _reject_oversize(size)
                 tmp.write(chunk)
                 md5.update(chunk)
-                size += len(chunk)
             tmp.flush()
             tmp.seek(0)
-            client = get_r2_client()
             await to_thread.run_sync(
                 lambda: client.upload_fileobj(
                     tmp, _RAW_BUCKET, key, ExtraArgs={"ContentType": content_type}
@@ -108,6 +143,14 @@ async def upload_object(
 
     log.info("upload_stored", key=key, size=size, backend=active_storage_backend())
     return {"key": key, "size": size, "etag": md5.hexdigest(), "storageUri": storage_uri}
+
+
+def _r2_object_exists(client: object, key: str) -> bool:
+    try:
+        client.head_object(Bucket=_RAW_BUCKET, Key=key)  # type: ignore[attr-defined]
+        return True
+    except Exception:
+        return False
 
 
 @router.get("/download-url")

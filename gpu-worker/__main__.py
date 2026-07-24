@@ -70,9 +70,9 @@ LEASE_SECONDS = int(os.environ.get("GPU_WORKER_LEASE_SECONDS", "600"))
 
 
 def _worker_id() -> str:
-    import socket
+    from worker.auth import worker_id
 
-    return os.environ.get("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
+    return worker_id()
 
 
 def _cf_config() -> tuple[str, str, str]:
@@ -924,7 +924,9 @@ def _update_job_status(
     if not BACKEND_API_URL:
         return
     try:
-        payload: dict[str, Any] = {"status": status}
+        # worker_id identifies this process as the lease holder — the backend
+        # rejects state changes on a leased job from anyone else.
+        payload: dict[str, Any] = {"status": status, "worker_id": _worker_id()}
         if error_message:
             payload["error_message"] = error_message
         if output_artifacts:

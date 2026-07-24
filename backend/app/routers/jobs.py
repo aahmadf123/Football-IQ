@@ -7,6 +7,7 @@ Expired leases are lazily reclaimed by the next claim call; rows whose
 ``attempt_count`` reaches ``max_attempts`` are swept to ``failed``.
 """
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
-from app.models import JobStatus, JobType, PipelineMode, ProcessingJob, User, Video
+from app.models import JobStatus, JobType, PipelineMode, ProcessingJob, User, UserRole, Video
 from app.workload import WorkloadSnapshot, require_workload_capacity
 
 log = structlog.get_logger(__name__)
@@ -47,6 +48,24 @@ class JobStatusUpdate(BaseModel):
     error_message: str | None = None
     output_artifacts: dict[str, Any] | None = None
     progress: dict[str, Any] | None = None
+    # The lease holder's id. Required to transition a leased running job
+    # unless the caller is an admin (ops override) — see update_job_status.
+    worker_id: str | None = Field(default=None, max_length=128)
+
+
+#: Ceiling for caller-supplied JSON blobs merged into a job row. Progress
+#: and artifacts are summaries; anything larger is a mistake or a per-
+#: heartbeat row-bloat attack.
+_JSON_BLOB_LIMIT_BYTES = 64 * 1024
+
+
+def _reject_json_bomb(field: str, value: dict[str, Any]) -> None:
+    size = len(json.dumps(value, default=str).encode())
+    if size > _JSON_BLOB_LIMIT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"{field} payload exceeds {_JSON_BLOB_LIMIT_BYTES} bytes",
+        )
 
 
 class JobClaimRequest(BaseModel):
@@ -278,8 +297,10 @@ async def heartbeat_job(
 
     job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=body.lease_seconds)
     if body.progress:
+        _reject_json_bomb("progress", body.progress)
         merged = dict(job.progress or {})
         merged.update(body.progress)
+        _reject_json_bomb("progress", merged)
         job.progress = merged
     await db.flush()
     return JobResponse.from_orm_job(job)
@@ -304,13 +325,30 @@ async def update_job_status(
     job_id: uuid.UUID,
     body: JobStatusUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(require_any_staff)],
+    current_user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     """Update job status — used by GPU worker callbacks."""
     result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
     job = result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    # A leased running job belongs to its worker: state changes must carry
+    # the lease holder's worker_id. Admins may override (ops cancel).
+    if (
+        job.status == JobStatus.running
+        and job.leased_by is not None
+        and body.worker_id != job.leased_by
+        and current_user.role != UserRole.admin
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Job is leased by another worker ({job.leased_by})",
+        )
+    if body.output_artifacts is not None:
+        _reject_json_bomb("output_artifacts", body.output_artifacts)
+    if body.progress is not None:
+        _reject_json_bomb("progress", body.progress)
 
     job.status = body.status
     if body.status == JobStatus.running and job.started_at is None:

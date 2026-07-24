@@ -143,10 +143,13 @@ def _handle_timeout(
 def _update_job_failed(job_id: str, error_message: str) -> None:
     if not BACKEND_API_URL:
         return
+    from worker.auth import worker_id
+
     payload: dict[str, Any] = {
         "status": "failed",
         "error_stage": "timeout",
         "error_message": error_message,
+        "worker_id": worker_id(),
     }
     try:
         from worker import auth as worker_auth

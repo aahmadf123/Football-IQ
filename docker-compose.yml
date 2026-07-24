@@ -27,6 +27,10 @@ services:
       db:
         condition: service_healthy
     environment:
+      # ⚠ LOCAL DEVELOPMENT ONLY. This compose publishes a fixed SECRET_KEY
+      # and enables credential-less admin dev-login — anyone who can reach
+      # the port owns the instance. Any real deployment must set
+      # ENVIRONMENT=production, a per-deploy SECRET_KEY, and no DEV_AUTOLOGIN.
       ENVIRONMENT: development
       SECRET_KEY: dev-secret-key-not-for-production
       DATABASE_URL: postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq

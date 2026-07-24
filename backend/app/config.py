@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Absolute base used when minting signed local download URLs (the
     # frontend <video> tag needs a resolvable origin, not a relative path).
     public_api_base_url: str = "http://localhost:8000"
+    # Ceiling for a single PUT /api/v1/videos/upload/{key} body. Full-game
+    # 4K film stays well under this; the cap exists so an authenticated
+    # client cannot fill the storage volume with one endless stream.
+    max_upload_bytes: int = 8 * 1024 * 1024 * 1024
 
     # ── JWT ───────────────────────────────────────────────────────────────
     jwt_algorithm: str = "HS256"

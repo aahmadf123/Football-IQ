@@ -23,6 +23,16 @@ log = structlog.get_logger(__name__)
 
 # Re-login a comfortable margin before the backend's 60-minute access TTL.
 _DEFAULT_TTL_SECONDS = 45 * 60
+# After a failed login, don't retry for this long: a stalled backend would
+# otherwise eat a full login round-trip on every writeback call.
+_LOGIN_BACKOFF_SECONDS = 30.0
+
+
+def worker_id() -> str:
+    """Stable identity for job leases: ``WORKER_ID`` env or hostname-pid."""
+    import socket
+
+    return os.environ.get("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
 
 
 class WorkerAuth:
@@ -32,6 +42,7 @@ class WorkerAuth:
         self._lock = threading.Lock()
         self._token: str | None = None
         self._acquired_at: float = 0.0
+        self._last_failure_at: float = 0.0
 
     @property
     def _configured(self) -> bool:
@@ -49,12 +60,15 @@ class WorkerAuth:
         with self._lock:
             if self._token and (time.monotonic() - self._acquired_at) < ttl:
                 return self._token
+            if (time.monotonic() - self._last_failure_at) < _LOGIN_BACKOFF_SECONDS:
+                return None  # recent login failure — don't hammer the backend
             return self._login_locked()
 
     def invalidate(self) -> None:
         """Drop the cached token (call after a 401) — next use re-logins."""
         with self._lock:
             self._token = None
+            self._last_failure_at = 0.0  # a 401 means the backend is up: retry now
 
     def _login_locked(self) -> str | None:
         base = os.environ.get("BACKEND_API_URL", "")
@@ -70,11 +84,13 @@ class WorkerAuth:
             resp.raise_for_status()
             self._token = str(resp.json()["access_token"])
             self._acquired_at = time.monotonic()
+            self._last_failure_at = 0.0
             log.info("worker_auth_login_ok")
             return self._token
         except Exception as exc:
             log.error("worker_auth_login_failed", error=str(exc))
             self._token = None
+            self._last_failure_at = time.monotonic()
             return None
 
 

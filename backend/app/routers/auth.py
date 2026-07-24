@@ -14,7 +14,7 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
@@ -92,6 +92,10 @@ async def register(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
+    # Serialize the bootstrap decision: without this, two concurrent first
+    # registrations both read count 0 and both become admin. The transaction-
+    # scoped advisory lock releases on commit/rollback.
+    await db.execute(text("SELECT pg_advisory_xact_lock(571_202_001)"))
     user_count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
     assigned_role = UserRole.admin if user_count == 0 else UserRole.viewer
 
@@ -219,7 +223,7 @@ async def dev_login(
     """
     settings = get_settings()
     autologin = os.environ.get("DEV_AUTOLOGIN", "").strip().lower() in {"1", "true", "yes", "on"}
-    if settings.environment != "development" or not autologin:
+    if settings.environment.strip().lower() != "development" or not autologin:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     result = await db.execute(

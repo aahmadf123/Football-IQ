@@ -72,14 +72,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log.info("shutdown")
 
 
+# Normalized once: "Production"/" production " must gate exactly like
+# "production" — a fail-open docs/dev-login surface is not worth a casing typo.
+_env = settings.environment.strip().lower()
+
 app = FastAPI(
     title="Football-IQ API",
     description="Backend API for the Toledo Football Computer Vision platform.",
     version="0.1.0",
     lifespan=lifespan,
     # Disable automatic docs in production to reduce attack surface
-    docs_url="/docs" if settings.environment != "production" else None,
-    redoc_url="/redoc" if settings.environment != "production" else None,
+    docs_url="/docs" if _env != "production" else None,
+    redoc_url="/redoc" if _env != "production" else None,
 )
 
 # ── Observability middleware ──────────────────────────────────────────────────
