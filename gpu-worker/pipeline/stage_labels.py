@@ -216,6 +216,9 @@ def run(
     return {
         "label_count": len(label_ids),
         "label_ids": label_ids,
+        # Full label dicts for in-process consumers (render HUD reads
+        # label_type/label_value without a backend round trip).
+        "labels": labels,
         "team_classification": {
             "classified_tracklets": len(team_by_tracklet),
             "official_tracklets": len(official_tracklet_ids),

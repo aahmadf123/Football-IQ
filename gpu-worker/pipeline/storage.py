@@ -117,7 +117,12 @@ def download_to_temp(ref: str) -> Path:
     Always returns a caller-owned copy (safe to unlink), even for local
     backends — pipeline stages treat the returned path as disposable.
     """
-    scheme, bucket, key = parse_ref(str(ref))
+    raw = str(ref)
+    if "://" not in raw:
+        direct = Path(raw)
+        if direct.is_file():
+            return _copy_to_temp(direct, label=raw)
+    scheme, bucket, key = parse_ref(raw)
 
     if scheme == "file":
         return _copy_to_temp(Path(key), label=ref)
@@ -164,7 +169,12 @@ def resolve_readable_path(ref: str) -> Path | None:
     Lets callers (e.g. video sources) avoid a temp copy for file:// and
     local:// references. Returns ``None`` for remote references.
     """
-    scheme, bucket, key = parse_ref(str(ref))
+    raw = str(ref)
+    if "://" not in raw:
+        direct = Path(raw)
+        if direct.is_file():
+            return direct
+    scheme, bucket, key = parse_ref(raw)
     if scheme == "file":
         return Path(key)
     if scheme == "local" or (scheme == "" and active_backend() == "local"):

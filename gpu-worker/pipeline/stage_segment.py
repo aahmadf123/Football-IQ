@@ -117,6 +117,18 @@ def _segment(
     return {
         "clip_count": len(clips),
         "clip_ids": [c["id"] for c in clips],
+        # Boundary records for in-process consumers: the orchestrator slices
+        # per-frame detections by each clip's [start_time, end_time] window.
+        "clips": [
+            {
+                "id": c.get("id"),
+                "start_time": c.get("start_time"),
+                "end_time": c.get("end_time"),
+                "play_number": c.get("play_number"),
+                "result_state": c.get("result_state"),
+            }
+            for c in clips
+        ],
         "boundary_model": segmenter.source,
     }
 

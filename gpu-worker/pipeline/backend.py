@@ -21,6 +21,23 @@ def _client() -> httpx.Client:
     return httpx.Client(base_url=BACKEND_API_URL, timeout=30)
 
 
+def _offline() -> bool:
+    """True when no backend is configured (local CLI / --no-backend runs)."""
+    return not BACKEND_API_URL
+
+
+def _offline_record(payload: dict[str, Any]) -> dict[str, Any]:
+    """Synthesise a created-record response for offline runs.
+
+    Keeps the pipeline's data flow intact without a backend: downstream
+    consumers read ``id`` plus the echoed payload fields exactly as they
+    would from a real POST response.
+    """
+    import uuid
+
+    return {"id": str(uuid.uuid4()), "_offline": True, **payload}
+
+
 # ── Job status ────────────────────────────────────────────────────────────────
 
 
@@ -76,6 +93,8 @@ def patch_video_status(
         payload["capture_regime"] = capture_regime
     if regime_confidence is not None:
         payload["regime_confidence"] = regime_confidence
+    if _offline():
+        return
     try:
         with _client() as c:
             c.patch(f"/api/v1/videos/{video_id}/status", json=payload)
@@ -116,6 +135,8 @@ def create_clip(
         payload["job_id"] = job_id
     if result_state is not None:
         payload["result_state"] = result_state
+    if _offline():
+        return _offline_record({"video_id": video_id, **payload})
     with _client() as c:
         resp = c.post(f"/api/v1/videos/{video_id}/clips", json=payload)
         resp.raise_for_status()
@@ -189,6 +210,8 @@ def create_calibration(
         payload["kalman_state"] = kalman_state
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/calibrations", json=payload)
         resp.raise_for_status()
@@ -221,6 +244,8 @@ def create_tracklet(
         payload["team_label"] = team_label
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/tracklets", json=payload)
         resp.raise_for_status()
@@ -266,6 +291,8 @@ def create_event(
         payload["timestamp_seconds"] = timestamp_seconds
     if attributes is not None:
         payload["attributes"] = attributes
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/events", json=payload)
         resp.raise_for_status()
@@ -293,6 +320,8 @@ def create_label(
         payload["clip_id"] = clip_id
     if tracklet_id is not None:
         payload["tracklet_id"] = tracklet_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/labels", json=payload)
         resp.raise_for_status()
@@ -353,6 +382,8 @@ def create_metric(
         payload["injury_risk_score"] = injury_risk_score
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/metrics", json=payload)
         resp.raise_for_status()
@@ -450,6 +481,8 @@ def create_pose_keypoints(
         payload["biomechanics"] = biomechanics
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/pose/keypoints", json=payload)
         resp.raise_for_status()
