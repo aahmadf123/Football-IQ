@@ -35,9 +35,7 @@ def upgrade() -> None:
         for value in _NEW_JOB_TYPES:
             op.execute(f"ALTER TYPE job_type ADD VALUE IF NOT EXISTS '{value}'")
 
-    op.add_column(
-        "processing_jobs", sa.Column("leased_by", sa.String(length=128), nullable=True)
-    )
+    op.add_column("processing_jobs", sa.Column("leased_by", sa.String(length=128), nullable=True))
     op.add_column(
         "processing_jobs",
         sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
