@@ -1,27 +1,117 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted-surface);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-status-ok: var(--status-ok);
+  --color-status-warn: var(--status-warn);
+  --color-status-danger: var(--status-danger);
+  --color-status-info: var(--status-info);
+  --color-gold: var(--primary);
+  --color-gold-strong: var(--gold-strong);
+  --color-navy-950: var(--navy-950);
+  --color-navy-925: var(--navy-925);
+  --color-navy-900: var(--navy-900);
+  --color-navy-850: var(--navy-850);
+  --color-navy-800: var(--navy-800);
+  --color-navy-700: var(--navy-700);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-barlow-condensed);
+  --font-mono: var(--font-jetbrains-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 :root {
+  /* Toledo navy ramp — unchanged from the original hand-built palette. */
   --navy-950: oklch(0.15 0.037 252);
   --navy-925: oklch(0.18 0.043 252);
   --navy-900: oklch(0.21 0.048 252);
   --navy-850: oklch(0.25 0.052 252);
   --navy-800: oklch(0.29 0.055 252);
   --navy-700: oklch(0.36 0.06 252);
-  --line: oklch(0.39 0.045 252 / 0.72);
-  --line-soft: oklch(0.35 0.04 252 / 0.46);
-  --text: oklch(0.96 0.009 252);
-  --muted: oklch(0.72 0.022 252);
-  --subtle: oklch(0.58 0.026 252);
-  --gold: oklch(0.84 0.18 84);
+
+  /* Semantic surface/ink tokens (dark values live directly in :root — the
+     app is dark-only by design; there is no .dark class and no light mode). */
+  --background: var(--navy-950);
+  --foreground: oklch(0.96 0.009 252);
+  --card: oklch(0.19 0.044 252);
+  --card-foreground: var(--foreground);
+  --popover: var(--navy-900);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.84 0.18 84);
+  --primary-foreground: oklch(0.18 0.035 252);
   --gold-strong: oklch(0.77 0.18 82);
-  --blue: oklch(0.65 0.17 254);
-  --green: oklch(0.72 0.16 148);
-  --orange: oklch(0.72 0.17 51);
-  --red: oklch(0.64 0.2 28);
+  --secondary: var(--navy-850);
+  --secondary-foreground: var(--foreground);
+  --muted-surface: var(--navy-900);
+  --muted-foreground: oklch(0.72 0.022 252);
+  --accent: var(--navy-800);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.64 0.2 28);
+  --destructive-foreground: oklch(0.97 0.01 28);
+  --border: oklch(0.39 0.045 252 / 0.72);
+  --border-soft: oklch(0.35 0.04 252 / 0.46);
+  --input: oklch(0.35 0.04 252 / 0.46);
+  --ring: oklch(0.84 0.18 84);
+  --radius: 0.5rem;
+
+  /* Canonical status map — the only status→color mapping in the app.
+     Gold is brand, never a status color. */
+  --status-ok: oklch(0.72 0.16 148);
+  --status-warn: oklch(0.72 0.17 51);
+  --status-danger: oklch(0.64 0.2 28);
+  --status-info: oklch(0.65 0.17 254);
+
+  /* LEGACY TOKENS — consumed by the un-migrated stylesheet below and by
+     inline styles in un-migrated views. Delete in cleanup phase (P5). */
+  --line: var(--border);
+  --line-soft: var(--border-soft);
+  --text: var(--foreground);
+  --muted: var(--muted-foreground);
+  --subtle: oklch(0.58 0.026 252);
+  --gold: var(--primary);
+  --blue: var(--status-info);
+  --green: var(--status-ok);
+  --orange: var(--status-warn);
+  --red: var(--status-danger);
   --cyan: oklch(0.74 0.12 209);
   --violet: oklch(0.67 0.17 286);
   --shadow: 0 20px 60px oklch(0.08 0.03 252 / 0.35);
 
-  /* Spacing scale (4px base, semantic names). Use these instead of literals
-     so density can be tuned in one place and rhythm stays consistent. */
+  /* LEGACY BRIDGE — these names were referenced by components but never
+     defined, so Tailwind-default hex fallbacks rendered instead. Defining
+     them here snaps every stray color onto the real palette. Delete in P5. */
+  --accent-red: var(--status-danger);
+  --accent-amber: var(--status-warn);
+  --accent-green: var(--status-ok);
+  --text-muted: var(--muted-foreground);
+  --danger: var(--status-danger);
+  --ok: var(--status-ok);
+  --surface: var(--card);
+
+  /* Legacy spacing scale (4px base) — used by the un-migrated stylesheet. */
   --space-1: 4px;
   --space-2: 6px;
   --space-3: 8px;
@@ -33,54 +123,76 @@
   --space-9: 32px;
   --space-10: 48px;
 
-  /* Radius scale — three steps + pill. Replaces the 3/5/6/7/8/9 grab-bag. */
-  --radius-sm: 5px;
-  --radius-md: 7px;
-  --radius-lg: 9px;
+  /* Radius steps — runtime copies for legacy var() consumers; utilities get
+     the same values inlined from @theme. (Old 5/7/9px becomes 4/6/8px.) */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
   --radius-pill: 999px;
 
-  /* Shell rails — single source of truth so topbar columns and shell stay
-     in sync at every breakpoint. */
+  /* Shell rails — legacy shell only; the new shell uses Tailwind classes. */
   --rail-left: 248px;
   --rail-right: 224px;
 
-  /* z-index scale — semantic, not magic numbers. */
+  /* z-index scale. */
   --z-sticky: 20;
   --z-dropdown: 40;
   --z-overlay: 60;
   --z-toast: 80;
 }
 
-* {
-  box-sizing: border-box;
-}
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 
-html {
-  background: var(--navy-950);
-}
+  html {
+    background: var(--navy-950);
+  }
 
-body {
-  margin: 0;
-  color: var(--text);
-  background:
-    radial-gradient(circle at 18% 0%, oklch(0.31 0.065 252 / 0.7), transparent 34rem),
-    linear-gradient(135deg, var(--navy-950), oklch(0.11 0.034 252));
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  letter-spacing: 0;
-}
+  body {
+    margin: 0;
+    color: var(--foreground);
+    background:
+      radial-gradient(circle at 18% 0%, oklch(0.31 0.065 252 / 0.7), transparent 34rem),
+      linear-gradient(135deg, var(--navy-950), oklch(0.11 0.034 252));
+    background-attachment: fixed;
+    font-family: var(--font-sans, Inter, "Segoe UI", system-ui, sans-serif);
+    letter-spacing: 0;
+  }
 
-button,
-input,
-select {
-  font: inherit;
-}
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display, var(--font-sans, system-ui, sans-serif));
+  }
 
-button {
-  cursor: pointer;
-}
+  button {
+    cursor: pointer;
+  }
 
-a {
-  color: inherit;
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 .app-shell {
