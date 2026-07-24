@@ -95,9 +95,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-  } catch {
+  } catch (cause) {
     throw new Error(
       "Unable to reach the Football-IQ API. Check your connection or contact an administrator.",
+      { cause },
     );
   }
   if (!res.ok) {
