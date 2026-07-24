@@ -32,4 +32,4 @@ COPY . .
 RUN addgroup --system gpugroup && adduser --system --ingroup gpugroup gpuuser
 USER gpuuser
 
-CMD ["python", "-m", "worker"]
+CMD ["python", "__main__.py"]

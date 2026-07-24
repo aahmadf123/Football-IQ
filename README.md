@@ -19,6 +19,42 @@ It runs **fully locally with no cloud accounts and no GPU** (CPU works; a GPU is
 
 The full guide lives in **[docs/runbook-local.md](docs/runbook-local.md)**.
 
+One-command startup (Windows PowerShell):
+
+```powershell
+./scripts/dev-up.ps1 -WithCloudflare
+```
+
+One-click startup + verification (recommended):
+
+```powershell
+./scripts/dev-go.ps1 -WithCloudflare
+```
+
+Double-click launcher (Windows):
+
+```text
+run-football-iq.cmd
+```
+
+Without Cloudflare Worker (backend/frontend/gpu-worker only):
+
+```powershell
+./scripts/dev-up.ps1
+```
+
+Stop local services:
+
+```powershell
+./scripts/dev-down.ps1
+```
+
+Verify everything is connected and healthy:
+
+```powershell
+./scripts/dev-doctor.ps1 -WithCloudflare
+```
+
 ```bash
 cp .env.example .env      # defaults work for local
 
