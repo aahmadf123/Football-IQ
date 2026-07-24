@@ -8,24 +8,37 @@ import type { TendencyEntry } from "@/lib/types";
 export function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
   if (entries.length === 0) {
     return (
-      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
+      <p className="text-xs text-muted-foreground">
+        No tendencies above the minimum-sample threshold.
+      </p>
     );
   }
   return (
-    <div className="list-stack" style={{ gap: 4 }}>
-      {entries.map((e) => (
-        <div
-          key={e.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
-        >
-          <strong>{e.grouping_key}</strong>
-          <span>{e.total_plays}</span>
-          <div className="progress">
-            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
+    <div className="flex flex-col gap-1.5">
+      {entries.map((e) => {
+        const runPct = Math.round(e.run_rate * 100);
+        return (
+          <div
+            key={e.grouping_key}
+            className="grid grid-cols-[1fr_44px_minmax(90px,1fr)_60px] items-center gap-2 text-[0.82rem]"
+          >
+            <span className="truncate font-medium">{e.grouping_key}</span>
+            <span data-numeric className="font-mono text-xs text-muted-foreground">
+              {e.total_plays}
+            </span>
+            <div
+              className="h-1.5 overflow-hidden rounded-full bg-secondary"
+              role="img"
+              aria-label={`${runPct}% run`}
+            >
+              <div className="h-full rounded-full bg-status-info" style={{ width: `${runPct}%` }} />
+            </div>
+            <span data-numeric className="text-right font-mono text-xs text-muted-foreground">
+              {runPct}% run
+            </span>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
