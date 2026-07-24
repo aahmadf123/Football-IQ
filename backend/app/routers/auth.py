@@ -13,7 +13,7 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,14 +50,24 @@ def _normalize_email(email: str) -> str:
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    # Min 8 mirrors the frontend input; max 128 keeps request bodies sane
-    # (bcrypt itself only uses the first 72 bytes). A too-short password now
-    # returns a clear 422 instead of being silently accepted.
-    password: str = Field(min_length=8, max_length=128)
+    # Min 8 mirrors the frontend input. A too-short password now returns a
+    # clear 422 instead of being silently accepted.
+    password: str = Field(min_length=8)
     full_name: str = Field(min_length=1)
     # Accepted for wire compatibility but IGNORED — roles are assigned
     # server-side (first user = admin, everyone else = viewer).
     role: UserRole = UserRole.viewer
+
+    @field_validator("password")
+    @classmethod
+    def _within_bcrypt_limit(cls, value: str) -> str:
+        # bcrypt only hashes the first 72 bytes. REJECT longer passwords at
+        # registration rather than silently truncating, so a user never
+        # unknowingly sets a password whose tail is ignored (a multi-byte
+        # password reaches 72 bytes in fewer than 72 characters).
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes long")
+        return value
 
 
 class RoleUpdateRequest(BaseModel):

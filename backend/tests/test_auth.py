@@ -31,6 +31,21 @@ def test_long_password_does_not_crash() -> None:
     assert verify_password(multibyte, hashed_mb)
 
 
+def test_register_request_rejects_over_72_byte_password() -> None:
+    # Reject (not silently truncate) passwords past bcrypt's 72-byte limit so a
+    # user never sets a password whose tail is ignored.
+    import pytest
+    from app.routers.auth import RegisterRequest
+    from pydantic import ValidationError
+
+    RegisterRequest(email="a@b.com", password="a" * 72, full_name="X")  # exactly 72 bytes OK
+    with pytest.raises(ValidationError):
+        RegisterRequest(email="a@b.com", password="a" * 73, full_name="X")
+    with pytest.raises(ValidationError):
+        # 19 * 4 = 76 bytes — crosses the limit at far fewer than 72 characters.
+        RegisterRequest(email="a@b.com", password="🔒" * 19, full_name="X")
+
+
 def test_access_token_roundtrip() -> None:
     token = create_access_token(subject="user-id-abc")
     payload = decode_token(token)
