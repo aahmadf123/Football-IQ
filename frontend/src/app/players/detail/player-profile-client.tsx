@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { PlayerPortrait } from "@/components/shared/player-portrait";
 import { TrendLine } from "@/components/shared/trend-line";
 import { fmtMetric, playerProfileHref } from "@/components/players-view";

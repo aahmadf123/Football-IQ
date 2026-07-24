@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { LibraryView } from "@/app/library/library-view";
 import { ReviewTab } from "@/components/film-room/review-tab";
 import { UploadProcessFilm } from "@/components/film-room/upload-process";

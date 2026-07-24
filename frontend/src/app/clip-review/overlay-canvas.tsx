@@ -31,10 +31,13 @@ const EVENT_ACTIVE_WINDOW_S = 0.4;
 // Length of the trailing path drawn behind each player marker (frames).
 const TRAIL_FRAMES = 30;
 
+// Team colors resolve from the design tokens at render time (the canvas is
+// inline SVG in the DOM, so var() works): home = Toledo gold, away = info
+// blue, unknown = muted ink.
 const TEAM_COLORS: Record<string, string> = {
-  home: "#fbbf24",
-  away: "#60a5fa",
-  unknown: "#94a3b8",
+  home: "var(--primary)",
+  away: "var(--status-info)",
+  unknown: "var(--muted-foreground)",
 };
 
 interface OverlayCanvasProps {
@@ -240,7 +243,7 @@ function ActiveEventBadges({
       {active.map((e, i) => (
         <g key={e.id} transform={`translate(40 ${80 + i * 28})`}>
           <rect x={0} y={0} rx={4} ry={4} width={140} height={22} fill="rgba(15,23,42,0.85)" />
-          <text x={8} y={15} fontSize={12} fill="#fbbf24" fontFamily="ui-sans-serif">
+          <text x={8} y={15} fontSize={12} fill="var(--primary)" fontFamily="var(--font-mono, ui-monospace)">
             {e.event_type}
           </text>
         </g>

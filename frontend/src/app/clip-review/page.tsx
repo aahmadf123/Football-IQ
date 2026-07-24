@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { ArrowLeft, Clapperboard } from "lucide-react";
 import { AnalyticsCard } from "@/components/analytics-card";
 import { ClipStateBadges } from "@/components/clip-state-badge";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { useAppState } from "@/lib/app-state";
 import {
   fetchClip,

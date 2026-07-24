@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";

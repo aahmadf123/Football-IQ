@@ -1,9 +1,5 @@
 import type { FootballData, SelfScoutResponse } from "./types";
 
-// Page titles are real product copy, not mock data — they live in labels.ts.
-// Re-exported here until the last legacy import is migrated (cleanup P5).
-export { pageTitles } from "./labels";
-
 const sampleSelfScout: SelfScoutResponse = {
   clip_count: 112,
   formation_tendencies: [

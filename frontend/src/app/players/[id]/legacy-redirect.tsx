@@ -21,8 +21,8 @@ export function LegacyPlayerRedirect() {
     router.replace(target);
   }, [router]);
   return (
-    <div style={{ padding: 24 }}>
-      <p className="kicker">Opening player profile…</p>
+    <div className="p-6">
+      <p className="text-xs text-muted-foreground">Opening player profile…</p>
     </div>
   );
 }

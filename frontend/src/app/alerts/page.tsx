@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, BellOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { useAppState } from "@/lib/app-state";
 import {
   actionAlert,
