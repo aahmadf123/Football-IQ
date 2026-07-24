@@ -211,13 +211,16 @@ class CaptureRegime(enum.StrEnum):
     """Source-capture regime inferred from pixels at ingest (Issue #126).
 
     Toledo film arrives without SRT/GPS/IMU, so every Phase-CV stage routes on
-    whichever of these the ingest-time detector picked. ``unknown`` is the safe
-    fallback for low-confidence or feature-extraction failures and is also the
-    backfill value for rows that existed before this column was added.
+    whichever of these the ingest-time detector picked. ``unconstrained`` is
+    the first-class "any camera / any angle / any height" regime — analyzed
+    footage that matches neither special regime takes the generic pipeline
+    path (ADR 0005). ``unknown`` is reserved for hard analysis failures and
+    is the backfill value for rows that predate this column.
     """
 
     drone_follow = "drone_follow"
     fixed_sideline = "fixed_sideline"
+    unconstrained = "unconstrained"
     unknown = "unknown"
 
 

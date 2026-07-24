@@ -39,6 +39,9 @@ BALL_DETECTION_CONF = float(os.environ.get("BALL_DETECTION_CONF", "0.25"))
 
 # Regimes (kept in sync with pipeline.homography.regime_detector).
 DRONE_FOLLOW = "drone_follow"
+UNCONSTRAINED = "unconstrained"
+#: Regimes where the ball may be only a few pixels — SAHI tiling applies.
+_SMALL_BALL_REGIMES = frozenset({DRONE_FOLLOW, UNCONSTRAINED})
 
 
 class BallDetectorAdapter(DetectorBase):
@@ -132,7 +135,7 @@ def get_ball_detector(
 
 def ball_strategy(regime: str | None) -> str:
     """Return the slicing strategy label for the routing artifact."""
-    return f"sahi-{BALL_TILE}" if regime == DRONE_FOLLOW else "full-frame"
+    return f"sahi-{BALL_TILE}" if regime in _SMALL_BALL_REGIMES else "full-frame"
 
 
 def build_ball_detector(
@@ -151,7 +154,7 @@ def build_ball_detector(
     detector = base if base is not None else get_ball_detector(variant)
     if detector is None:
         return None
-    if regime == DRONE_FOLLOW:
+    if regime in _SMALL_BALL_REGIMES:
         return SAHIDetectorAdapter(
             detector,
             tile=BALL_TILE,

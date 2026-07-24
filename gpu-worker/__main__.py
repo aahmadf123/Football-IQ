@@ -801,6 +801,30 @@ def _dispatch(
         finally:
             overlay_path.unlink(missing_ok=True)
 
+    elif job_type == "train":
+        # Scheduled retraining from exported coach corrections (learning
+        # loop, P3). Training output registers as EXPERIMENTAL in the MLOps
+        # registry — promotion to production stays a human decision, so a
+        # scheduler-triggered run can never silently change serving behavior.
+        import dataclasses
+
+        from pipeline import backend as backend_mod
+        from training.cross_regime_distill import run_nightly
+
+        clips = backend_mod.fetch_clips_for_pairing()
+        video_dir = os.environ.get("TRAINING_VIDEO_DIR", "") or None
+        try:
+            _checkpoint, report = run_nightly(clips, video_dir=video_dir)
+        except ValueError as exc:
+            # Not enough validated paired plays yet — expected early in a
+            # team's life; the job succeeds with an explicit no-train reason.
+            log.info("train_skipped_insufficient_data", reason=str(exc))
+            return {"trained": False, "reason": str(exc)}
+        report_dict = (
+            dataclasses.asdict(report) if dataclasses.is_dataclass(report) else {"summary": str(report)}
+        )
+        return {"trained": True, "report": report_dict}
+
     else:
         log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
         return {}

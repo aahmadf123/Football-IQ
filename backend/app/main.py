@@ -61,8 +61,15 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("startup", environment=settings.environment)
-    yield
-    log.info("shutdown")
+    from app.scheduler import start_scheduler
+
+    scheduler_task = start_scheduler()
+    try:
+        yield
+    finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+        log.info("shutdown")
 
 
 app = FastAPI(
