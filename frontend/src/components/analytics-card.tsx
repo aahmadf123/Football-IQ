@@ -44,6 +44,13 @@ interface Props {
   style?: React.CSSProperties;
   /** Optional element rendered to the right of the title (icon, link, etc). */
   headerExtra?: ReactNode;
+  /**
+   * Optional coach-readable sentence explaining *why* the metric is gated for
+   * this specific footage (e.g. the calibration reason from the overlays
+   * payload). Rendered only when ``state.kind === "gated"``, under the
+   * generic gating reason.
+   */
+  gatedReason?: string;
 }
 
 export function AnalyticsCard({
@@ -53,6 +60,7 @@ export function AnalyticsCard({
   className,
   style,
   headerExtra,
+  gatedReason,
 }: Props) {
   return (
     <section
@@ -99,9 +107,18 @@ export function AnalyticsCard({
           </p>
         )}
         {state.kind === "gated" && (
-          <p className="kicker" data-testid="card-gated">
-            {state.reason}
-          </p>
+          <div data-testid="card-gated">
+            <p className="kicker">{state.reason}</p>
+            {gatedReason && (
+              <p
+                className="kicker"
+                data-testid="card-gated-reason"
+                style={{ marginTop: 6, color: "var(--text)" }}
+              >
+                {gatedReason}
+              </p>
+            )}
+          </div>
         )}
         {state.kind === "error" && (
           <div data-testid="card-error">

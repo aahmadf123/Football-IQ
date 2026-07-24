@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-
 LOW_IDENTITY_CONFIDENCE = 0.70
 LOW_TRACKING_CONFIDENCE = 0.60
 LOAF_SPEED_RATIO = 0.50

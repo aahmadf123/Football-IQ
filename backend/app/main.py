@@ -48,7 +48,9 @@ from app.routers.reports import router as reports_router
 from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.settings import router as settings_router
+from app.routers.storage import router as storage_router
 from app.routers.tracklets import router as tracklets_router
+from app.routers.uploads import router as uploads_router
 from app.routers.videos import router as videos_router
 
 settings = get_settings()
@@ -59,9 +61,20 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("startup", environment=settings.environment)
-    yield
-    log.info("shutdown")
+    from app.scheduler import start_scheduler
 
+    scheduler_task = start_scheduler()
+    try:
+        yield
+    finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+        log.info("shutdown")
+
+
+# Normalized once: "Production"/" production " must gate exactly like
+# "production" — a fail-open docs/dev-login surface is not worth a casing typo.
+_env = settings.environment.strip().lower()
 
 app = FastAPI(
     title="Football-IQ API",
@@ -69,8 +82,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
     # Disable automatic docs in production to reduce attack surface
-    docs_url="/docs" if settings.environment != "production" else None,
-    redoc_url="/redoc" if settings.environment != "production" else None,
+    docs_url="/docs" if _env != "production" else None,
+    redoc_url="/redoc" if _env != "production" else None,
 )
 
 # ── Observability middleware ──────────────────────────────────────────────────
@@ -98,7 +111,11 @@ app.include_router(health.router)
 app.include_router(health_workload_router)
 app.include_router(health_ingest_router)
 app.include_router(auth_router)
+# uploads before videos: its literal /download-url and /upload/* paths must
+# win over the videos router's dynamic /{video_id} route.
+app.include_router(uploads_router)
 app.include_router(videos_router)
+app.include_router(storage_router)
 app.include_router(clips_router)
 app.include_router(practice_sessions_router)
 app.include_router(players_router)

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnalyticsCard } from "@/components/analytics-card";
 import { ClipStateBadges } from "@/components/clip-state-badge";
 import { FootballShell } from "@/components/football-shell";
 import { useAppState } from "@/lib/app-state";
@@ -18,22 +19,10 @@ import type {
   ApiVideo,
   ClipOverlayPayload,
   OverlayLayerKey,
-  OurPossession,
-  SessionKind,
 } from "@/lib/types";
+import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
+import { CorrectionsPanel } from "./corrections-panel";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
-
-const POSSESSION_LABEL: Record<OurPossession, string> = {
-  offense: "Toledo Offense",
-  defense: "Toledo Defense",
-  special_teams: "Special Teams",
-};
-
-const SESSION_KIND_LABEL: Record<SessionKind, string> = {
-  practice: "Practice",
-  scrimmage: "Scrimmage",
-  game: "Game",
-};
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "raw", label: "Raw" },
@@ -273,6 +262,15 @@ function ClipReviewReady({
       .filter((row): row is { event: typeof row.event; t: number } => row.t != null);
   }, [overlayPayload, fps]);
 
+  // Calibration banner (explained suppression). Dismissal is per-clip so
+  // navigating to a different clip resurfaces the notice.
+  const calibration = overlayPayload?.calibration ?? null;
+  const [calibrationDismissedFor, setCalibrationDismissedFor] = useState<string | null>(null);
+  const dismissCalibrationBanner = useCallback(
+    () => setCalibrationDismissedFor(clip.id),
+    [clip.id],
+  );
+
   return (
     <div className="content-grid">
       <section className="panel span-8 panel-pad">
@@ -297,6 +295,15 @@ function ClipReviewReady({
           </div>
           <Link href="/film-room/?tab=browse" className="control-button">← Film Room</Link>
         </div>
+
+        {calibration &&
+          calibration.analytics_safe === false &&
+          calibrationDismissedFor !== clip.id && (
+            <CalibrationBanner
+              reason={calibration.reason}
+              onDismiss={dismissCalibrationBanner}
+            />
+          )}
 
         <div
           style={{
@@ -420,11 +427,77 @@ function ClipReviewReady({
           showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
         />
 
+        <CorrectionsPanel
+          clipId={clip.id}
+          tracklets={overlayPayload?.tracklets ?? []}
+        />
+
         <h3 className="panel-title" style={{ marginTop: 16 }}>Storage</h3>
         <p className="kicker" style={{ wordBreak: "break-all" }}>
           {clip.storage_uri ?? "Clip not yet rendered to R2."}
         </p>
       </aside>
+    </div>
+  );
+}
+
+/**
+ * Non-blocking, dismissable notice shown when field calibration failed for
+ * this footage. Watching video and detection boxes stays fully functional —
+ * suppression only affects spatial metrics, and the reason sentence comes
+ * ready-to-read from the backend (never silent suppression).
+ */
+function CalibrationBanner({
+  reason,
+  onDismiss,
+}: {
+  reason: string | null;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      data-testid="calibration-banner"
+      role="status"
+      style={{
+        marginTop: 12,
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        padding: "10px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(251,191,36,0.45)",
+        background: "rgba(251,191,36,0.10)",
+      }}
+    >
+      <span aria-hidden="true" style={{ color: "var(--gold, #fbbf24)", fontWeight: 800 }}>
+        !
+      </span>
+      <div style={{ flex: 1 }}>
+        <p style={{ margin: 0, fontSize: "0.8rem" }}>
+          {reason ??
+            "The field couldn't be calibrated for this footage, so spatial metrics are hidden."}
+        </p>
+        <p className="kicker" style={{ marginTop: 4 }}>
+          Video and player boxes are unaffected — only spatial metrics are suppressed.
+        </p>
+      </div>
+      <button
+        type="button"
+        data-testid="calibration-banner-dismiss"
+        aria-label="Dismiss calibration notice"
+        onClick={onDismiss}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "var(--muted, #94a3b8)",
+          cursor: "pointer",
+          fontSize: 14,
+          lineHeight: 1,
+          padding: 2,
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 }
@@ -624,6 +697,17 @@ function OverlaySummary({
         >
           Missing layers: {missing.join(", ")}.
         </p>
+      )}
+      {payload.calibration && payload.calibration.analytics_safe === false && (
+        <AnalyticsCard
+          title="Spatial Metrics"
+          state={{
+            kind: "gated",
+            reason: "Hidden for this footage — the field could not be calibrated reliably.",
+          }}
+          gatedReason={payload.calibration.reason ?? undefined}
+          style={{ marginTop: 8 }}
+        />
       )}
       {showLabels && payload.labels.length > 0 && (
         <div data-testid="overlay-labels-list" style={{ marginTop: 8 }}>

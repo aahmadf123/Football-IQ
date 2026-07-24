@@ -22,8 +22,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from pipeline import backend, stage_segment
 from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
+
+from pipeline import backend, stage_segment
 
 
 class _FakeSegmenter:
@@ -122,6 +123,9 @@ class _FakeClient:
 
 def test_create_clip_includes_result_state_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
     sink: dict[str, Any] = {}
+    # BACKEND_API_URL must be non-empty or create_clip short-circuits into
+    # offline mode and never reaches the fake client.
+    monkeypatch.setattr(backend, "BACKEND_API_URL", "http://backend.test")
     monkeypatch.setattr(backend, "_client", lambda: _FakeClient({"id": "c1"}, sink))
 
     backend.create_clip("vid-1", 0.0, 5.0, result_state="preliminary")
@@ -131,6 +135,7 @@ def test_create_clip_includes_result_state_when_set(monkeypatch: pytest.MonkeyPa
 
 def test_create_clip_omits_result_state_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
     sink: dict[str, Any] = {}
+    monkeypatch.setattr(backend, "BACKEND_API_URL", "http://backend.test")
     monkeypatch.setattr(backend, "_client", lambda: _FakeClient({"id": "c1"}, sink))
 
     backend.create_clip("vid-1", 0.0, 5.0)

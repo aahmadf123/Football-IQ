@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
 import { FootballShell } from "@/components/football-shell";
-import { HeatMap, PlayerPortrait, TrendLine } from "@/components/visuals";
-import { MockBadge } from "@/components/mock-badge";
+import { Metric, MetricLine } from "@/components/shared/metric";
+import { PlayerPortrait } from "@/components/shared/player-portrait";
+import { TrendLine } from "@/components/shared/trend-line";
+import { fmtMetric, playerProfileHref } from "@/components/players-view";
 import { apiPlayerToSummary, useAppState } from "@/lib/app-state";
 import { fetchPlayer } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
@@ -158,7 +160,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
               value={player.id}
               onChange={(e) => {
                 setSelectedPlayerId(e.target.value);
-                router.push(`/players/${encodeURIComponent(e.target.value)}`);
+                router.push(playerProfileHref(e.target.value));
               }}
             >
               {data.players.map((p) => (
@@ -186,9 +188,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
         </section>
 
         <section className="panel panel-pad span-8">
-          <h2 className="panel-title">
-            Performance Metrics {!metricsAvailable && <MockBadge status="offline" />}
-          </h2>
+          <h2 className="panel-title">Performance Metrics</h2>
           {metricsAvailable ? (
             <div className="metric-grid" style={{ marginTop: 12 }}>
               <Metric label="Max Speed" value={fmtMetric(player.maxSpeed)} unit="MPH" />
@@ -207,23 +207,6 @@ export function PlayerProfileClient({ id }: { id: string }) {
           </div>
         </section>
 
-        <section className="panel panel-pad span-6">
-          <h2 className="panel-title">Biomechanics <MockBadge status="mock" /></h2>
-          {/* Sample values — per-player biomechanics wire-up tracked in #100. */}
-          <div className="list-stack" style={{ marginTop: 12 }}>
-            <MetricLine label="Pad Level" value="-4.2°" />
-            <MetricLine label="Torso Angle" value="18.6°" />
-            <MetricLine label="Stride Length" value="6.2 ft" />
-            <MetricLine label="Stride Symmetry" value="92%" />
-            <MetricLine label="Breakpoint Angle" value="18.4°" />
-          </div>
-        </section>
-
-        <section className="panel panel-pad span-6">
-          <h2 className="panel-title">Field Coverage <MockBadge status="mock" /></h2>
-          <HeatMap />
-        </section>
-
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Position Group · Quick Switch</h2>
           {others.length === 0 ? (
@@ -231,7 +214,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
           ) : (
             <div className="list-stack" style={{ marginTop: 12 }}>
               {others.map((p) => (
-                <Link key={p.id} href={`/players/${encodeURIComponent(p.id)}`} className="table-row table-row-link">
+                <Link key={p.id} href={playerProfileHref(p.id)} className="table-row table-row-link">
                   <strong>#{p.jersey} {p.name}</strong>
                   <span>{p.position}</span>
                   <span>{fmtMetric(p.maxSpeed)} MPH</span>
@@ -244,28 +227,5 @@ export function PlayerProfileClient({ id }: { id: string }) {
         </section>
       </div>
     </FootballShell>
-  );
-}
-
-function fmtMetric(value: number | undefined): string {
-  return value == null ? "—" : String(value);
-}
-
-function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {unit && <small>{unit}</small>}
-    </div>
-  );
-}
-
-function MetricLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-      <span className="small-label">{label}</span>
-      <strong>{value}</strong>
-    </div>
   );
 }

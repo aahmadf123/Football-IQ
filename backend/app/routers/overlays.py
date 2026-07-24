@@ -29,10 +29,54 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Clip, Event, Label, Metric, Tracklet, User, UserRole
+from app.models import Clip, Event, FieldCalibration, Label, Metric, Tracklet, User, UserRole
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["overlays"])
+
+#: Coach-readable explanations for calibration reason codes. Spatial metrics
+#: are suppressed *with a reason the UI can show*, never silently — the
+#: difference between "the product is broken" and "this camera angle doesn't
+#: expose field lines" (ADR 0005).
+_REASON_TEXT: dict[str, str] = {
+    "insufficient_yard_lines": (
+        "Field yard lines aren't visible enough from this camera angle, so "
+        "spatial metrics (routes, coverage, pressure) are unavailable for this film."
+    ),
+    "insufficient_lines": (
+        "Not enough field markings are visible to map players onto the field, "
+        "so spatial metrics are unavailable for this film."
+    ),
+    "insufficient_structured_lines": (
+        "Field markings couldn't be structured into a reliable field map, so "
+        "spatial metrics are unavailable for this film."
+    ),
+    "insufficient_intersections": (
+        "Too few yard-line/hash intersections are visible to calibrate the "
+        "field, so spatial metrics are unavailable for this film."
+    ),
+    "low_inlier_ratio": (
+        "The field mapping was too unstable to trust, so spatial metrics are "
+        "unavailable for this film."
+    ),
+    "no_calibration": (
+        "The field couldn't be calibrated from this footage, so spatial "
+        "metrics are unavailable. Player tracking and clips are unaffected."
+    ),
+    "no_frames": "The footage couldn't be read for field calibration.",
+}
+
+_DEFAULT_UNSAFE_REASON = (
+    "Field calibration wasn't reliable for this footage, so spatial metrics "
+    "are unavailable. Player tracking and clips are unaffected."
+)
+
+
+def _reason_text(reason_codes: list[str] | None) -> str:
+    for code in reason_codes or []:
+        if code in _REASON_TEXT:
+            return _REASON_TEXT[code]
+    return _DEFAULT_UNSAFE_REASON
 
 
 def _optional_float(value: Any) -> float | None:
@@ -104,13 +148,25 @@ class OverlayLayersAvailable(BaseModel):
     metrics: bool
 
 
+class OverlayCalibration(BaseModel):
+    """Field-calibration state for the clip's video, with a coach-readable
+    reason whenever spatial metrics are suppressed (never silent)."""
+
+    analytics_safe: bool
+    reason: str | None
+    reason_codes: list[str]
+    confidence: float | None
+
+
 class ClipOverlayResponse(BaseModel):
     clip_id: uuid.UUID
+    capture_regime: str | None
     tracklets: list[OverlayTracklet]
     events: list[OverlayEvent]
     labels: list[OverlayLabel]
     metrics: list[OverlayMetric]
     layers_available: OverlayLayersAvailable
+    calibration: OverlayCalibration
 
 
 # ── Endpoint ────────────────────────────────────────────────────────────
@@ -128,8 +184,32 @@ async def get_clip_overlays(
     everything except metrics flagged ``is_suppressed=True``.
     """
     clip_result = await db.execute(select(Clip).where(Clip.id == clip_id))
-    if clip_result.scalar_one_or_none() is None:
+    clip = clip_result.scalar_one_or_none()
+    if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+
+    calib_result = await db.execute(
+        select(FieldCalibration)
+        .where(FieldCalibration.video_id == clip.video_id)
+        .order_by(FieldCalibration.created_at.desc())
+        .limit(1)
+    )
+    calibration_row = calib_result.scalar_one_or_none()
+    if calibration_row is None:
+        calibration = OverlayCalibration(
+            analytics_safe=False,
+            reason=_REASON_TEXT["no_calibration"],
+            reason_codes=["no_calibration"],
+            confidence=None,
+        )
+    else:
+        codes = list(calibration_row.reason_codes or [])
+        calibration = OverlayCalibration(
+            analytics_safe=calibration_row.analytics_safe,
+            reason=None if calibration_row.analytics_safe else _reason_text(codes),
+            reason_codes=codes,
+            confidence=calibration_row.confidence,
+        )
 
     tracklets_result = await db.execute(
         select(Tracklet)
@@ -166,6 +246,8 @@ async def get_clip_overlays(
 
     return ClipOverlayResponse(
         clip_id=clip_id,
+        capture_regime=clip.capture_regime.value if clip.capture_regime else None,
+        calibration=calibration,
         tracklets=[
             OverlayTracklet(
                 id=t.id,

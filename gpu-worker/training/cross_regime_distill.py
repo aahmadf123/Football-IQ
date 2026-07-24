@@ -38,7 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -332,7 +332,7 @@ def build_checkpoint(
             "source": source,
             "teacher_regime": FIXED_SIDELINE,
             "student_regime": DRONE_FOLLOW,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "pairing_manifest": manifest,
             "note": (
                 "Cross-regime self-distilled DRONE_FOLLOW student (Issue #150). Trained on "
@@ -545,7 +545,7 @@ def run_nightly(
     checkpoint, report = _train_student_torch(pairs, video_dir, config, manifest)
 
     if register:
-        ver = version or datetime.now(timezone.utc).strftime("distill-%Y%m%d")
+        ver = version or datetime.now(UTC).strftime("distill-%Y%m%d")
         register_distilled_model(report, version=ver, artifact_uri=checkpoint.get("weights_uri"))
     return checkpoint, report
 

@@ -8,6 +8,7 @@
 
 import type {
   ApiClip,
+  ApiJob,
   ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
@@ -32,12 +33,32 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function workerBase(): string {
-  return process.env.NEXT_PUBLIC_WORKER_URL ?? "";
-}
-
 function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? "";
+}
+
+function workerBase(): string {
+  // When no edge Worker is deployed (local / single-box mode), the backend
+  // exposes the same upload-url / upload / download-url contract, so all
+  // Worker-targeted calls transparently fall back to the API base.
+  return process.env.NEXT_PUBLIC_WORKER_URL || apiBase();
+}
+
+// Because workerBase() falls back to the API base, the "not configured"
+// failure mode is *both* vars being unset — not NEXT_PUBLIC_WORKER_URL alone.
+// Centralize the message here so callers (e.g. requestUploadUrl) don't throw a
+// misleading "NEXT_PUBLIC_WORKER_URL is not configured" when the API base
+// would have sufficed. Graceful callers that tolerate a missing base
+// (fetchVideoDownloadUrl) keep using workerBase() directly.
+function requireWorkerBase(): string {
+  const base = workerBase();
+  if (!base) {
+    throw new Error(
+      "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
+        "or NEXT_PUBLIC_API_URL (backend fallback).",
+    );
+  }
+  return base;
 }
 
 function authHeaders(token?: string): Record<string, string> {
@@ -70,8 +91,7 @@ export async function requestUploadUrl(
   filename: string,
   token?: string,
 ): Promise<UploadUrlResponse> {
-  const base = workerBase();
-  if (!base) throw new Error("NEXT_PUBLIC_WORKER_URL is not configured");
+  const base = requireWorkerBase();
   const res = await fetch(`${base}/api/v1/videos/upload-url`, {
     method: "POST",
     headers: authHeaders(token),
@@ -284,6 +304,24 @@ export async function fetchVideo(videoId: string, token?: string): Promise<ApiVi
   const base = apiBase();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiVideo>(`${base}/api/v1/videos/${videoId}`, token);
+}
+
+export interface JobFilters {
+  status?: string;
+  job_type?: string;
+  video_id?: string;
+  limit?: number;
+}
+
+export async function fetchJobs(filters: JobFilters = {}, token?: string): Promise<ApiJob[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<ApiJob[]>(`${base}/api/v1/jobs${qs ? `?${qs}` : ""}`, token);
 }
 
 export async function fetchClipsForVideo(
@@ -566,7 +604,8 @@ export class WorkloadGatedError extends Error {
 }
 
 /**
- * Request processing for an uploaded video by creating an ``ingest`` job
+ * Request processing for an uploaded video by creating a ``pipeline`` job
+ * (the full orchestrated chain: ingest → detect → track → … → render)
  * through the **backend** job API (``POST /api/v1/jobs``). This is the
  * sanctioned, workload-gated entry point — it does not bypass the backend job
  * API or the Worker/R2 flow, and it never calls an external API. Defaults to
@@ -587,7 +626,7 @@ export async function requestVideoProcessing(
     headers: authHeaders(token),
     body: JSON.stringify({
       video_id: videoId,
-      job_type: "ingest",
+      job_type: "pipeline",
       priority,
       pipeline_mode: mode,
     }),
@@ -955,16 +994,6 @@ export function parseStorageUri(
   if (!uri) return null;
   const m = /^r2:\/\/([^/]+)\/(.+)$/.exec(uri);
   return m ? { bucket: m[1], key: m[2] } : null;
-}
-
-/**
- * Extract the R2 key suffix from a backend `storage_uri` of the form
- * `r2://raw-video/raw/<suffix>`. Kept for backward compatibility.
- */
-export function r2KeySuffixFromStorageUri(uri: string | null | undefined): string | null {
-  if (!uri) return null;
-  const m = /^r2:\/\/raw-video\/raw\/(.+)$/.exec(uri);
-  return m ? m[1] : null;
 }
 
 // ── Settings (Issue #112) ────────────────────────────────────────────────────

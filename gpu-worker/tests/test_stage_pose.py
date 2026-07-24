@@ -15,10 +15,10 @@ Tests cover:
 """
 
 import math
-import sys
 import os
+import sys
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -34,7 +34,6 @@ from pipeline.pose_estimator import (
     midpoint,
     vector_angle_from_vertical,
 )
-from pipeline.video_ingest import MockVideoSource
 from pipeline.stage_pose import (
     _compute_biomechanical_drift,
     _compute_block_shed_timing,
@@ -48,7 +47,7 @@ from pipeline.stage_pose import (
     _wr_shoulder_over_knee,
     run,
 )
-
+from pipeline.video_ingest import MockVideoSource
 
 # ── Geometry helper tests ──────────────────────────────────────────────────────
 
@@ -520,7 +519,7 @@ def test_stride_symmetry_carries_asymmetry_index_scalar() -> None:
 
 def test_run_with_empty_tracklets_returns_safely() -> None:
     src = MockVideoSource(total_frames=9, fps=30.0)
-    with patch("pipeline.stage_pose.backend") as mock_backend:
+    with patch("pipeline.stage_pose.backend"):
         result = run(
             clip_id="clip-1",
             video_source=src,

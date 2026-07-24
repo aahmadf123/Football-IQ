@@ -40,6 +40,16 @@ export function canSeePlayerLevelRisk(role: UserRole | null | undefined): boolea
   return role != null && PLAYER_LEVEL_RISK_ROLES.includes(role);
 }
 
+// Roles allowed to submit coach corrections (POST /api/v1/corrections).
+// Mirrors the backend's ``require_coach_or_above`` guard — player / viewer /
+// sports-performance accounts get a 403, so the UI disables the form and says
+// so instead of letting the request fail.
+export const CORRECTION_ROLES: readonly UserRole[] = ["admin", "analyst", "coach"];
+
+export function canSubmitCorrections(role: UserRole | null | undefined): boolean {
+  return role != null && CORRECTION_ROLES.includes(role);
+}
+
 // Decode the `role` claim from a JWT access token *without* verifying the
 // signature. The browser never trusts this for authorization; it only uses it
 // to decide what to render. Returns null for an absent or malformed token.

@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from pipeline.metrics.effort_zscore import (
     LOW_IDENTITY_CONFIDENCE,

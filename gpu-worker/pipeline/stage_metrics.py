@@ -230,7 +230,9 @@ def run(
             log.warning("metric_write_failed", name=m.get("metric_name"), error=str(exc))
 
     log.info("stage_metrics_done", clip_id=clip_id, metric_count=len(metric_ids))
-    return {"metric_count": len(metric_ids), "metric_ids": metric_ids}
+    # ``metrics`` carries the full dicts for in-process consumers (render's
+    # metric callouts) — the ids alone would force a backend read-back.
+    return {"metric_count": len(metric_ids), "metric_ids": metric_ids, "metrics": metrics}
 
 
 # ── Phase 1 Helpers ───────────────────────────────────────────────────────────

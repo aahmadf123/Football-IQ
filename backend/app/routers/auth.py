@@ -1,12 +1,20 @@
-"""Auth router — register, login, and token refresh."""
+"""Auth router — register, login, token refresh, and user administration.
 
+Registration is locked down: the requested role is **ignored**. The first
+account ever created becomes ``admin`` (bootstrap); every later signup is a
+``viewer`` until an admin promotes it via ``PATCH /users/{id}/role``. This
+closes the self-serve privilege-escalation hole where a client-supplied
+``role: "admin"`` was honoured verbatim.
+"""
+
+import os
 import uuid
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
@@ -16,7 +24,9 @@ from app.auth import (
     hash_password,
     verify_password,
 )
+from app.config import get_settings
 from app.database import get_db
+from app.deps import require_admin
 from app.models import User, UserRole
 
 log = structlog.get_logger(__name__)
@@ -30,7 +40,13 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     full_name: str
+    # Accepted for wire compatibility but IGNORED — roles are assigned
+    # server-side (first user = admin, everyone else = viewer).
     role: UserRole = UserRole.viewer
+
+
+class RoleUpdateRequest(BaseModel):
+    role: UserRole
 
 
 class LoginRequest(BaseModel):
@@ -66,21 +82,39 @@ async def register(
     body: RegisterRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    """Create a new user account."""
+    """Create a new user account.
+
+    The client-supplied ``role`` is deliberately ignored: the very first
+    account bootstraps as ``admin``; all later accounts start as ``viewer``
+    and are promoted by an admin.
+    """
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+
+    # Serialize the bootstrap decision: without this, two concurrent first
+    # registrations both read count 0 and both become admin. The transaction-
+    # scoped advisory lock releases on commit/rollback.
+    await db.execute(text("SELECT pg_advisory_xact_lock(571_202_001)"))
+    user_count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+    assigned_role = UserRole.admin if user_count == 0 else UserRole.viewer
 
     user = User(
         id=uuid.uuid4(),
         email=body.email,
         hashed_password=hash_password(body.password),
         full_name=body.full_name,
-        role=body.role,
+        role=assigned_role,
     )
     db.add(user)
     await db.flush()
-    log.info("user_registered", user_id=str(user.id), email=user.email)
+    log.info(
+        "user_registered",
+        user_id=str(user.id),
+        email=user.email,
+        role=assigned_role.value,
+        bootstrap_admin=user_count == 0,
+    )
     return user
 
 
@@ -123,4 +157,86 @@ async def refresh_token(
     extra = {"role": user.role.value}
     access = create_access_token(str(user.id), extra=extra)
     refresh = create_refresh_token(str(user.id))
+    return TokenResponse(access_token=access, refresh_token=refresh)
+
+
+# ── User administration (admin-only) ─────────────────────────────────────────
+
+
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _admin: Annotated[User, Depends(require_admin)],
+) -> list[User]:
+    """List all user accounts (admin only)."""
+    result = await db.execute(select(User).order_by(User.created_at))
+    return list(result.scalars().all())
+
+
+@router.patch("/users/{user_id}/role", response_model=UserResponse)
+async def update_user_role(
+    user_id: uuid.UUID,
+    body: RoleUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> User:
+    """Change a user's role (admin only). The last admin cannot demote itself."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user.role == UserRole.admin and body.role != UserRole.admin and user.id == admin.id:
+        admin_count = (
+            await db.execute(
+                select(func.count()).select_from(User).where(User.role == UserRole.admin)
+            )
+        ).scalar_one()
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot demote the last remaining admin",
+            )
+
+    user.role = body.role
+    await db.flush()
+    log.info(
+        "user_role_updated",
+        user_id=str(user.id),
+        new_role=body.role.value,
+        updated_by=str(admin.id),
+    )
+    return user
+
+
+# ── Development auto-login ───────────────────────────────────────────────────
+
+
+@router.post("/dev-login", response_model=TokenResponse)
+async def dev_login(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    """Issue tokens for the seeded admin without credentials — dev only.
+
+    Enabled only when ``ENVIRONMENT=development`` **and** ``DEV_AUTOLOGIN=1``;
+    404s otherwise so the route is invisible in production.
+    """
+    settings = get_settings()
+    autologin = os.environ.get("DEV_AUTOLOGIN", "").strip().lower() in {"1", "true", "yes", "on"}
+    if settings.environment.strip().lower() != "development" or not autologin:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    result = await db.execute(
+        select(User).where(User.role == UserRole.admin, User.is_active.is_(True)).limit(1)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No admin user exists yet — register the first account",
+        )
+    extra = {"role": user.role.value}
+    access = create_access_token(str(user.id), extra=extra)
+    refresh = create_refresh_token(str(user.id))
+    log.info("dev_login", user_id=str(user.id))
     return TokenResponse(access_token=access, refresh_token=refresh)

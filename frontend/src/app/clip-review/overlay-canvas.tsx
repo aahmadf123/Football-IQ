@@ -80,10 +80,11 @@ export function OverlayCanvas({
     >
       {showWireframe && <FieldWireframe />}
       {showTracks &&
-        tracklets.map((t) => (
+        tracklets.map((t, i) => (
           <TrackletGlyph
             key={t.id}
             tracklet={t}
+            index={i}
             currentFrame={currentFrame}
             videoWidth={videoWidth}
             videoHeight={videoHeight}
@@ -121,11 +122,16 @@ function FieldWireframe() {
 
 function TrackletGlyph({
   tracklet,
+  index,
   currentFrame,
   videoWidth,
   videoHeight,
 }: {
   tracklet: OverlayTracklet;
+  // Position of the tracklet in the payload order — rendered as the ``T{n}``
+  // tag next to the marker so a coach can reference the same track in the
+  // corrections panel.
+  index: number;
   currentFrame: number;
   videoWidth: number | null;
   videoHeight: number | null;
@@ -172,6 +178,20 @@ function TrackletGlyph({
         <path d={trail.join(" ")} stroke={color} strokeWidth={2} fill="none" opacity={0.6} />
       )}
       <circle cx={activeProjected.x} cy={activeProjected.y} r={8} fill={color} opacity={0.85} />
+      <text
+        data-testid={`overlay-tracklet-tag-${tracklet.id}`}
+        x={activeProjected.x + 11}
+        y={activeProjected.y - 9}
+        fontSize={11}
+        fontFamily="ui-sans-serif"
+        fontWeight={700}
+        fill={color}
+        stroke="rgba(15,23,42,0.85)"
+        strokeWidth={0.6}
+        paintOrder="stroke"
+      >
+        {`T${index + 1}`}
+      </text>
     </g>
   );
 }

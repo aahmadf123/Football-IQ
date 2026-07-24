@@ -38,7 +38,6 @@ from pipeline.stage_embed import (  # noqa: E402
     snap_window_bounds,
 )
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FootballShell } from "@/components/football-shell";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
+import { Metric } from "@/components/shared/metric";
+import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import { useFetchState, type FetchState } from "@/lib/fetch-state";
 import {
   fetchAlerts,
   fetchFrontierMetrics,
@@ -12,7 +15,7 @@ import {
   type ApiAlert,
   type FrontierMetric,
 } from "@/lib/api";
-import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
+import type { SelfScoutResponse } from "@/lib/types";
 import { ExperimentalBadge } from "@/components/experimental-badge";
 
 const FRONTIER_UNAVAILABLE_REASON: Record<string, string> = {
@@ -22,13 +25,6 @@ const FRONTIER_UNAVAILABLE_REASON: Record<string, string> = {
   xpressure:
     "xPressure requires pass-rush tracking + snap/throw events. No experimental samples yet for this filter.",
 };
-
-type FetchState<T> =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "error"; message: string }
-  | { kind: "empty" }
-  | { kind: "ready"; data: T };
 
 export default function AnalyticsPage() {
   return (
@@ -40,78 +36,36 @@ export default function AnalyticsPage() {
 
 function AnalyticsView() {
   const { authToken, selectedDate, sessionType } = useAppState();
-  const [videos, setVideos] = useState<FetchState<ApiVideo[]>>({ kind: "loading" });
-  const [scout, setScout] = useState<FetchState<SelfScoutResponse>>({ kind: "loading" });
-  const [alerts, setAlerts] = useState<FetchState<ApiAlert[]>>({ kind: "loading" });
   // Frontier analytics (Issue #10) — experimental, may be empty.
   const [frontier, setFrontier] = useState<FrontierMetric[] | null>(null);
   const [frontierLoading, setFrontierLoading] = useState(true);
 
-  const loadVideos = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setVideos({ kind: "offline" });
-      return;
+  const videosFetcher = useCallback(() => {
+    const filters: Record<string, string | number> = { limit: 200 };
+    if (selectedDate) {
+      filters.recorded_after = `${selectedDate}T00:00:00Z`;
+      filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
     }
-    setVideos({ kind: "loading" });
-    try {
-      const filters: Record<string, string | number> = { limit: 200 };
-      if (selectedDate) {
-        filters.recorded_after = `${selectedDate}T00:00:00Z`;
-        filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
-      }
-      if (sessionType !== "all") {
-        filters.session_kind = sessionType;
-      }
-      const list = await fetchVideos(filters, authToken);
-      setVideos(list.length === 0 ? { kind: "empty" } : { kind: "ready", data: list });
-    } catch (err) {
-      setVideos({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+    if (sessionType !== "all") {
+      filters.session_kind = sessionType;
     }
+    return fetchVideos(filters, authToken);
   }, [authToken, selectedDate, sessionType]);
+  const { state: videos, reload: loadVideos } = useFetchState(videosFetcher);
 
-  const loadScout = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setScout({ kind: "offline" });
-      return;
-    }
-    setScout({ kind: "loading" });
-    try {
-      const data = await fetchSelfScoutTendencies(null, authToken);
-      setScout(
-        data.clip_count === 0
-          ? { kind: "empty" }
-          : { kind: "ready", data },
-      );
-    } catch (err) {
-      setScout({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [authToken]);
+  const scoutFetcher = useCallback(
+    () => fetchSelfScoutTendencies(null, authToken),
+    [authToken],
+  );
+  const { state: scout, reload: loadScout } = useFetchState(scoutFetcher, {
+    isEmpty: (data) => data.clip_count === 0,
+  });
 
-  const loadAlerts = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setAlerts({ kind: "offline" });
-      return;
-    }
-    setAlerts({ kind: "loading" });
-    try {
-      const list = await fetchAlerts({ limit: 25 }, authToken);
-      setAlerts(list.length === 0 ? { kind: "empty" } : { kind: "ready", data: list });
-    } catch (err) {
-      setAlerts({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [authToken]);
+  const alertsFetcher = useCallback(
+    () => fetchAlerts({ limit: 25 }, authToken),
+    [authToken],
+  );
+  const { state: alerts, reload: loadAlerts } = useFetchState(alertsFetcher);
 
   const loadFrontier = useCallback(async () => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -132,18 +86,6 @@ function AnalyticsView() {
       setFrontierLoading(false);
     }
   }, [authToken]);
-
-  useEffect(() => {
-    loadVideos();
-  }, [loadVideos]);
-
-  useEffect(() => {
-    loadScout();
-  }, [loadScout]);
-
-  useEffect(() => {
-    loadAlerts();
-  }, [loadAlerts]);
 
   useEffect(() => {
     loadFrontier();
@@ -407,36 +349,3 @@ function FrontierCard({
   );
 }
 
-function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
-  if (entries.length === 0) {
-    return (
-      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
-    );
-  }
-  return (
-    <div className="list-stack" style={{ gap: 4 }}>
-      {entries.map((e) => (
-        <div
-          key={e.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
-        >
-          <strong>{e.grouping_key}</strong>
-          <span>{e.total_plays}</span>
-          <div className="progress">
-            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}

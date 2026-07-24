@@ -72,7 +72,7 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
   },
 };
 
-export const sampleSelfScout: SelfScoutResponse = {
+const sampleSelfScout: SelfScoutResponse = {
   clip_count: 112,
   formation_tendencies: [
     trend("Trips Right", 28, 11, 17, ["c11", "c18"], false),

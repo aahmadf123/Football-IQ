@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { FieldDiagram } from "@/components/field-diagram";
 import { useAppState } from "@/lib/app-state";
+import type { FetchState } from "@/lib/fetch-state";
 import {
   fetchCfbdMacBenchmark,
   fetchCfbdToledoSchedule,
@@ -17,12 +18,6 @@ import type {
 } from "@/lib/types";
 
 const SOURCE_LABEL = "CollegeFootballData.com";
-
-type FetchState<T> =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; resp: T };
 
 export function CollegeDataView() {
   const { authToken } = useAppState();
@@ -50,7 +45,7 @@ export function CollegeDataView() {
       set: (s: FetchState<T>) => void,
     ): Promise<void> => {
       try {
-        set({ kind: "ready", resp: await fn() });
+        set({ kind: "ready", data: await fn() });
       } catch (err) {
         set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
@@ -70,9 +65,9 @@ export function CollegeDataView() {
   // Aggregate cache freshness across whichever responses have loaded.
   const caches = useMemo<CfbdCacheMeta[]>(() => {
     const out: CfbdCacheMeta[] = [];
-    if (team.kind === "ready") out.push(team.resp.cache);
-    if (schedule.kind === "ready") out.push(schedule.resp.cache);
-    if (benchmark.kind === "ready") out.push(benchmark.resp.cache);
+    if (team.kind === "ready") out.push(team.data.cache);
+    if (schedule.kind === "ready") out.push(schedule.data.cache);
+    if (benchmark.kind === "ready") out.push(benchmark.data.cache);
     return out;
   }, [team, schedule, benchmark]);
 
@@ -144,12 +139,12 @@ export function CollegeDataView() {
         })}
         className="span-4"
       >
-        {team.kind === "ready" && team.resp.team && (
+        {team.kind === "ready" && team.data.team && (
           <div className="list-stack" style={{ gap: 4 }}>
-            <Row label="School" value={team.resp.team.school} />
-            <Row label="Mascot" value={team.resp.team.mascot ?? "—"} />
-            <Row label="Conference" value={team.resp.team.conference ?? "—"} />
-            <Row label="Division" value={team.resp.team.division ?? "—"} />
+            <Row label="School" value={team.data.team.school} />
+            <Row label="Mascot" value={team.data.team.mascot ?? "—"} />
+            <Row label="Conference" value={team.data.team.conference ?? "—"} />
+            <Row label="Division" value={team.data.team.division ?? "—"} />
           </div>
         )}
       </AnalyticsCard>
@@ -166,7 +161,7 @@ export function CollegeDataView() {
       >
         {schedule.kind === "ready" && (
           <div className="list-stack" style={{ gap: 4 }} data-testid="cfbd-schedule">
-            {schedule.resp.games.map((g) => (
+            {schedule.data.games.map((g) => (
               <div
                 key={g.cfbd_game_id}
                 className="status-row"
@@ -199,7 +194,7 @@ export function CollegeDataView() {
       >
         {benchmark.kind === "ready" && (
           <div className="list-stack" style={{ gap: 4 }} data-testid="cfbd-benchmark">
-            {benchmark.resp.teams.map((t) => (
+            {benchmark.data.teams.map((t) => (
               <div
                 key={t.team}
                 className="status-row"
@@ -260,8 +255,10 @@ function toCardState<T>(
       };
     case "error":
       return { kind: "error", message: state.message, onRetry: retry };
+    case "empty":
+      return { kind: "empty", reason: copy.empty };
     case "ready":
-      return liveOrEmpty(state.resp) === "live"
+      return liveOrEmpty(state.data) === "live"
         ? { kind: "live" }
         : { kind: "empty", reason: copy.empty };
   }

@@ -1,14 +1,17 @@
 "use client";
 
-import { Trash2, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 import { useCallback, useState } from "react";
 import { PreliminaryBadge } from "@/components/clip-state-badge";
+import { UploadStatusList } from "@/components/shared/upload-status-list";
 import {
+  fetchJobs,
   requestVideoProcessing,
+  retryJob,
   WorkloadGatedError,
   type VideoInboxItem,
 } from "@/lib/api";
-import { useAppState, type UploadPhase } from "@/lib/app-state";
+import { useAppState } from "@/lib/app-state";
 
 // Per-video local request state, layered on top of the backend inbox status so
 // the coach gets immediate "Queued" feedback before the backend reflects it.
@@ -16,38 +19,6 @@ type RequestState =
   | { kind: "queued" }
   | { kind: "busy"; message: string }
   | { kind: "error"; message: string };
-
-function phaseLabel(phase: UploadPhase): string {
-  switch (phase) {
-    case "idle":
-      return "Queued to upload";
-    case "requesting-url":
-      return "Preparing…";
-    case "uploading":
-      return "Uploading…";
-    case "registering":
-      return "Saving…";
-    case "done":
-      return "Uploaded";
-    case "error":
-      return "Upload failed";
-  }
-}
-
-function phaseColor(phase: UploadPhase): string {
-  switch (phase) {
-    case "done":
-      return "var(--accent-green, #4ade80)";
-    case "error":
-      return "var(--accent-red, #f87171)";
-    case "uploading":
-    case "registering":
-    case "requesting-url":
-      return "var(--accent-amber, #fbbf24)";
-    default:
-      return "var(--text-muted, #94a3b8)";
-  }
-}
 
 // Coach-facing label + tone for a backend video status. The five lifecycle
 // states (uploaded → queued → processing → processed → failed) are preserved.
@@ -74,8 +45,6 @@ function statusBadge(
 export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void }) {
   const {
     uploads,
-    removeUpload,
-    retryUpload,
     inboxItems,
     refreshInbox,
     apiStatus,
@@ -86,8 +55,8 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
-  const handleProcess = useCallback(
-    async (videoId: string) => {
+  const runRequest = useCallback(
+    async (videoId: string, action: () => Promise<unknown>) => {
       setPending((cur) => ({ ...cur, [videoId]: true }));
       setRequests((cur) => {
         const next = { ...cur };
@@ -95,7 +64,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         return next;
       });
       try {
-        await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+        await action();
         setRequests((cur) => ({ ...cur, [videoId]: { kind: "queued" } }));
         refreshInbox();
       } catch (err) {
@@ -114,7 +83,34 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         setPending((cur) => ({ ...cur, [videoId]: false }));
       }
     },
-    [authToken, refreshInbox],
+    [refreshInbox],
+  );
+
+  const handleProcess = useCallback(
+    (videoId: string) =>
+      runRequest(videoId, () =>
+        requestVideoProcessing(videoId, { mode: "nightly" }, authToken),
+      ),
+    [authToken, runRequest],
+  );
+
+  // Failed videos retry the failed job itself (POST /jobs/{id}/retry) so the
+  // job lineage/attempt counters are preserved; if the failed job row is no
+  // longer visible, fall back to enqueueing a fresh pipeline job.
+  const handleRetry = useCallback(
+    (videoId: string) =>
+      runRequest(videoId, async () => {
+        const failed = await fetchJobs(
+          { video_id: videoId, status: "failed", limit: 1 },
+          authToken,
+        );
+        if (failed.length > 0) {
+          await retryJob(failed[0].id, authToken);
+        } else {
+          await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+        }
+      }),
+    [authToken, runRequest],
   );
 
   const inFlight = uploads.filter((u) => u.phase !== "done");
@@ -149,48 +145,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
       {inFlight.length > 0 && (
         <section className="panel panel-pad span-12">
           <h2 className="panel-title">Uploading now</h2>
-          <div className="list-stack" style={{ marginTop: 10 }}>
-            {inFlight.map((u) => (
-              <div
-                key={u.id}
-                className="status-row"
-                style={{ gridTemplateColumns: "1fr auto auto" }}
-              >
-                <div>
-                  <strong>{u.filename}</strong>
-                  <div className="kicker">
-                    {(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB{" · "}
-                    <span style={{ color: phaseColor(u.phase), fontWeight: 700 }}>
-                      {phaseLabel(u.phase)}
-                      {u.phase === "uploading" && ` ${u.progress}%`}
-                    </span>
-                  </div>
-                  {u.phase === "uploading" && (
-                    <div style={{ height: 3, background: "var(--line-soft, #333)", borderRadius: 2, marginTop: 4 }}>
-                      <div style={{ height: "100%", width: `${u.progress}%`, background: "var(--accent-amber, #fbbf24)", borderRadius: 2, transition: "width 0.3s" }} />
-                    </div>
-                  )}
-                  {u.phase === "error" && u.error && (
-                    <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
-                      {u.error}
-                    </div>
-                  )}
-                </div>
-                {u.phase === "error" && (
-                  <button className="control-button" onClick={() => retryUpload(u.id)}>
-                    Retry upload
-                  </button>
-                )}
-                <button
-                  className="control-button"
-                  onClick={() => removeUpload(u.id)}
-                  aria-label={`Remove ${u.filename}`}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
+          <UploadStatusList uploads={inFlight} />
         </section>
       )}
 
@@ -203,6 +158,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
           requests={requests}
           pending={pending}
           onProcess={handleProcess}
+          onRetry={handleRetry}
         />
       </section>
     </div>
@@ -216,6 +172,7 @@ function ProcessingList({
   requests,
   pending,
   onProcess,
+  onRetry,
 }: {
   items: VideoInboxItem[];
   apiStatus: ReturnType<typeof useAppState>["apiStatus"];
@@ -223,6 +180,7 @@ function ProcessingList({
   requests: Record<string, RequestState>;
   pending: Record<string, boolean>;
   onProcess: (videoId: string) => void;
+  onRetry: (videoId: string) => void;
 }) {
   if (items.length === 0) {
     const message =
@@ -249,6 +207,7 @@ function ProcessingList({
           request={requests[item.video_id]}
           pending={!!pending[item.video_id]}
           onProcess={onProcess}
+          onRetry={onRetry}
         />
       ))}
     </div>
@@ -260,11 +219,13 @@ function ProcessingRow({
   request,
   pending,
   onProcess,
+  onRetry,
 }: {
   item: VideoInboxItem;
   request: RequestState | undefined;
   pending: boolean;
   onProcess: (videoId: string) => void;
+  onRetry: (videoId: string) => void;
 }) {
   const isQueued = request?.kind === "queued";
   const badge = isQueued
@@ -352,7 +313,7 @@ function ProcessingRow({
         <button
           className="control-button"
           data-testid={`retry-process-${item.video_id}`}
-          onClick={() => onProcess(item.video_id)}
+          onClick={() => onRetry(item.video_id)}
           disabled={pending}
         >
           {pending ? "Starting…" : "Retry processing"}

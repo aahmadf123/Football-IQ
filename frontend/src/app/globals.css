@@ -1147,3 +1147,138 @@ a {
     font-size: 1.35rem;
   }
 }
+
+/* ── Auth screen (login / first-run registration) ─────────────────────────── */
+
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+  background:
+    radial-gradient(1100px 500px at 80% -10%, oklch(0.3 0.07 254 / 0.5), transparent),
+    var(--navy-950);
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-9);
+  background: var(--navy-900);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.auth-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  background: var(--gold);
+  color: var(--navy-950);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.auth-title {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--text);
+}
+
+.auth-subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  background: var(--navy-925);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+}
+
+.auth-tab {
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-tab.active {
+  background: var(--navy-800);
+  color: var(--text);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.auth-field input {
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--navy-925);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.auth-field input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.auth-error {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid oklch(0.64 0.2 28 / 0.5);
+  background: oklch(0.64 0.2 28 / 0.12);
+  color: var(--red);
+  font-size: 0.85rem;
+}
+
+.auth-submit {
+  padding: var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--gold);
+  color: var(--navy-950);
+  font-weight: 900;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-hint {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
