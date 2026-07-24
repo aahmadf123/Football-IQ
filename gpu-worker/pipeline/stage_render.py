@@ -137,11 +137,11 @@ def _label_value(
 
 
 def _update_clip_overlay(clip_id: str, overlay_uri: str, backend_api_url: str) -> None:
+    # Route through pipeline.backend so the worker's service-account token is
+    # attached — a bare httpx client here 401'd silently and clips never
+    # received their overlay URIs.
     if not backend_api_url:
         return
-    import httpx
-    try:
-        with httpx.Client(base_url=backend_api_url, timeout=15) as c:
-            c.patch(f"/api/v1/clips/{clip_id}", json={"storage_uri": overlay_uri})
-    except Exception as exc:
-        log.warning("clip_overlay_update_failed", clip_id=clip_id, error=str(exc))
+    from pipeline import backend
+
+    backend.patch_clip_storage_uri(clip_id, overlay_uri)

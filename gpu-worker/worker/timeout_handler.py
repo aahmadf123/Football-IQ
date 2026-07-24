@@ -149,7 +149,13 @@ def _update_job_failed(job_id: str, error_message: str) -> None:
         "error_message": error_message,
     }
     try:
-        with httpx.Client(base_url=BACKEND_API_URL, timeout=10) as c:
+        from worker import auth as worker_auth
+
+        headers: dict[str, str] = {}
+        bearer = worker_auth.token()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=headers) as c:
             c.patch(f"/api/v1/jobs/{job_id}", json=payload)
         log.info("timeout_job_marked_failed", job_id=job_id)
     except Exception as exc:

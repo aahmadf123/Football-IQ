@@ -152,6 +152,35 @@ def create_clip(
         return dict(resp.json())
 
 
+def patch_tracklet_player(tracklet_id: str, player_id: str) -> None:
+    """PATCH /api/v1/tracklets/{id} linking a re-identified player."""
+    if _offline():
+        return
+    try:
+        with _client() as c:
+            resp = c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"player_id": player_id})
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("tracklet_player_patch_failed", tracklet_id=tracklet_id, error=str(exc))
+
+
+def patch_clip_storage_uri(clip_id: str, storage_uri: str) -> None:
+    """PATCH /api/v1/clips/{clip_id} with the rendered overlay URI.
+
+    Best-effort like the other writers, but 4xx/5xx are surfaced in the log
+    — a silently unauthenticated patch here is exactly how overlays used to
+    vanish (the render stage built its own tokenless client).
+    """
+    if _offline():
+        return
+    try:
+        with _client() as c:
+            resp = c.patch(f"/api/v1/clips/{clip_id}", json={"storage_uri": storage_uri})
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("clip_overlay_patch_failed", clip_id=clip_id, error=str(exc))
+
+
 def finalize_video_clips(video_id: str) -> int:
     """Upgrade a video's same-session ``preliminary`` clips to ``final`` (Issue #147).
 

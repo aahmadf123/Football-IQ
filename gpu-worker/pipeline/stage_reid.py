@@ -520,11 +520,10 @@ def _get_reid_adapter() -> NvidiaReIDAdapter | None:
 
 
 def _patch_tracklet(tracklet_id: str, player_id: str, backend_api_url: str) -> None:
-    import httpx
+    # Route through pipeline.backend so the worker's service-account token is
+    # attached (a bare client here would 401 silently).
     if not backend_api_url:
         return
-    try:
-        with httpx.Client(base_url=backend_api_url, timeout=10) as c:
-            c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"player_id": player_id})
-    except Exception as exc:
-        log.warning("tracklet_patch_failed", tracklet_id=tracklet_id, error=str(exc))
+    from pipeline import backend as backend_mod
+
+    backend_mod.patch_tracklet_player(tracklet_id, player_id)

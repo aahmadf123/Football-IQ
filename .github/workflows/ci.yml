@@ -80,6 +80,41 @@ jobs:
           flags: backend
         continue-on-error: true
 
+  # ── GPU worker: lint + stub-mode unit tests ──────────────────────────────
+  # The pipeline package was previously not covered by any workflow. This
+  # job runs the ~800 CPU-safe tests with the adapter stubs (no torch /
+  # ultralytics — see requirements-ci.txt); real-model runs remain a local /
+  # GPU-box concern.
+  gpu-worker:
+    name: GPU worker (Python)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: gpu-worker
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: gpu-worker/requirements*.txt
+
+      - name: Install dependencies (stub mode)
+        run: pip install -r requirements-ci.txt
+
+      - name: Install ffmpeg (ingest probing + renderer)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Run unit tests
+        run: pytest -v
+
   # ── Cloudflare Workers: lint, typecheck ──────────────────────────────────
   workers:
     name: Cloudflare Workers (TypeScript)

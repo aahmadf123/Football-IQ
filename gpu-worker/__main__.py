@@ -859,7 +859,7 @@ def _queue_nightly_hls_followup(
     # Best-effort: create a backend job record for the follow-up.
     if BACKEND_API_URL:
         try:
-            with httpx.Client(base_url=BACKEND_API_URL, timeout=10) as c:
+            with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=_auth_headers()) as c:
                 c.post(
                     "/api/v1/jobs",
                     json={
