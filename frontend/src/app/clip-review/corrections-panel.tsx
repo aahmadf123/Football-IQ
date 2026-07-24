@@ -19,6 +19,10 @@ import { createCorrection, type CorrectionCreate } from "@/lib/api";
 import { useAppState } from "@/lib/app-state";
 import { canSubmitCorrections } from "@/lib/roles";
 import type { OverlayTracklet } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 
 type CorrectionKind =
   | "player_identity"
@@ -42,6 +46,27 @@ interface Props {
   clipId: string;
   /** Tracklets from the overlays payload (may be empty while ingest runs). */
   tracklets: OverlayTracklet[];
+}
+
+function Field({
+  htmlFor,
+  label,
+  children,
+  className,
+}: {
+  htmlFor: string;
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-1 ${className ?? ""}`}>
+      <Label htmlFor={htmlFor} className="text-xs">
+        {label}
+      </Label>
+      {children}
+    </div>
+  );
 }
 
 export function CorrectionsPanel({ clipId, tracklets }: Props) {
@@ -155,43 +180,33 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
   const disabled = locked || submitting;
 
   return (
-    <div data-testid="corrections-panel" style={{ marginTop: 16 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <h3 className="panel-title">Corrections</h3>
-        <button
+    <div data-testid="corrections-panel" className="mt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Corrections
+        </h3>
+        <Button
           type="button"
-          className="control-button"
+          variant="outline"
+          size="sm"
           data-testid="corrections-toggle"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
         >
           {open ? "Hide" : "Fix something"}
-        </button>
+        </Button>
       </div>
 
       {open && (
-        <div style={{ marginTop: 8 }}>
+        <div className="mt-2 flex flex-col gap-2.5">
           {locked && (
-            <p
-              data-testid="corrections-role-blocked"
-              className="kicker"
-              style={{ marginBottom: 8 }}
-            >
-              Your role can&apos;t submit corrections. Ask a coach or analyst to
-              file it.
+            <p data-testid="corrections-role-blocked" className="text-xs text-muted-foreground">
+              Your role can&apos;t submit corrections. Ask a coach or analyst to file it.
             </p>
           )}
 
-          <div className="form-control">
-            <label htmlFor="correction-kind">What needs fixing?</label>
-            <select
+          <Field htmlFor="correction-kind" label="What needs fixing?">
+            <NativeSelect
               id="correction-kind"
               value={kind}
               disabled={disabled}
@@ -205,20 +220,18 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   {o.label}
                 </option>
               ))}
-            </select>
-          </div>
+            </NativeSelect>
+          </Field>
 
           {kind === "player_identity" && (
             <>
               {tracklets.length === 0 ? (
-                <p className="kicker" style={{ marginTop: 8 }} data-testid="corrections-no-tracklets">
-                  No tracklets on this clip yet — overlays may still be
-                  processing.
+                <p className="text-xs text-muted-foreground" data-testid="corrections-no-tracklets">
+                  No tracklets on this clip yet — overlays may still be processing.
                 </p>
               ) : (
-                <div className="form-control" style={{ marginTop: 8 }}>
-                  <label htmlFor="correction-tracklet">Player track (T# on the overlay)</label>
-                  <select
+                <Field htmlFor="correction-tracklet" label="Player track (T# on the overlay)">
+                  <NativeSelect
                     id="correction-tracklet"
                     value={trackletId}
                     disabled={disabled}
@@ -232,12 +245,11 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                         }`}
                       </option>
                     ))}
-                  </select>
-                </div>
+                  </NativeSelect>
+                </Field>
               )}
-              <div className="form-control" style={{ marginTop: 8 }}>
-                <label htmlFor="correction-team">Correct team</label>
-                <select
+              <Field htmlFor="correction-team" label="Correct team">
+                <NativeSelect
                   id="correction-team"
                   value={team}
                   disabled={disabled}
@@ -246,11 +258,10 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   <option value="">Leave unchanged</option>
                   <option value="home">Home (us)</option>
                   <option value="away">Away (opponent)</option>
-                </select>
-              </div>
-              <div className="form-control" style={{ marginTop: 8 }}>
-                <label htmlFor="correction-jersey">Correct jersey #</label>
-                <input
+                </NativeSelect>
+              </Field>
+              <Field htmlFor="correction-jersey" label="Correct jersey #">
+                <Input
                   id="correction-jersey"
                   type="number"
                   min={0}
@@ -259,14 +270,13 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   disabled={disabled}
                   onChange={(e) => setJersey(e.target.value)}
                 />
-              </div>
+              </Field>
             </>
           )}
 
           {kind === "formation_tag" && (
-            <div className="form-control" style={{ marginTop: 8 }}>
-              <label htmlFor="correction-formation">Correct formation</label>
-              <input
+            <Field htmlFor="correction-formation" label="Correct formation">
+              <Input
                 id="correction-formation"
                 type="text"
                 maxLength={80}
@@ -275,14 +285,13 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                 disabled={disabled}
                 onChange={(e) => setFormation(e.target.value)}
               />
-            </div>
+            </Field>
           )}
 
           {kind === "clip_boundary" && (
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <div className="form-control" style={{ flex: 1 }}>
-                <label htmlFor="correction-start">Start (s)</label>
-                <input
+            <div className="flex gap-2">
+              <Field htmlFor="correction-start" label="Start (s)" className="flex-1">
+                <Input
                   id="correction-start"
                   type="number"
                   min={0}
@@ -291,10 +300,9 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   disabled={disabled}
                   onChange={(e) => setStartSeconds(e.target.value)}
                 />
-              </div>
-              <div className="form-control" style={{ flex: 1 }}>
-                <label htmlFor="correction-end">End (s)</label>
-                <input
+              </Field>
+              <Field htmlFor="correction-end" label="End (s)" className="flex-1">
+                <Input
                   id="correction-end"
                   type="number"
                   min={0}
@@ -303,17 +311,17 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   disabled={disabled}
                   onChange={(e) => setEndSeconds(e.target.value)}
                 />
-              </div>
+              </Field>
             </div>
           )}
 
-          <div className="form-control" style={{ marginTop: 8 }}>
-            <label htmlFor="correction-note">
-              {kind === "clip_boundary" || kind === "event_tag"
-                ? "What's wrong?"
-                : "Note (optional)"}
-            </label>
-            <input
+          <Field
+            htmlFor="correction-note"
+            label={
+              kind === "clip_boundary" || kind === "event_tag" ? "What's wrong?" : "Note (optional)"
+            }
+          >
+            <Input
               id="correction-note"
               type="text"
               maxLength={280}
@@ -321,34 +329,26 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
               disabled={disabled}
               onChange={(e) => setNote(e.target.value)}
             />
-          </div>
+          </Field>
 
-          <button
+          <Button
             type="button"
-            className="control-button primary"
+            size="sm"
+            className="w-fit"
             data-testid="correction-submit"
-            style={{ marginTop: 10 }}
             disabled={disabled || payload == null}
             onClick={submit}
           >
             {submitting ? "Sending…" : "Send correction"}
-          </button>
+          </Button>
 
           {status.kind === "sent" && (
-            <p
-              data-testid="correction-success"
-              className="kicker"
-              style={{ marginTop: 8, color: "var(--accent-green, #4ade80)" }}
-            >
+            <p data-testid="correction-success" className="text-xs text-status-ok">
               Sent — feeds the nightly learning loop.
             </p>
           )}
           {status.kind === "error" && (
-            <p
-              data-testid="correction-error"
-              className="kicker"
-              style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}
-            >
+            <p data-testid="correction-error" className="text-xs text-status-danger">
               {status.message}
             </p>
           )}
