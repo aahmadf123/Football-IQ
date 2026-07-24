@@ -68,7 +68,9 @@ test("sign-in form: invalid credentials show an error", async ({ page }) => {
   await page.getByLabel("Password").fill("wrongpassword");
   await page.getByRole("button", { name: /Sign in/ }).click();
 
-  await expect(page.getByRole("alert")).toContainText(/Invalid credentials/);
+  await expect(page.getByRole("form", { name: "Sign in" }).getByRole("alert")).toContainText(
+    /Invalid credentials/,
+  );
   // Must stay on the login page.
   await expect(page).toHaveURL(/\/login\//);
 });
