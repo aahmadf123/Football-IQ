@@ -29,7 +29,6 @@ from pipeline.homography.regime_detector import (
     _static_background_score,
 )
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 

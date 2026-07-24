@@ -16,14 +16,11 @@ Output: overlay video URI + dashboard index update.
 
 from __future__ import annotations
 
-import os
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import cv2
-import numpy as np
 import structlog
 
 from pipeline import r2

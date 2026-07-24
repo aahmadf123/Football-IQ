@@ -144,7 +144,7 @@ class PlayObservation:
     yards: float
     clip_id: str | None = None
 
-    def normalized(self) -> "PlayObservation | None":
+    def normalized(self) -> PlayObservation | None:
         route = normalize_concept(self.route_concept)
         coverage = normalize_coverage(self.coverage_type)
         if route is None or coverage is None:
@@ -307,7 +307,7 @@ class CounterfactualLookup:
     @classmethod
     def from_observations(
         cls, observations: list[PlayObservation], *, source_label: str = SOURCE_TOLEDO
-    ) -> "CounterfactualLookup":
+    ) -> CounterfactualLookup:
         lookup = cls(source_label=source_label)
         for obs in observations:
             lookup.add(obs)

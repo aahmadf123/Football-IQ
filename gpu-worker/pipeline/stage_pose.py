@@ -50,7 +50,6 @@ from pipeline import backend
 from pipeline.metrics.gait_asymmetry import compute_gait_asymmetry
 from pipeline.pose.head_yaw import compute_head_yaw, summarize_body_orientation
 from pipeline.pose_estimator import (
-    PoseEstimatorBase,
     angle_degrees,
     get_estimator,
     kp,
@@ -303,7 +302,7 @@ def _compute_pad_level(
         )
         torso_angle = vector_angle_from_vertical(hip_centre, shoulder_centre)
 
-        hip_flexions.append(hip_flex := hip_flexion)
+        hip_flexions.append(hip_flexion)
         torso_angles.append(torso_angle)
         confs.append(min_conf)
 
@@ -870,7 +869,6 @@ def _qb_shoulder_hip_separation(
             continue
 
         shoulder_vec = (rs["x"] - ls["x"], rs["y"] - ls["y"])
-        hip_vec = (rh["x"] - lh["x"], rh["y"] - lh["y"])
         sep = angle_degrees(
             (ls["x"] + shoulder_vec[0], ls["y"] + shoulder_vec[1]),
             ((ls["x"] + rs["x"]) / 2, (ls["y"] + rs["y"]) / 2),

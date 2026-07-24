@@ -16,6 +16,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
+
 from pipeline import model_router
 from pipeline.model_router import (
     DEFAULT_ROUTING,
@@ -27,7 +29,6 @@ from pipeline.model_router import (
     is_same_session,
     select_model,
 )
-from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 
 
 @pytest.fixture(autouse=True)

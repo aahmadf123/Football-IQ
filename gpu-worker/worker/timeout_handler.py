@@ -27,12 +27,11 @@ import os
 import signal
 import threading
 from collections.abc import Callable
+from queue.same_session_queue import push_nightly_job
 from typing import Any
 
 import httpx
 import structlog
-
-from queue.same_session_queue import push_nightly_job
 
 log = structlog.get_logger(__name__)
 

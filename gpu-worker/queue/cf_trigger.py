@@ -21,17 +21,16 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import Any
-
-import httpx
-import structlog
-
 from queue.same_session_queue import (
     NIGHTLY_PRIORITY,
     SAME_SESSION_PRIORITY,
     push_nightly_job,
     push_same_session_job,
 )
+from typing import Any
+
+import httpx
+import structlog
 
 log = structlog.get_logger(__name__)
 

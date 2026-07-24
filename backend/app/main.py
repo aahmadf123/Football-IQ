@@ -48,7 +48,9 @@ from app.routers.reports import router as reports_router
 from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.settings import router as settings_router
+from app.routers.storage import router as storage_router
 from app.routers.tracklets import router as tracklets_router
+from app.routers.uploads import router as uploads_router
 from app.routers.videos import router as videos_router
 
 settings = get_settings()
@@ -98,7 +100,11 @@ app.include_router(health.router)
 app.include_router(health_workload_router)
 app.include_router(health_ingest_router)
 app.include_router(auth_router)
+# uploads before videos: its literal /download-url and /upload/* paths must
+# win over the videos router's dynamic /{video_id} route.
+app.include_router(uploads_router)
 app.include_router(videos_router)
+app.include_router(storage_router)
 app.include_router(clips_router)
 app.include_router(practice_sessions_router)
 app.include_router(players_router)

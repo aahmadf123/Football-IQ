@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -249,7 +249,7 @@ def build_pairing_manifest(
     return {
         "usage": USAGE_MARKER,
         "schema_version": SCHEMA_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "source": source,
         "teacher_regime": FIXED_SIDELINE,
         "student_regime": DRONE_FOLLOW,

@@ -17,13 +17,14 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
+
 from pipeline import model_router
 from pipeline.model_router import (
     DRONE_FOLLOW_DISTILLED,
     NIGHTLY_ONLY_VARIANTS,
     select_detect_variant,
 )
-from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 from training.cross_regime_distill import (
     MIN_MAP_GAIN_PP,
     DistillConfig,
@@ -46,7 +47,6 @@ from training.play_call_aligner import (
     filter_validated,
     meets_min_plays,
 )
-
 
 # ── Fixtures / helpers ────────────────────────────────────────────────────────
 

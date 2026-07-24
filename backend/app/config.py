@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     r2_bucket_artifacts: str = "artifacts"
     r2_presign_ttl: int = 3600
 
+    # ── Storage backend selection ─────────────────────────────────────────
+    # "r2" | "local" | "" (auto: r2 when R2 credentials are configured,
+    # otherwise local). "local" stores objects under ``local_storage_root``
+    # as ``{root}/{bucket}/{key}`` with ``local://bucket/key`` URIs and
+    # serves them through the HMAC-signed /api/v1/storage route, so the
+    # whole platform runs without any Cloudflare account.
+    storage_backend: str = ""
+    local_storage_root: str = "./data/storage"
+    # Absolute base used when minting signed local download URLs (the
+    # frontend <video> tag needs a resolvable origin, not a relative path).
+    public_api_base_url: str = "http://localhost:8000"
+
     # ── JWT ───────────────────────────────────────────────────────────────
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60

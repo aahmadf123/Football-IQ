@@ -32,12 +32,15 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function workerBase(): string {
-  return process.env.NEXT_PUBLIC_WORKER_URL ?? "";
-}
-
 function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? "";
+}
+
+function workerBase(): string {
+  // When no edge Worker is deployed (local / single-box mode), the backend
+  // exposes the same upload-url / upload / download-url contract, so all
+  // Worker-targeted calls transparently fall back to the API base.
+  return process.env.NEXT_PUBLIC_WORKER_URL || apiBase();
 }
 
 function authHeaders(token?: string): Record<string, string> {

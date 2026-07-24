@@ -101,8 +101,7 @@ def run(
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 

@@ -22,8 +22,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from pipeline import backend, stage_segment
 from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
+
+from pipeline import backend, stage_segment
 
 
 class _FakeSegmenter:

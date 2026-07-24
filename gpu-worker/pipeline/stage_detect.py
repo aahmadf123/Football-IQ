@@ -47,7 +47,6 @@ import structlog
 
 from pipeline import r2
 from pipeline.detection.ball_detector import (
-    YOLO_BALL,
     ball_strategy,
     build_ball_detector,
 )
@@ -163,8 +162,7 @@ def run(
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 

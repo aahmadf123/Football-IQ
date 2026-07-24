@@ -152,9 +152,17 @@ def process_job(job: dict[str, Any]) -> None:
 
     from worker.observability import (
         record_heartbeat as _hb,
+    )
+    from worker.observability import (
         record_job_failed as _jf,
+    )
+    from worker.observability import (
         record_job_started as _js,
+    )
+    from worker.observability import (
         record_job_succeeded as _jsuc,
+    )
+    from worker.observability import (
         record_job_timed_out as _jto,
     )
 
@@ -271,6 +279,8 @@ def _dispatch(
         stage_segment,
         stage_self_scout,
         stage_track,
+    )
+    from pipeline import (
         r2 as r2_mod,
     )
 
@@ -493,8 +503,8 @@ def _dispatch(
         # §11). The variant ``play-embed-clip-vitb32-baseline`` is the only
         # one in NIGHTLY_ONLY_VARIANTS for ``embeddings`` so the routing
         # safety guard already prevents same-session execution.
-        from pipeline import stage_embed
         from pipeline import backend as backend_mod
+        from pipeline import stage_embed
 
         variant = model_router.select_model("embeddings", priority)
         if variant == "none":
@@ -603,8 +613,7 @@ def _dispatch(
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 
@@ -614,7 +623,6 @@ def _queue_nightly_hls_followup(
 ) -> None:
     """Queue a nightly follow-up render_hls job after same-session render."""
     import uuid as _uuid
-
     from queue.same_session_queue import NIGHTLY_PRIORITY, push_nightly_job
 
     clip_id = original_job.get("clipId", "")

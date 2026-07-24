@@ -75,8 +75,7 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0) -> dic
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 

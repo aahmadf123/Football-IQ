@@ -114,7 +114,7 @@ def build_catalog(doc: dict[str, Any], encode_fn: EncodeFn) -> dict[str, Any]:
 
     out = dict(doc)
     out["dim"] = CLIP_DIM
-    out["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    out["generated_at"] = dt.datetime.now(dt.UTC).isoformat()
     out["concepts"] = out_concepts
     return out
 

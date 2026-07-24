@@ -330,7 +330,6 @@ def _vanishing_point_score(frame: np.ndarray) -> float:
         return 0.5
 
     h, w = gray.shape[:2]
-    cx = w / 2.0
     # Keep near-vertical lines only (yard lines projected toward VP).
     vert_lines: list[tuple[float, float]] = []
     for line in lines[:50]:

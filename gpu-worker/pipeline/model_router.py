@@ -38,11 +38,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 from typing import Any
 
 import structlog
-
-from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 
 log = structlog.get_logger(__name__)
 
