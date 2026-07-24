@@ -30,12 +30,9 @@ import type {
   OurPossession,
   WorkloadGatedDetail,
 } from "./types";
+import { apiBase } from "./endpoints";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "";
-}
 
 function workerBase(): string {
   // When no edge Worker is deployed (local / single-box mode), the backend
