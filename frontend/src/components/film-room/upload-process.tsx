@@ -132,8 +132,8 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
               Add practice or game film here. Uploaded film is saved but{" "}
               <strong className="text-foreground">not processed automatically</strong> — click{" "}
-              <strong className="text-foreground">Process Film</strong> when you&rsquo;re ready to
-              run the pipeline. Full-quality processing runs in the overnight queue.
+              <strong className="text-foreground">Process Film</strong>
+              {" when you’re ready to run the pipeline. Full-quality processing runs in the overnight queue."}
             </p>
           </div>
           <Button onClick={onUploadClick}>
