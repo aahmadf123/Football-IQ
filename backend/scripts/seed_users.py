@@ -26,7 +26,7 @@ import structlog
 from app.auth import hash_password
 from app.config import get_settings
 from app.models import User, UserRole
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 log = structlog.get_logger(__name__)
@@ -40,7 +40,7 @@ async def _ensure_user(
     # endpoint's normalization — otherwise a seeded "Admin@X" never matches
     # a sign-in as "admin@x".
     email = email.strip().lower()
-    existing = await session.execute(select(User).where(User.email == email))
+    existing = await session.execute(select(User).where(func.lower(User.email) == email))
     if existing.scalar_one_or_none() is not None:
         log.info("seed_user_exists", email=email)
         return False
