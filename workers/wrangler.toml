@@ -23,21 +23,10 @@ bucket_name = "overlays"
 binding = "ARTIFACTS"
 bucket_name = "artifacts"
 
-# Cloudflare Queues
-[[queues.producers]]
-binding = "VIDEO_PROCESSING_QUEUE"
-queue = "video-processing-jobs"
-
-[[queues.producers]]
-binding = "NIGHTLY_TRAINING_QUEUE"
-queue = "nightly-training-exports"
-
-# ── Scheduled triggers ────────────────────────────────────────────────────────
-# 08:00 UTC nightly: enqueue the per-player workload rollup (Issue #149).
-# The scheduled() handler in src/index.ts sends a workload_rollup job for
-# yesterday's date onto the nightly video-processing queue.
-[triggers]
-crons = ["0 8 * * *"]
+# Job dispatch and the nightly cron moved off the edge: the backend's
+# processing_jobs table is the queue (claimed by the GPU worker) and the
+# backend scheduler owns the nightly workload rollup. The former queue
+# producer bindings and [triggers] cron were removed with that migration.
 
 # ── Secrets (set via `wrangler secret put <NAME>`) ────────────────────────────
 # JWT_SECRET

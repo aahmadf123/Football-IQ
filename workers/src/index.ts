@@ -23,7 +23,6 @@ import {
   putObject,
   verifySignedUrl,
 } from "./r2.js";
-import { enqueueVideoProcessingJob } from "./queue.js";
 import type { Env } from "./types.js";
 
 // ── Response helpers ──────────────────────────────────────────────────────────
@@ -154,61 +153,14 @@ export default {
       }
     }
 
-    // ── POST /api/v1/jobs ─────────────────────────────────────────────────
-    if (url.pathname === "/api/v1/jobs" && request.method === "POST") {
-      const body = (await request.json()) as {
-        jobId: string;
-        videoId: string;
-        jobType: string;
-        priority?: number;
-        pipelineMode?: "same_session" | "nightly";
-        inputUri: string;
-      };
-      if (!body.jobId || !body.videoId || !body.jobType || !body.inputUri) {
-        return withCors(json({ error: "jobId, videoId, jobType, and inputUri are required" }, 400), cors);
-      }
-      const priority = body.priority ?? 0;
-      await enqueueVideoProcessingJob(env, {
-        jobId: body.jobId,
-        videoId: body.videoId,
-        jobType: body.jobType,
-        priority,
-        pipelineMode: body.pipelineMode,
-        inputUri: body.inputUri,
-        submittedAt: new Date().toISOString(),
-      });
-      const isSameSession = priority >= 10;
-      return withCors(json({
-        queued: true,
-        jobId: body.jobId,
-        pipelineMode: isSameSession ? "same_session" : "nightly",
-        queue: isSameSession ? "same-session-jobs" : "video-processing-jobs",
-      }, 202), cors);
-    }
+    // NOTE: job dispatch no longer lives at the edge. The backend's
+    // processing_jobs table IS the queue (POST /api/v1/jobs on the backend,
+    // claimed by the GPU worker via /jobs/claim), and the nightly
+    // workload-rollup is enqueued by the backend scheduler. The Worker's
+    // former POST /api/v1/jobs route and cron handler were removed with
+    // that migration — this Worker is now purely the upload/stream edge.
 
     return withCors(json({ error: "Not found" }, 404), cors);
-  },
-
-  /**
-   * Nightly cron (see wrangler.toml [triggers]): enqueue the per-player
-   * workload rollup for yesterday (Issue #149). Goes straight onto the
-   * nightly video-processing queue — no inputUri: the rollup job reads its
-   * inputs from the backend API, not from R2. The REST /api/v1/jobs
-   * inputUri requirement applies only to the HTTP path.
-   */
-  async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    const scheduledAt = new Date(controller.scheduledTime);
-    const yesterday = new Date(controller.scheduledTime - 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-    await env.VIDEO_PROCESSING_QUEUE.send({
-      jobId: crypto.randomUUID(),
-      jobType: "workload_rollup",
-      priority: 0,
-      pipelineMode: "nightly",
-      inputArtifacts: { date: yesterday },
-      submittedAt: scheduledAt.toISOString(),
-    });
   },
 };
 
