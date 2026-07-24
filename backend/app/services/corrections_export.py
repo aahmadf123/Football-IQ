@@ -47,11 +47,20 @@ async def export_corrections(
     result = await db.execute(q)
     corrections = result.scalars().all()
 
+    # Prefetch each involved clip's model_version_id in one query instead of a
+    # SELECT-per-correction (an N+1 that scales with correction volume on the
+    # nightly path). Missing clip → None model_version_id, same as before.
+    clip_ids = {c.clip_id for c in corrections if c.clip_id is not None}
+    model_version_by_clip: dict[uuid.UUID, uuid.UUID | None] = {}
+    if clip_ids:
+        clip_rows = await db.execute(
+            select(Clip.id, Clip.model_version_id).where(Clip.id.in_(clip_ids))
+        )
+        model_version_by_clip = {clip_id: mv_id for clip_id, mv_id in clip_rows.all()}
+
     labels: list[Label] = []
     correction_ids: list[uuid.UUID] = []
     for correction in corrections:
-        clip_result = await db.execute(select(Clip).where(Clip.id == correction.clip_id))
-        clip = clip_result.scalar_one_or_none()
         label = Label(
             id=uuid.uuid4(),
             clip_id=correction.clip_id,
@@ -59,7 +68,7 @@ async def export_corrections(
             label_value=correction.corrected_value,
             annotated_by=correction.corrected_by,
             source="human",
-            model_version_id=clip.model_version_id if clip is not None else None,
+            model_version_id=model_version_by_clip.get(correction.clip_id),
         )
         db.add(label)
         correction.exported_as_label = True

@@ -25,8 +25,8 @@ from app.models import (
     User,
     UserRole,
 )
-from app.scheduler import run_nightly_tick
-from sqlalchemy import inspect, select
+from app.scheduler import _ADVISORY_LOCK_KEY, _acquire_lock, run_nightly_tick
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -174,6 +174,36 @@ async def test_tick_at_threshold_enqueues_train_once(
     assert len(trains) == 1
     assert trains[0].status == JobStatus.queued
     assert trains[0].input_artifacts["trigger"] == "scheduler"
+
+
+async def test_advisory_lock_released_after_commit(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    # Regression: the tick lock must be transaction-scoped. A session-scoped
+    # pg_advisory_lock would survive db.commit() (the connection returns to the
+    # pool still holding it), so no advisory lock for our key may remain once a
+    # committed transaction has ended.
+    async with db() as session:
+        assert await _acquire_lock(session) is True
+        await session.commit()
+
+    async with db() as checker:
+        remaining = (
+            await checker.execute(
+                text(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                    "AND ((classid::bigint << 32) | objid::bigint) = :key"
+                ),
+                {"key": _ADVISORY_LOCK_KEY},
+            )
+        ).scalar()
+        await checker.rollback()
+    assert remaining == 0
+
+    # And a fresh tick can re-acquire it (not wedged).
+    async with db() as session:
+        assert await _acquire_lock(session) is True
+        await session.commit()
 
 
 async def test_tick_exports_corrections_via_service(

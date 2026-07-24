@@ -14,9 +14,13 @@ per UTC day at ``SCHEDULER_HOUR_UTC``:
   3. Enqueue the nightly ``workload_rollup`` job (previously the lone
      Cloudflare cron responsibility).
 
-Multi-instance deployments are safe: a Postgres advisory lock makes exactly
-one instance run the tick; the others skip. ``SCHEDULER_ENABLED=0`` disables
-the loop entirely (e.g. one-off maintenance containers).
+Multi-instance deployments are safe: a Postgres *transaction-scoped* advisory
+lock makes exactly one instance run the tick; the others skip. It is bound to
+the tick's transaction and released automatically on commit/rollback — a
+session-scoped lock would leak, because after ``db.commit()`` returns the
+connection to the pool a manual unlock could run on a different connection and
+never release the original, wedging every later tick. ``SCHEDULER_ENABLED=0``
+disables the loop entirely (e.g. one-off maintenance containers).
 """
 
 from __future__ import annotations
@@ -64,14 +68,14 @@ def _min_new_labels() -> int:
 
 
 async def _acquire_lock(db: AsyncSession) -> bool:
+    # Transaction-scoped: Postgres releases it when this session's transaction
+    # commits or rolls back, so there is no manual unlock to leak onto a
+    # pooled connection. Acquired inside the same transaction that
+    # run_nightly_tick writes and _tick_if_due commits.
     result = await db.execute(
-        text("SELECT pg_try_advisory_lock(:key)"), {"key": _ADVISORY_LOCK_KEY}
+        text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": _ADVISORY_LOCK_KEY}
     )
     return bool(result.scalar())
-
-
-async def _release_lock(db: AsyncSession) -> None:
-    await db.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": _ADVISORY_LOCK_KEY})
 
 
 async def _already_ran_today(db: AsyncSession, job_type: JobType, now: datetime) -> bool:
@@ -163,6 +167,9 @@ async def _tick_if_due() -> None:
     if now.hour != _scheduled_hour():
         return
     async with AsyncSessionLocal() as db:
+        # The lock is taken inside this transaction and released by the
+        # commit/rollback below — no finally-unlock (which would run on a
+        # possibly-different pooled connection after commit and leak the lock).
         if not await _acquire_lock(db):
             return
         try:
@@ -175,8 +182,6 @@ async def _tick_if_due() -> None:
         except Exception as exc:
             await db.rollback()
             log.error("scheduler_tick_failed", error=str(exc))
-        finally:
-            await _release_lock(db)
 
 
 async def scheduler_loop() -> None:

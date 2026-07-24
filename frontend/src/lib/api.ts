@@ -44,6 +44,23 @@ function workerBase(): string {
   return process.env.NEXT_PUBLIC_WORKER_URL || apiBase();
 }
 
+// Because workerBase() falls back to the API base, the "not configured"
+// failure mode is *both* vars being unset — not NEXT_PUBLIC_WORKER_URL alone.
+// Centralize the message here so callers (e.g. requestUploadUrl) don't throw a
+// misleading "NEXT_PUBLIC_WORKER_URL is not configured" when the API base
+// would have sufficed. Graceful callers that tolerate a missing base
+// (fetchVideoDownloadUrl) keep using workerBase() directly.
+function requireWorkerBase(): string {
+  const base = workerBase();
+  if (!base) {
+    throw new Error(
+      "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
+        "or NEXT_PUBLIC_API_URL (backend fallback).",
+    );
+  }
+  return base;
+}
+
 function authHeaders(token?: string): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (token) h["Authorization"] = `Bearer ${token}`;
@@ -74,8 +91,7 @@ export async function requestUploadUrl(
   filename: string,
   token?: string,
 ): Promise<UploadUrlResponse> {
-  const base = workerBase();
-  if (!base) throw new Error("NEXT_PUBLIC_WORKER_URL is not configured");
+  const base = requireWorkerBase();
   const res = await fetch(`${base}/api/v1/videos/upload-url`, {
     method: "POST",
     headers: authHeaders(token),

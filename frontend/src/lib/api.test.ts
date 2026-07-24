@@ -70,11 +70,14 @@ describe("requestUploadUrl", () => {
     expect(url).toBe("https://api.test/api/v1/videos/upload-url");
   });
 
-  test("throws when neither worker nor API base is configured", async () => {
+  test("throws naming both env vars when neither worker nor API base is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { requestUploadUrl } = await freshImport();
+    // The message must name both vars — with the API-base fallback, requiring
+    // only NEXT_PUBLIC_WORKER_URL would be misleading.
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_WORKER_URL/);
+    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
   });
 });
 
