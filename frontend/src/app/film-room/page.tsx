@@ -5,14 +5,16 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { FootballShell } from "@/components/football-shell";
 import { LibraryView } from "@/app/library/library-view";
-import { VideoAndPlays, ClipsHighlights } from "@/components/page-renderer";
+import { ReviewTab } from "@/components/film-room/review-tab";
 import { UploadProcessFilm } from "@/components/film-room/upload-process";
 import { useUploadWidget } from "@/components/shared/upload-widget";
 
+// "Clips & Highlights" was folded away with the mock clip grid (#96): Browse
+// Film is the clip library (real sessions → videos → clips), Review & Tag
+// Plays is the per-video clip inventory that deep-links into clip review.
 const TABS = [
   { key: "browse", label: "Browse Film" },
   { key: "review", label: "Review & Tag Plays" },
-  { key: "clips", label: "Clips & Highlights" },
   { key: "upload", label: "Upload / Process Film" },
 ] as const;
 
@@ -67,8 +69,7 @@ function FilmRoomContent() {
       </nav>
 
       {activeTab === "browse" && <LibraryView />}
-      {activeTab === "review" && <VideoAndPlays onUploadClick={handleUploadClick} />}
-      {activeTab === "clips" && <ClipsHighlights />}
+      {activeTab === "review" && <ReviewTab />}
       {activeTab === "upload" && <UploadProcessFilm onUploadClick={handleUploadClick} />}
     </>
   );

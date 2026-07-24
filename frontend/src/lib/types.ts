@@ -149,6 +149,14 @@ export interface ApiPracticeSessionGroup {
   last_recorded_at?: string | null;
 }
 
+// One entry in a job's per-stage progress map. The orchestrator heartbeats
+// ``{stage[:clipprefix]: {status, ...headline numbers}}`` where status is one
+// of "started" | "succeeded" | "failed" | "skipped".
+export interface JobStageProgress {
+  status?: string;
+  [key: string]: unknown;
+}
+
 export interface ApiJob {
   id: string;
   job_type: string;
@@ -159,6 +167,8 @@ export interface ApiJob {
   error_stage?: string | null;
   error_message?: string | null;
   nightly_followup_job_id?: string | null;
+  // Per-stage progress map maintained by the orchestrator via heartbeat.
+  progress?: Record<string, JobStageProgress> | null;
   created_at: string;
 }
 
@@ -375,6 +385,10 @@ export interface SystemConfig {
   capture_camera: string;
   storage_bucket: string;
   auto_export_access: AutoExportAccess;
+  // Kick off the processing pipeline automatically when a video is registered
+  // (system default ON; the Film Room "Process Film" CTA remains for
+  // manual/retry runs).
+  auto_process_on_upload: boolean;
 }
 
 export interface ModelSensitivity {

@@ -52,14 +52,15 @@ async function renderHub() {
 }
 
 describe("FilmRoomPage", () => {
-  test("renders all four consolidated tabs", async () => {
+  test("renders the three consolidated tabs (mock clips tab is gone)", async () => {
     await renderHub();
     await waitFor(() => {
       expect(screen.getByTestId("film-room-tab-browse")).toBeTruthy();
     });
     expect(screen.getByTestId("film-room-tab-review")).toBeTruthy();
-    expect(screen.getByTestId("film-room-tab-clips")).toBeTruthy();
     expect(screen.getByTestId("film-room-tab-upload")).toBeTruthy();
+    // The old "Clips & Highlights" tab rendered a mock clip grid — removed.
+    expect(screen.queryByTestId("film-room-tab-clips")).toBeNull();
   });
 
   test("default tab is Browse Film (former Library)", async () => {
@@ -70,19 +71,28 @@ describe("FilmRoomPage", () => {
     });
   });
 
-  test("review tab renders the clip review / tagging view", async () => {
+  test("review tab renders the real per-video clip inventory", async () => {
     nav.tab = "review";
     await renderHub();
+    // The heading (distinct from the tab link) proves the panel rendered.
     await waitFor(() => {
-      expect(screen.getByText(/Play Tags & Corrections/i)).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: /Review & Tag Plays/i }),
+      ).toBeTruthy();
+    });
+    // Offline backend, no videos → honest empty state, never a fake player.
+    await waitFor(() => {
+      expect(screen.getByTestId("review-empty").textContent).toMatch(
+        /Backend offline|Loading film|No film yet/i,
+      );
     });
   });
 
-  test("clips tab renders the clip library view", async () => {
+  test("an unknown tab falls back to Browse Film", async () => {
     nav.tab = "clips";
     await renderHub();
     await waitFor(() => {
-      expect(screen.getByText(/Clip Library/i)).toBeTruthy();
+      expect(screen.getByText(/Library unavailable/i)).toBeTruthy();
     });
   });
 

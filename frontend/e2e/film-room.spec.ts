@@ -41,11 +41,13 @@ test("film room exposes consolidated tabs and an explicit Process Film CTA", asy
 
   await page.goto("/film-room/?tab=upload");
 
-  // The four film workflows are consolidated into one destination.
+  // The film workflows are consolidated into one destination. The old
+  // "Clips & Highlights" mock-clip tab is gone (#96) — real clips live in
+  // Browse Film and Review & Tag Plays.
   await expect(page.getByTestId("film-room-tab-browse")).toBeVisible();
   await expect(page.getByTestId("film-room-tab-review")).toBeVisible();
-  await expect(page.getByTestId("film-room-tab-clips")).toBeVisible();
   await expect(page.getByTestId("film-room-tab-upload")).toBeVisible();
+  await expect(page.getByTestId("film-room-tab-clips")).toHaveCount(0);
 
   // Uploaded film is not auto-processed — a clear CTA is offered.
   const cta = page.getByTestId("process-film-vid-up-1");
