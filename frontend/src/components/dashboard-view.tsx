@@ -312,6 +312,7 @@ function JobsCard() {
 
 function JobRow({ job }: { job: ApiJob }) {
   const stages = summarizeProgress(job.progress);
+  const lease = leaseSummary(job);
   return (
     <div style={{ padding: "4px 0", borderBottom: "1px solid var(--line-soft, #333)", fontSize: "0.78rem" }} data-testid={`job-row-${job.id}`}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -329,6 +330,15 @@ function JobRow({ job }: { job: ApiJob }) {
           {job.status}
         </span>
       </div>
+      {lease && (
+        <div
+          className="kicker"
+          style={{ marginTop: 2 }}
+          data-testid={`job-lease-${job.id}`}
+        >
+          {lease}
+        </div>
+      )}
       {stages.length > 0 && (
         <div
           className="kicker"
@@ -352,6 +362,28 @@ function JobRow({ job }: { job: ApiJob }) {
       )}
     </div>
   );
+}
+
+/**
+ * One-line lease/attempt summary for a job row (queue bookkeeping from the
+ * backend JobResponse). Running jobs surface a retry attempt ("attempt 2")
+ * and the worker holding the lease; failed jobs say how many attempts were
+ * burned. Returns null when there is nothing noteworthy to show.
+ */
+export function leaseSummary(
+  job: Pick<ApiJob, "status" | "attempt_count" | "leased_by">,
+): string | null {
+  const attempts = job.attempt_count ?? 0;
+  if (job.status === "running") {
+    const parts: string[] = [];
+    if (attempts > 1) parts.push(`attempt ${attempts}`);
+    if (job.leased_by) parts.push(`worker ${job.leased_by}`);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }
+  if (job.status === "failed" && attempts >= 1) {
+    return `failed after ${attempts} attempt${attempts === 1 ? "" : "s"}`;
+  }
+  return null;
 }
 
 type StageStatus = "done" | "running" | "failed" | "skipped" | "pending";

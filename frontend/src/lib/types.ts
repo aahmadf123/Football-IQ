@@ -181,6 +181,11 @@ export interface ApiJob {
   nightly_followup_job_id?: string | null;
   // Per-stage progress map maintained by the orchestrator via heartbeat.
   progress?: Record<string, JobStageProgress> | null;
+  // Lease bookkeeping from the job queue (backend JobResponse): how many
+  // times a worker has claimed this job and which worker holds the current
+  // lease. Optional so older payloads (and mocks) stay valid.
+  attempt_count?: number;
+  leased_by?: string | null;
   created_at: string;
 }
 

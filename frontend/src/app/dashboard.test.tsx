@@ -187,6 +187,58 @@ describe("DashboardPage — live backend", () => {
   });
 });
 
+describe("DashboardPage — job lease/attempt surfacing", () => {
+  test("running retries show attempt + worker; failed jobs show attempts burned", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const retryingJob = {
+      ...SAMPLE_JOB,
+      id: "job-2",
+      progress: null,
+      attempt_count: 2,
+      leased_by: "gpu-worker-1",
+    };
+    const failedJob = {
+      ...SAMPLE_JOB,
+      id: "job-3",
+      status: "failed",
+      progress: null,
+      attempt_count: 3,
+      leased_by: null,
+      error_stage: "track",
+      error_message: "CUDA out of memory",
+    };
+    installFetchRoutes([
+      { url: "/api/v1/videos", body: [SAMPLE_VIDEO] },
+      { url: "/api/v1/jobs", body: [SAMPLE_JOB, retryingJob, failedJob] },
+      { url: "/api/v1/inbox/status", body: [SAMPLE_INBOX_ITEM] },
+      { url: "/api/v1/alerts", body: [] },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [], clip_count: 0 } },
+    ]);
+
+    const { DashboardPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <DashboardPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("job-row-job-2")).toBeTruthy();
+    });
+    // First-attempt job without lease info shows no extra line.
+    expect(screen.queryByTestId("job-lease-job-1")).toBeNull();
+    // Retried running job: attempt count + worker id, one subtle line.
+    expect(screen.getByTestId("job-lease-job-2").textContent).toBe(
+      "attempt 2 · worker gpu-worker-1",
+    );
+    // Failed job: attempts burned.
+    expect(screen.getByTestId("job-lease-job-3").textContent).toBe(
+      "failed after 3 attempts",
+    );
+  });
+});
+
 describe("DashboardPage — offline backend", () => {
   test("shows honest offline states instead of fabricated data", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
