@@ -69,6 +69,18 @@ export async function mockBackend(page: Page, routes: RouteMap): Promise<void> {
 }
 
 /**
+ * Same as `mockBackend` but does **not** pre-seed an auth session in
+ * localStorage. Use this for specs that need to exercise the login page
+ * (where a pre-existing token would immediately redirect away from it).
+ *
+ * Auth-endpoint responders (login, register, refresh) are injected by the
+ * caller so each test controls the happy- or error-path outcome.
+ */
+export async function mockBackendNoAuth(page: Page, routes: RouteMap): Promise<void> {
+  await mockHost(page, "api.e2e.local", routes);
+}
+
+/**
  * Register responders for the Cloudflare Worker host (upload-url + signed
  * download URLs + the simulated PUT to R2).
  */
