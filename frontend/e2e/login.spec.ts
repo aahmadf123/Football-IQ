@@ -87,6 +87,10 @@ test("create-account tab: registration + auto-login redirects to dashboard", asy
       refresh_token: "e2e-refresh-r1",
     },
     ...postLoginRoutes,
+    "POST /api/v1/auth/refresh": {
+      access_token: makeE2eJwt("viewer"),
+      refresh_token: "e2e-refresh-r2",
+    },
   });
 
   await page.goto("/login");
