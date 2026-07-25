@@ -57,21 +57,18 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
           <Image
-            src="/brand/toledo-rocket.png"
-            width={184}
-            height={78}
+            src="/brand/toledo-lockup-dark.png"
+            width={2021}
+            height={1177}
             alt="Toledo Rockets"
-            className="h-16 w-auto object-contain"
+            className="h-32 w-auto object-contain"
             priority
           />
-          <h1 className="mt-4 font-display text-3xl font-semibold uppercase tracking-wide text-foreground">
+          <h1 className="mt-4 font-display text-xl font-semibold uppercase tracking-[0.18em] text-foreground">
             Football-IQ
           </h1>
           <p className="mt-1 font-display text-sm font-medium uppercase tracking-[0.14em] text-primary">
             See more. Coach smarter. Win together.
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Toledo Rockets film intelligence
           </p>
         </div>
 
