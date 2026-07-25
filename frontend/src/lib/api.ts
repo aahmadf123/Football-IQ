@@ -1000,14 +1000,15 @@ export function subscribeAlerts(
 // ── Worker download URL ──────────────────────────────────────────────────────
 
 /**
- * Parse a storage URI of the form `r2://<bucket>/<key>` into its parts.
- * Returns null if the URI is missing or malformed.
+ * Parse a storage URI of the form `r2://<bucket>/<key>` or
+ * `local://<bucket>/<key>` into its parts. Returns null if the URI is missing
+ * or malformed.
  */
 export function parseStorageUri(
   uri: string | null | undefined,
 ): { bucket: string; key: string } | null {
   if (!uri) return null;
-  const m = /^r2:\/\/([^/]+)\/(.+)$/.exec(uri);
+  const m = /^(?:r2|local):\/\/([^/]+)\/(.+)$/.exec(uri);
   return m ? { bucket: m[1], key: m[2] } : null;
 }
 
