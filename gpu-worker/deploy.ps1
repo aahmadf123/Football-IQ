@@ -27,17 +27,17 @@ SEED_USERS_ON_STARTUP=true
 SEED_RESET_PASSWORDS=true
 "@ | Set-Content -Path $backendSecrets -Encoding UTF8
 Write-Host "Syncing worker password on backend $BackendApp (SEED_RESET_PASSWORDS=true)..."
-Get-Content $backendSecrets | fly secrets import -a $BackendApp
+Get-Content $backendSecrets | flyctl secrets import -a $BackendApp
 
 @"
 SEED_RESET_PASSWORDS=false
 "@ | Set-Content -Path $backendSecrets -Encoding UTF8
 Write-Host "Disabling password reset on backend $BackendApp..."
-Get-Content $backendSecrets | fly secrets import -a $BackendApp
+Get-Content $backendSecrets | flyctl secrets import -a $BackendApp
 Remove-Item -Path $backendSecrets -Force
 
 Write-Host "Creating GPU worker app $App (if it doesn't exist)..."
-fly apps create $App --org personal; if ($LASTEXITCODE -ne 0) { Write-Host "App may already exist, continuing..." }
+flyctl apps create $App --org personal; if ($LASTEXITCODE -ne 0) { Write-Host "App may already exist, continuing..." }
 
 $gpuSecrets = [System.IO.Path]::GetTempFileName()
 @"
@@ -49,8 +49,8 @@ R2_ENDPOINT_URL=https://${AccountId}.r2.cloudflarestorage.com
 STORAGE_BACKEND=r2
 "@ | Set-Content -Path $gpuSecrets -Encoding UTF8
 Write-Host "Setting GPU worker secrets..."
-Get-Content $gpuSecrets | fly secrets import -a $App
+Get-Content $gpuSecrets | flyctl secrets import -a $App
 Remove-Item -Path $gpuSecrets -Force
 
 Write-Host "Deploying $App..."
-fly deploy -a $App
+flyctl deploy -a $App

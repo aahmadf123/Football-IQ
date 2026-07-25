@@ -32,18 +32,18 @@ SEED_RESET_PASSWORDS=true
 EOF
 
 echo "Syncing worker password on backend $BACKEND_APP (SEED_RESET_PASSWORDS=true)..."
-fly secrets import -a "$BACKEND_APP" < "$backend_secrets"
+flyctl secrets import -a "$BACKEND_APP" < "$backend_secrets"
 
 cat > "$backend_secrets" <<EOF
 SEED_RESET_PASSWORDS=false
 EOF
 echo "Disabling password reset on backend $BACKEND_APP..."
-fly secrets import -a "$BACKEND_APP" < "$backend_secrets"
+flyctl secrets import -a "$BACKEND_APP" < "$backend_secrets"
 
 rm -f "$backend_secrets"
 
 echo "Creating GPU worker app $APP (if it doesn't exist)..."
-fly apps create "$APP" --org personal || true
+flyctl apps create "$APP" --org personal || true
 
 gpu_secrets=$(mktemp)
 cat > "$gpu_secrets" <<EOF
@@ -56,8 +56,8 @@ STORAGE_BACKEND=r2
 EOF
 
 echo "Setting GPU worker secrets..."
-fly secrets import -a "$APP" < "$gpu_secrets"
+flyctl secrets import -a "$APP" < "$gpu_secrets"
 rm -f "$gpu_secrets"
 
 echo "Deploying $APP..."
-fly deploy -a "$APP"
+flyctl deploy -a "$APP"
