@@ -41,23 +41,8 @@ function workerBase(): string {
   return process.env.NEXT_PUBLIC_WORKER_URL || apiBase();
 }
 
-// Because workerBase() falls back to the API base, the "not configured"
-// failure mode is *both* vars being unset — not NEXT_PUBLIC_WORKER_URL alone.
-// Centralize the message here so callers (e.g. requestUploadUrl) don't throw a
-// misleading "NEXT_PUBLIC_WORKER_URL is not configured" when the API base
-// would have sufficed. Graceful callers that tolerate a missing base
-// (fetchVideoDownloadUrl) keep using workerBase() directly.
-function requireWorkerBase(): string {
-  const base = workerBase();
-  if (!base) {
-    throw new Error(
-      "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
-        "or NEXT_PUBLIC_API_URL (backend fallback).",
-    );
-  }
-  return base;
-}
-
+// Graceful callers that tolerate a missing base (fetchVideoDownloadUrl) use
+// workerBase() directly; requestUploadUrl now falls back to apiBase().
 function authHeaders(token?: string): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (token) h["Authorization"] = `Bearer ${token}`;
@@ -84,11 +69,11 @@ export interface UploadUrlResponse {
   key: string;
 }
 
-export async function requestUploadUrl(
+async function _requestUploadUrlFrom(
+  base: string,
   filename: string,
   token?: string,
 ): Promise<UploadUrlResponse> {
-  const base = requireWorkerBase();
   const res = await fetch(`${base}/api/v1/videos/upload-url`, {
     method: "POST",
     headers: authHeaders(token),
@@ -99,6 +84,33 @@ export async function requestUploadUrl(
     throw new Error(`Failed to get upload URL (${res.status}): ${body}`);
   }
   return res.json() as Promise<UploadUrlResponse>;
+}
+
+export async function requestUploadUrl(
+  filename: string,
+  token?: string,
+): Promise<UploadUrlResponse> {
+  const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
+  const apiUrl = apiBase();
+
+  // Try the Worker first when one is explicitly configured. If the Worker
+  // rejects the token (wrong JWT secret) or is unreachable, fall back to the
+  // backend, which exposes the same contract.
+  if (workerUrl) {
+    try {
+      return await _requestUploadUrlFrom(workerUrl, filename, token);
+    } catch {
+      // Fall through to backend.
+    }
+  }
+
+  if (!apiUrl) {
+    throw new Error(
+      "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
+        "or NEXT_PUBLIC_API_URL (backend fallback).",
+    );
+  }
+  return _requestUploadUrlFrom(apiUrl, filename, token);
 }
 
 // ── R2 Upload ────────────────────────────────────────────────────────────────

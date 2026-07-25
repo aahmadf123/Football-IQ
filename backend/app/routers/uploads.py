@@ -16,6 +16,7 @@ literal ``/download-url`` path wins over ``/{video_id}``.
 """
 
 import hashlib
+import re
 import time
 from typing import Annotated
 from urllib.parse import quote
@@ -37,6 +38,13 @@ from app.storage import (
     local_object_path,
 )
 
+# If PUBLIC_API_BASE_URL still points to localhost in production, derive the
+# public base from the incoming request so minted upload URLs are reachable.
+_LOCALHOST_BASE_RE = re.compile(
+    r"^https?://(?:localhost|127\.\d+\.\d+\.\d+)(?::\d+)?$",
+    re.IGNORECASE,
+)
+
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/videos", tags=["uploads"])
 
@@ -56,20 +64,28 @@ def _reject_oversize(size: int) -> None:
         )
 
 
+def _upload_base(request: Request) -> str:
+    """Return the public base URL for upload/signing, falling back to the request origin."""
+    configured = get_settings().public_api_base_url.rstrip("/")
+    if configured and not _LOCALHOST_BASE_RE.match(configured):
+        return configured
+    return str(request.base_url).rstrip("/")
+
+
 @router.post("/upload-url")
 async def create_upload_url(
     body: UploadUrlRequest,
+    request: Request,
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, str]:
     """Mint an upload key + proxy URL (Worker parity)."""
     if not body.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="filename is required")
-    settings = get_settings()
     # Worker uses `raw/${Date.now()}-${filename}`; mirror it. The filename is
     # embedded in the key, so strip path separators and traversal sequences.
     safe_name = body.filename.replace("\\", "/").split("/")[-1].replace("..", "_") or "upload.bin"
     key = f"raw/{int(time.time() * 1000)}-{safe_name}"
-    base = settings.public_api_base_url.rstrip("/")
+    base = _upload_base(request)
     upload_url = f"{base}/api/v1/videos/upload/{quote(key, safe='')}"
     return {"uploadUrl": upload_url, "key": key}
 
