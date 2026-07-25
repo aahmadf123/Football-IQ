@@ -14,8 +14,12 @@ import { AppStateProvider } from "@/lib/app-state";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
 function TokenBridge({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
-  return <AppStateProvider authToken={token}>{children}</AppStateProvider>;
+  const { token, refreshSession } = useAuth();
+  return (
+    <AppStateProvider authToken={token} getValidToken={refreshSession}>
+      {children}
+    </AppStateProvider>
+  );
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {

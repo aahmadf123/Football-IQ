@@ -46,6 +46,8 @@ export interface AuthContextValue {
   ready: boolean;
   /** True when a backend is configured, so unauthenticated users must sign in. */
   authRequired: boolean;
+  /** Force-refreshes access token using refresh token; returns latest token. */
+  refreshSession: () => Promise<string | undefined>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName: string) => Promise<void>;
   logout: () => void;
@@ -139,25 +141,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveStored(auth);
   }, []);
 
-  const refresh = useCallback(async (explicit?: StoredAuth): Promise<void> => {
+  const refresh = useCallback(async (explicit?: StoredAuth): Promise<StoredAuth | null> => {
     // The mount-time call passes the just-loaded session explicitly —
     // storedRef only reflects state after the next render commit.
     const current = explicit ?? storedRef.current;
-    if (!current || !apiBase()) return;
+    if (!current || !apiBase()) return current ?? null;
     try {
       const pair = await postJson<TokenPair>("/api/v1/auth/refresh", {
         refresh_token: current.refreshToken,
       });
-      applyAuth({
+      const nextAuth: StoredAuth = {
         token: pair.access_token,
         refreshToken: pair.refresh_token,
         user: { ...current.user, role: roleFromToken(pair.access_token) },
-      });
+      };
+      applyAuth(nextAuth);
+      return nextAuth;
     } catch {
       // Refresh token expired/revoked — sign out cleanly.
       applyAuth(null);
+      return null;
     }
   }, [applyAuth]);
+
+  const refreshSession = useCallback(async (): Promise<string | undefined> => {
+    const next = await refresh();
+    return next?.token;
+  }, [refresh]);
 
   useEffect(() => {
     const persisted = loadStored();
@@ -202,6 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user: stored?.user ?? null,
     ready,
     authRequired: Boolean(apiBase()),
+    refreshSession,
     login,
     register,
     logout,

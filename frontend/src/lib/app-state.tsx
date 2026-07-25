@@ -219,7 +219,15 @@ function buildDates(uploads: UploadedClip[], videos: ApiVideo[]): string[] {
   return Array.from(set).sort().reverse();
 }
 
-export function AppStateProvider({ children, authToken }: { children: React.ReactNode; authToken?: string }) {
+export function AppStateProvider({
+  children,
+  authToken,
+  getValidToken,
+}: {
+  children: React.ReactNode;
+  authToken?: string;
+  getValidToken?: () => Promise<string | undefined>;
+}) {
   const mockMode = useMocks();
   const initialData = mockMode ? footballData : emptyFootballData;
 
@@ -245,6 +253,17 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
   // Auth token ref — updated from props, read by async upload/inbox calls
   const tokenRef = useRef(authToken);
   useEffect(() => { tokenRef.current = authToken; }, [authToken]);
+
+  const resolveToken = useCallback(async (): Promise<string | undefined> => {
+    if (getValidToken) {
+      const refreshed = await getValidToken();
+      if (refreshed) {
+        tokenRef.current = refreshed;
+        return refreshed;
+      }
+    }
+    return tokenRef.current;
+  }, [getValidToken]);
 
   // Hydrate uploaded clip names from storage on mount
   useEffect(() => {
@@ -462,18 +481,34 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     try {
       // Step 1: Request upload URL from Worker
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
-      const token = tokenRef.current;
+      const token = await resolveToken();
       const { uploadUrl } = await requestUploadUrl(file.name, token);
 
       // Step 2: Upload file to R2 via Worker proxy
       updateUpload(clip.id, { phase: "uploading", progress: 0 });
-      const r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
-        const pct = Math.round((loaded / total) * 100);
-        updateUpload(clip.id, { progress: pct });
-      });
+      let r2Result;
+      try {
+        r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
+          const pct = Math.round((loaded / total) * 100);
+          updateUpload(clip.id, { progress: pct });
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+        const tokenExpired = msg.includes("401") && (msg.includes("expired token") || msg.includes("invalid token"));
+        if (!tokenExpired) throw err;
+
+        const retriedToken = await resolveToken();
+        if (!retriedToken || retriedToken === token) throw err;
+
+        r2Result = await uploadToR2(uploadUrl, file, retriedToken, (loaded, total) => {
+          const pct = Math.round((loaded / total) * 100);
+          updateUpload(clip.id, { progress: pct });
+        });
+      }
 
       // Step 3: Register video with backend
       updateUpload(clip.id, { phase: "registering", progress: 100 });
+      const registerToken = tokenRef.current;
       const video = await registerVideo({
         filename: file.name,
         storage_uri: r2Result.storageUri,
@@ -482,7 +517,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
         source_type: metadata?.source_type,
         opponent_team: metadata?.opponent_team,
         our_possession: metadata?.our_possession,
-      }, token);
+      }, registerToken);
 
       updateUpload(clip.id, {
         phase: "done",
@@ -523,7 +558,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     }
 
     return created;
-  }, [mockMode, refreshInbox]);
+  }, [mockMode, refreshInbox, resolveToken]);
 
   const retryUpload = useCallback((id: string) => {
     const meta = retryMetaRef.current.get(id);
@@ -532,7 +567,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     if (!clip) return;
     updateUpload(id, { phase: "idle", progress: 0, error: undefined });
     executeUpload(clip, meta.file, meta.metadata);
-  }, [uploads, mockMode, refreshInbox]);
+  }, [uploads, mockMode, refreshInbox, resolveToken]);
 
   const removeUpload = useCallback((id: string) => {
     setUploads((cur) => {
