@@ -329,7 +329,7 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
-## Frontend UI libraries (Issue #262)
+## Frontend UI libraries (PR #262)
 
 | Field | Detail |
 |---|---|
