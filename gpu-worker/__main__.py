@@ -239,6 +239,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
     """
     import threading
 
+    from pipeline import backend as backend_client
     from pipeline.orchestrator import StorageArtifactSink, run_pipeline
     from worker.observability import (
         record_job_failed,
@@ -288,6 +289,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
             artifact_sink=StorageArtifactSink(video_id),
         )
         _update_job_status(job_id, "succeeded", output_artifacts=summary)
+        backend_client.patch_video_status(video_id, "ready")
         record_job_succeeded("pipeline", pipeline_mode, time.time() - started)
         log.info(
             "pipeline_job_succeeded",
@@ -299,6 +301,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
         record_job_failed("pipeline", pipeline_mode)
         log.error("pipeline_job_failed", job_id=job_id, error=str(exc))
         _update_job_status(job_id, "failed", error_message=str(exc))
+        backend_client.patch_video_status(video_id, "failed")
     finally:
         stop_heartbeat.set()
         hb_thread.join(timeout=5)

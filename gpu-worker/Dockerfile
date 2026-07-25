@@ -28,8 +28,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ── Worker code ───────────────────────────────────────────────────────────────
 COPY . .
 
-# Run as non-root
-RUN addgroup --system gpugroup && adduser --system --ingroup gpugroup gpuuser
+# Run as non-root, but ensure the working directory is writable so runtime
+# model downloads (e.g. Ultralytics .pt weights) can succeed.
+RUN addgroup --system gpugroup && adduser --system --ingroup gpugroup gpuuser \
+    && mkdir -p /worker /home/gpuuser && chown -R gpuuser:gpugroup /worker /home/gpuuser
 USER gpuuser
 
 CMD ["python", "__main__.py"]

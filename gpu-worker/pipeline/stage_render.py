@@ -20,6 +20,8 @@ Output: overlay video URI + dashboard index update.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -122,7 +124,11 @@ def _render(
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
+
+    # OpenCV's "mp4v" produces MPEG-4 Part 2, which most browsers refuse to
+    # play. Write to a temp file and then transcode to H.264 with ffmpeg.
+    raw_path = out_path.with_suffix(".raw" + out_path.suffix)
+    writer = cv2.VideoWriter(str(raw_path), fourcc, fps, (w, h))
 
     # Pre-build track lookup: frame → list of (bbox, color, track_id)
     frame_tracks: dict[int, list[tuple[list[float], tuple[int, int, int], int]]] = {}
@@ -189,6 +195,36 @@ def _render(
 
     cap.release()
     writer.release()
+
+    _transcode_to_h264(raw_path, out_path)
+    raw_path.unlink(missing_ok=True)
+
+
+def _transcode_to_h264(input_path: Path, output_path: Path) -> None:
+    """Re-encode a video file to browser-playable H.264 / yuv420p."""
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-preset",
+        "fast",
+        "-movflags",
+        "+faststart",
+        "-an",
+        str(output_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        # If ffmpeg is unavailable, fall back to the raw mp4v output so the
+        # rest of the pipeline still completes.
+        log.warning("h264_transcode_failed", error=str(exc))
+        shutil.copy2(input_path, output_path)
 
 
 def _label_value(

@@ -100,6 +100,25 @@ if (-not $SkipDeploy) {
     Set-Location $repoRoot
 }
 
+Write-Step "Waiting for backend /ready (database connectivity)"
+$readyDeadline = (Get-Date).AddSeconds(120)
+$ready = $false
+while ((Get-Date) -lt $readyDeadline -and -not $ready) {
+    try {
+        $readyResp = Invoke-RestMethod -Uri "$baseUrl/ready" -Method Get -TimeoutSec 10
+        if ($readyResp.status -eq "ready") {
+            $ready = $true
+        }
+    }
+    catch {
+        Start-Sleep -Seconds 5
+    }
+}
+if (-not $ready) {
+    throw "Backend did not become ready within 120s; database may still be starting."
+}
+Write-Host "Backend ready (database connected)." -ForegroundColor Green
+
 if (-not $SkipMigrate) {
     Write-Step "Running production migrations"
     Invoke-Checked -FilePath $fly -Arguments @(
@@ -118,7 +137,8 @@ Write-Step "Checking CORS preflight"
 $origins = @(
     "https://football-iq.pages.dev",
     "https://football-iq-aahmadf123.pages.dev",
-    "https://football-iq.vercel.app"
+    "https://football-iq.vercel.app",
+    "https://football-iq-rho.vercel.app"
 )
 $corsResults = @()
 foreach ($origin in $origins) {
