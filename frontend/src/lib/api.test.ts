@@ -17,7 +17,7 @@ async function freshImport() {
 }
 
 describe("requestUploadUrl", () => {
-  test("prefers backend upload-url endpoint and returns uploadUrl + key", async () => {
+  test("requests upload URL from configured Worker and returns uploadUrl + key", async () => {
     const mockResponse = { uploadUrl: "https://worker.test/api/v1/videos/upload/raw/123-test.mp4", key: "raw/123-test.mp4" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -32,11 +32,38 @@ describe("requestUploadUrl", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://api.test/api/v1/videos/upload-url");
+    expect(url).toBe("https://worker.test/api/v1/videos/upload-url");
     expect(opts.method).toBe("POST");
     expect(JSON.parse(opts.body as string)).toEqual({ filename: "test.mp4" });
     expect((opts.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok123");
     expect(result).toEqual(mockResponse);
+  });
+
+  test("falls back to backend when Worker rejects the token", async () => {
+    const workerResponse = { error: "Authentication failed" };
+    const apiResponse = { uploadUrl: "https://api.test/api/v1/videos/upload/raw/x", key: "raw/x" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => workerResponse,
+        text: async () => JSON.stringify(workerResponse),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => apiResponse,
+        text: async () => JSON.stringify(apiResponse),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { requestUploadUrl } = await freshImport();
+    const result = await requestUploadUrl("test.mp4", "tok123");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://worker.test/api/v1/videos/upload-url");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://api.test/api/v1/videos/upload-url");
+    expect(result).toEqual(apiResponse);
   });
 
   test("throws on non-ok response", async () => {
