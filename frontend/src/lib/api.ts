@@ -34,15 +34,6 @@ import { apiBase } from "./endpoints";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function workerBase(): string {
-  // When no edge Worker is deployed (local / single-box mode), the backend
-  // exposes the same upload-url / upload / download-url contract, so all
-  // Worker-targeted calls transparently fall back to the API base.
-  return process.env.NEXT_PUBLIC_WORKER_URL || apiBase();
-}
-
-// Graceful callers that tolerate a missing base (fetchVideoDownloadUrl) use
-// workerBase() directly; requestUploadUrl now falls back to apiBase().
 function authHeaders(token?: string): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (token) h["Authorization"] = `Bearer ${token}`;
@@ -93,14 +84,18 @@ export async function requestUploadUrl(
   const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
   const apiUrl = apiBase();
 
-  // Try the Worker first when one is explicitly configured. If the Worker
-  // rejects the token (wrong JWT secret) or is unreachable, fall back to the
-  // backend, which exposes the same contract.
+  // Try the Worker first when one is explicitly configured (this is the
+  // E2E/prod path). If the Worker rejects the token (JWT secret mismatch) or
+  // is unreachable, fall back to the backend, which exposes the same contract.
   if (workerUrl) {
     try {
       return await _requestUploadUrlFrom(workerUrl, filename, token);
-    } catch {
-      // Fall through to backend.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!apiUrl || (!message.includes("401") && !message.includes("403"))) {
+        throw err;
+      }
+      // Fall through to backend on auth failure.
     }
   }
 
@@ -1107,6 +1102,22 @@ export async function getReportDownloadUrl(
   );
 }
 
+async function _fetchVideoDownloadUrlFrom(
+  base: string,
+  bucket: string,
+  key: string,
+  token?: string,
+): Promise<string | null> {
+  const params = new URLSearchParams({ bucket, key });
+  const res = await fetch(
+    `${base}/api/v1/videos/download-url?${params.toString()}`,
+    { headers: getHeaders(token) },
+  );
+  if (!res.ok) return null;
+  const body = (await res.json()) as { downloadUrl?: string };
+  return body.downloadUrl ?? null;
+}
+
 /**
  * Fetch a signed download/streaming URL for an R2-backed video object.
  * The returned URL can be used directly as a `<video src>`.
@@ -1116,17 +1127,24 @@ export async function fetchVideoDownloadUrl(
   key: string,
   token?: string,
 ): Promise<string | null> {
-  const base = workerBase();
-  if (!base) return null;
+  const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
+  const apiUrl = apiBase();
+
+  // Try the Worker first when one is explicitly configured. If the Worker
+  // rejects the token (wrong JWT secret) or is unreachable, fall back to the
+  // backend's identical endpoint.
+  if (workerUrl) {
+    try {
+      const url = await _fetchVideoDownloadUrlFrom(workerUrl, bucket, key, token);
+      if (url) return url;
+    } catch {
+      // Fall through to API.
+    }
+  }
+
+  if (!apiUrl) return null;
   try {
-    const params = new URLSearchParams({ bucket, key });
-    const res = await fetch(
-      `${base}/api/v1/videos/download-url?${params.toString()}`,
-      { headers: getHeaders(token) },
-    );
-    if (!res.ok) return null;
-    const body = (await res.json()) as { downloadUrl?: string };
-    return body.downloadUrl ?? null;
+    return await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
   } catch {
     return null;
   }
