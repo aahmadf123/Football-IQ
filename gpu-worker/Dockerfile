@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 # GPU worker image for Football-IQ video processing pipeline.
-# Pinned to PyTorch 2.5.1 + CUDA 12.4 on Ubuntu 22.04.
+# Default: PyTorch 2.5.1 + CUDA 12.4. Override with --build-arg for newer GPUs
+# (e.g. RTX 50-series needs a CUDA 12.8+ base image such as pytorch/pytorch:2.7.0-cuda12.8-cudnn91-runtime).
 
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime AS base
+ARG PYTORCH_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM ${PYTORCH_IMAGE} AS base
 
 LABEL maintainer="Toledo Football Analytics"
 LABEL org.opencontainers.image.source="https://github.com/aahmadf123/Football-IQ"
