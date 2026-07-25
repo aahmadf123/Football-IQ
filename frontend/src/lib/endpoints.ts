@@ -13,7 +13,8 @@ export function apiBase(): string {
   const configured = (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
   if (configured) {
     if (process.env.NODE_ENV === "production" && LOCALHOST_RE.test(configured)) {
-      return PRODUCTION_API_URL;
+      const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+      if (hostname !== "localhost" && hostname !== "127.0.0.1") return PRODUCTION_API_URL;
     }
     return configured;
   }
