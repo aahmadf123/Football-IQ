@@ -3,6 +3,8 @@
 /**
  * Dashboard — real backend surfaces only:
  *
+ *   - Tracking Spotlight: the vision model's overlays playing on the latest
+ *     processed clip (the product's thesis, first thing on screen)
  *   - Practice Inbox: per-video processing status from /api/v1/inbox/status,
  *     with a pipeline summary line (jobs' detail home is Film Room → Upload &
  *     Processing) and deep links straight into review
@@ -20,6 +22,7 @@ import { useAppState, type ApiStatus } from "@/lib/app-state";
 import { useFetchState } from "@/lib/fetch-state";
 import { fetchAlerts, type ApiAlert, type VideoInboxItem } from "@/lib/api";
 import { useUploadWidget } from "@/components/shared/upload-widget";
+import { CvSpotlight } from "@/components/cv-spotlight";
 import type { ApiJob, ApiVideo } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +37,7 @@ export function DashboardView() {
     <>
       {widget}
       <div className="flex flex-col gap-4">
+        <CvSpotlight />
         <PracticeInboxSection />
         <div className="grid gap-4 md:grid-cols-2">
           <RecentFilmCard onUploadClick={openFilePicker} />
