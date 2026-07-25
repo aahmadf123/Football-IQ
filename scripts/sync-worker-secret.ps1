@@ -32,7 +32,13 @@ if ($Rotate) {
 }
 else {
     Write-Host "Reading current SECRET_KEY from the running Fly machine..." -ForegroundColor Cyan
+    # flyctl writes "Connecting to ..." progress to stderr; under strict mode
+    # Windows PowerShell 5.1 turns captured stderr into terminating errors, so
+    # relax the preference just for this call.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $out = & flyctl ssh console -a $AppName -C "printenv SECRET_KEY" 2>$null
+    $ErrorActionPreference = $prevEap
     $secret = ($out | Where-Object { $_ -and $_.ToString().Trim() } | Select-Object -Last 1).ToString().Trim()
     if (-not $secret -or $secret.Length -lt 16) {
         throw "Could not read SECRET_KEY from Fly (got $($secret.Length) chars). Try -Rotate instead."

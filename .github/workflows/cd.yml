@@ -101,10 +101,14 @@ jobs:
           fi
           echo "::notice title=Workers API read probe OK::token can read Worker deployments"
 
-      # Runs BEFORE deploy on purpose: it is both the fix for worker auth
-      # (JWT_SECRET := SECRET_KEY) and a write-permission probe that tells
-      # Scripts:Edit problems apart from versions-endpoint problems.
-      - name: Sync JWT_SECRET from repo secret SECRET_KEY
+      # Secret sync runs before deploy: it doubles as a write-permission probe.
+      # If the token cannot write Workers (Scripts:Edit missing), the job
+      # SOFT-SKIPS with a warning instead of failing the whole pipeline —
+      # the worker's code and JWT_SECRET persist from the last deploy, and
+      # local deploys (npm run deploy + scripts/sync-worker-secret.ps1) cover
+      # worker changes until the token gains write access, at which point this
+      # job resumes deploying automatically.
+      - name: Sync JWT_SECRET and deploy worker (soft-skip if token cannot write)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -114,18 +118,16 @@ jobs:
           out=$(printf '%s' "$JWT_SECRET" | npx wrangler secret put JWT_SECRET 2>&1); code=$?
           echo "$out" | grep -vF "$JWT_SECRET"
           if [ $code -ne 0 ]; then
+            if echo "$out" | grep -qiE "authentication error|code: 10000"; then
+              echo "::warning title=Worker deploy skipped — token cannot write Workers::CLOUDFLARE_API_TOKEN lacks 'Workers Scripts: Edit'. The live worker keeps its current code and JWT_SECRET; deploy worker changes locally with 'npm run deploy' in workers/. Granting the permission makes this job resume deploying automatically."
+              exit 0
+            fi
             summary=$(echo "$out" | grep -iE "error|fail|unauthorized|forbidden|code:" | grep -vF "$JWT_SECRET" | head -6 | tr '\n' ' § ' | cut -c1-900)
-            echo "::error title=wrangler secret put failed (token lacks Workers Scripts Edit?)::${summary:-nonzero exit}"
+            echo "::error title=wrangler secret put failed::${summary:-nonzero exit}"
             exit 1
           fi
           echo "::notice title=JWT_SECRET synced::worker secret now matches repo SECRET_KEY"
 
-      - name: Deploy to Cloudflare Workers
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set +e
           out=$(npx wrangler deploy 2>&1); code=$?
           echo "$out"
           if [ $code -ne 0 ]; then
