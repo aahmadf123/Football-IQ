@@ -17,7 +17,7 @@ async function freshImport() {
 }
 
 describe("requestUploadUrl", () => {
-  test("sends POST to worker upload-url endpoint and returns uploadUrl + key", async () => {
+  test("prefers backend upload-url endpoint and returns uploadUrl + key", async () => {
     const mockResponse = { uploadUrl: "https://worker.test/api/v1/videos/upload/raw/123-test.mp4", key: "raw/123-test.mp4" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -32,7 +32,7 @@ describe("requestUploadUrl", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://worker.test/api/v1/videos/upload-url");
+    expect(url).toBe("https://api.test/api/v1/videos/upload-url");
     expect(opts.method).toBe("POST");
     expect(JSON.parse(opts.body as string)).toEqual({ filename: "test.mp4" });
     expect((opts.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok123");
@@ -76,8 +76,8 @@ describe("requestUploadUrl", () => {
     const { requestUploadUrl } = await freshImport();
     // The message must name both vars — with the API-base fallback, requiring
     // only NEXT_PUBLIC_WORKER_URL would be misleading.
-    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_WORKER_URL/);
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_WORKER_URL/);
   });
 });
 
