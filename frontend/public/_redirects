@@ -1,3 +1,0 @@
-/api/*  https://football-iq-backend.fly.dev/api/:splat  200
-/health  https://football-iq-backend.fly.dev/health  200
-/ready  https://football-iq-backend.fly.dev/ready  200

@@ -13,11 +13,11 @@ describe("apiBase", () => {
     expect(apiBase()).toBe("https://api.example.test");
   });
 
-  test("uses the current origin when a production static build omits the variable", () => {
+  test("uses the deployed backend when a production static build omits the variable", () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     vi.stubEnv("NODE_ENV", "production");
 
-    expect(apiBase()).toBe(window.location.origin);
+    expect(apiBase()).toBe("https://football-iq-backend.fly.dev");
   });
 
   test("keeps development and test builds offline when no origin is configured", () => {
