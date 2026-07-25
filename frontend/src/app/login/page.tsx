@@ -8,7 +8,6 @@
  * Static-export compatible: pure client-side rendering, no route handlers.
  */
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 
@@ -56,15 +55,7 @@ function LoginForm() {
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <Image
-            src="/brand/toledo-lockup-dark.png"
-            width={2021}
-            height={1177}
-            alt="Toledo Rockets"
-            className="h-32 w-auto object-contain"
-            priority
-          />
-          <h1 className="mt-4 font-display text-xl font-semibold uppercase tracking-[0.18em] text-foreground">
+          <h1 className="font-display text-xl font-semibold uppercase tracking-[0.18em] text-foreground">
             Football-IQ
           </h1>
           <p className="mt-1 font-display text-sm font-medium uppercase tracking-[0.14em] text-primary">

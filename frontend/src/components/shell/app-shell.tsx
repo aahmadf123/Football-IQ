@@ -38,6 +38,11 @@ export function FootballShell({
   const mustSignIn = Boolean(auth && auth.ready && auth.authRequired && !auth.token);
   useEffect(() => {
     if (mustSignIn && typeof window !== "undefined") {
+      // Never redirect from the login page itself: if a static host
+      // mis-serves /login/ with this shell, redirecting again would reload
+      // the same document forever, hammering the API on every iteration.
+      const path = window.location.pathname;
+      if (path === "/login" || path.startsWith("/login/")) return;
       window.location.replace("/login/");
     }
   }, [mustSignIn]);

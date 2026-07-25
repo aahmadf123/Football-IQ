@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Menu } from "lucide-react";
 import type { PageKey } from "@/lib/types";
@@ -32,14 +31,9 @@ export function AppTopbar({
       </Button>
 
       <Link href="/" className="flex items-center" aria-label="Football IQ home">
-        <Image
-          src="/brand/toledo-rocket.png"
-          width={184}
-          height={52}
-          alt="Toledo Football IQ"
-          className="h-8 w-auto object-contain"
-          priority
-        />
+        <span className="font-display text-sm font-semibold uppercase tracking-[0.16em] text-foreground">
+          Football-IQ
+        </span>
       </Link>
 
       <div className="flex-1" />
