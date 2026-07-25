@@ -41,13 +41,6 @@ function workerBase(): string {
   return process.env.NEXT_PUBLIC_WORKER_URL || apiBase();
 }
 
-// Upload URL and upload proxy endpoints are mirrored by the backend, and the
-// backend path is the most reliable production default because it doesn't
-// depend on Worker JWT secret synchronization.
-function uploadBase(): string {
-  return apiBase() || process.env.NEXT_PUBLIC_WORKER_URL || "";
-}
-
 // Because workerBase() falls back to the API base, the "not configured"
 // failure mode is *both* vars being unset — not NEXT_PUBLIC_WORKER_URL alone.
 // Centralize the message here so callers (e.g. requestUploadUrl) don't throw a
@@ -60,17 +53,6 @@ function requireWorkerBase(): string {
     throw new Error(
       "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
         "or NEXT_PUBLIC_API_URL (backend fallback).",
-    );
-  }
-  return base;
-}
-
-function requireUploadBase(): string {
-  const base = uploadBase();
-  if (!base) {
-    throw new Error(
-      "No upload endpoint configured: set NEXT_PUBLIC_API_URL (backend) " +
-        "or NEXT_PUBLIC_WORKER_URL (edge Worker).",
     );
   }
   return base;
@@ -106,7 +88,7 @@ export async function requestUploadUrl(
   filename: string,
   token?: string,
 ): Promise<UploadUrlResponse> {
-  const base = requireUploadBase();
+  const base = requireWorkerBase();
   const res = await fetch(`${base}/api/v1/videos/upload-url`, {
     method: "POST",
     headers: authHeaders(token),
@@ -1000,14 +982,15 @@ export function subscribeAlerts(
 // ── Worker download URL ──────────────────────────────────────────────────────
 
 /**
- * Parse a storage URI of the form `r2://<bucket>/<key>` into its parts.
- * Returns null if the URI is missing or malformed.
+ * Parse a storage URI of the form `r2://<bucket>/<key>` or
+ * `local://<bucket>/<key>` into its parts. Returns null if the URI is missing
+ * or malformed.
  */
 export function parseStorageUri(
   uri: string | null | undefined,
 ): { bucket: string; key: string } | null {
   if (!uri) return null;
-  const m = /^r2:\/\/([^/]+)\/(.+)$/.exec(uri);
+  const m = /^(?:r2|local):\/\/([^/]+)\/(.+)$/.exec(uri);
   return m ? { bucket: m[1], key: m[2] } : null;
 }
 

@@ -56,6 +56,7 @@ function LoginForm() {
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
+          <h1 className="sr-only">Football-IQ</h1>
           <Image
             src="/brand/Secondary_Logo_for_Dark_Background.png"
             width={760}
