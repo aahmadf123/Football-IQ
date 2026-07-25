@@ -69,7 +69,15 @@ def _upload_base(request: Request) -> str:
     configured = get_settings().public_api_base_url.rstrip("/")
     if configured and not _LOCALHOST_BASE_RE.match(configured):
         return configured
-    return str(request.base_url).rstrip("/")
+
+    # When running behind a reverse proxy (Fly), uvicorn may see `http` unless
+    # proxy headers are honored. Prefer forwarded headers so minted URLs match
+    # the public origin.
+    xf_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    xf_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    proto = xf_proto or request.url.scheme
+    host = xf_host or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}".rstrip("/")
 
 
 @router.post("/upload-url")
