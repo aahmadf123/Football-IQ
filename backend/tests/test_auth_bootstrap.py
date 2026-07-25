@@ -16,9 +16,11 @@ from app.config import get_settings
 from app.database import Base
 from app.models import User, UserRole
 from app.routers.auth import (
+    LoginRequest,
     RegisterRequest,
     RoleUpdateRequest,
     dev_login,
+    login,
     register,
     update_user_role,
 )
@@ -42,6 +44,9 @@ async def db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
     if created:
         async with engine.begin() as conn:
             await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[_USERS]))
+    else:
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql('TRUNCATE TABLE "users" CASCADE')
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
@@ -53,6 +58,9 @@ async def db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
                     await conn.exec_driver_sql("DROP TYPE IF EXISTS user_role")
             except Exception:
                 pass
+        else:
+            async with engine.begin() as conn:
+                await conn.exec_driver_sql('TRUNCATE TABLE "users" CASCADE')
         await engine.dispose()
 
 
@@ -105,6 +113,16 @@ async def test_duplicate_registration_conflicts_case_insensitively(
             # Same address, different case — must be rejected as a duplicate.
             await register(_register_request("Dupe@Example.com"), session)
     assert exc.value.status_code == 409
+
+
+async def test_login_guides_bootstrap_when_no_users_exist(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    async with db() as session:
+        with pytest.raises(HTTPException) as exc:
+            await login(LoginRequest(email="admin@example.com", password="pw-123456"), session)
+    assert exc.value.status_code == 401
+    assert "No accounts exist yet" in str(exc.value.detail)
 
 
 async def test_admin_can_promote_and_last_admin_protected(

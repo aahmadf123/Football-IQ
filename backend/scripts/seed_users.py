@@ -10,9 +10,10 @@ Use a routable domain: the login endpoint validates emails with
 ``EmailStr``, which REJECTS reserved special-use domains like ``.local`` —
 an account seeded at ``worker@footballiq.local`` could never authenticate.
 
-Existing accounts are left untouched (their passwords are NOT rotated) —
-re-running is always safe. The worker account gets the ``analyst`` role,
-which every writeback route accepts via ``require_any_staff``.
+Existing accounts are left untouched by default; set
+``SEED_RESET_PASSWORDS=1`` to rotate seeded-user passwords intentionally.
+The worker account gets the ``analyst`` role, which every writeback route
+accepts via ``require_any_staff``.
 """
 
 from __future__ import annotations
@@ -20,41 +21,12 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-import uuid
 
 import structlog
-from app.auth import hash_password
 from app.config import get_settings
-from app.models import User, UserRole
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from app.user_seeding import parse_reset_passwords_flag, seed_configured_users
 
 log = structlog.get_logger(__name__)
-
-
-async def _ensure_user(
-    session: AsyncSession, email: str, password: str, full_name: str, role: UserRole
-) -> bool:
-    """Create the account if absent; return True when created."""
-    # Store the canonical (lowercased) email so it matches the login
-    # endpoint's normalization — otherwise a seeded "Admin@X" never matches
-    # a sign-in as "admin@x".
-    email = email.strip().lower()
-    existing = await session.execute(select(User).where(func.lower(User.email) == email))
-    if existing.scalar_one_or_none() is not None:
-        log.info("seed_user_exists", email=email)
-        return False
-    session.add(
-        User(
-            id=uuid.uuid4(),
-            email=email,
-            hashed_password=hash_password(password),
-            full_name=full_name,
-            role=role,
-        )
-    )
-    log.info("seed_user_created", email=email, role=role.value)
-    return True
 
 
 async def main() -> int:
@@ -62,6 +34,7 @@ async def main() -> int:
     admin_password = os.environ.get("SEED_ADMIN_PASSWORD", "")
     worker_email = os.environ.get("SEED_WORKER_EMAIL", "")
     worker_password = os.environ.get("SEED_WORKER_PASSWORD", "")
+    reset_passwords = parse_reset_passwords_flag(os.environ.get("SEED_RESET_PASSWORDS"))
 
     if not any([admin_email, worker_email]):
         print(
@@ -70,28 +43,26 @@ async def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if admin_email and not admin_password:
+        print("SEED_ADMIN_PASSWORD is required with SEED_ADMIN_EMAIL", file=sys.stderr)
+        return 2
+    if worker_email and not worker_password:
+        print("SEED_WORKER_PASSWORD is required with SEED_WORKER_EMAIL", file=sys.stderr)
+        return 2
 
-    engine = create_async_engine(get_settings().database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    created = 0
-    async with session_factory() as session:
-        if admin_email:
-            if not admin_password:
-                print("SEED_ADMIN_PASSWORD is required with SEED_ADMIN_EMAIL", file=sys.stderr)
-                return 2
-            created += await _ensure_user(
-                session, admin_email, admin_password, "Administrator", UserRole.admin
-            )
-        if worker_email:
-            if not worker_password:
-                print("SEED_WORKER_PASSWORD is required with SEED_WORKER_EMAIL", file=sys.stderr)
-                return 2
-            created += await _ensure_user(
-                session, worker_email, worker_password, "GPU Worker", UserRole.analyst
-            )
-        await session.commit()
-    await engine.dispose()
-    print(f"Seed complete: {created} account(s) created.")
+    stats = await seed_configured_users(
+        database_url=get_settings().database_url,
+        admin_email=admin_email,
+        admin_password=admin_password,
+        worker_email=worker_email,
+        worker_password=worker_password,
+        reset_passwords=reset_passwords,
+    )
+    print(
+        "Seed complete: "
+        f"created={stats['created']} updated={stats['updated']} unchanged={stats['unchanged']} "
+        f"reset_passwords={reset_passwords}."
+    )
     return 0
 
 

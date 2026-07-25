@@ -135,6 +135,14 @@ class Settings(BaseSettings):
     # never yields trusted coach-facing counterfactual language.
     counterfactual_input_confidence_threshold: float = 0.6
 
+    # ── Auth bootstrap seeding (ops) ──────────────────────────────────────
+    # Optional startup seed pass for cloud deployments where auth users must
+    # exist immediately after boot. Disabled by default for safety.
+    seed_users_on_startup: bool = False
+    # When true and seeding is enabled, rotate passwords for configured seed
+    # users on startup. Keep false unless intentionally recovering access.
+    seed_reset_passwords: bool = False
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:

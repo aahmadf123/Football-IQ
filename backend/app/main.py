@@ -1,5 +1,6 @@
 """Football-IQ backend — FastAPI application entrypoint."""
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -52,6 +53,7 @@ from app.routers.storage import router as storage_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.uploads import router as uploads_router
 from app.routers.videos import router as videos_router
+from app.user_seeding import seed_configured_users
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -61,6 +63,29 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("startup", environment=settings.environment)
+    if settings.seed_users_on_startup:
+        admin_email = os.environ.get("SEED_ADMIN_EMAIL", "")
+        admin_password = os.environ.get("SEED_ADMIN_PASSWORD", "")
+        worker_email = os.environ.get("SEED_WORKER_EMAIL", "")
+        worker_password = os.environ.get("SEED_WORKER_PASSWORD", "")
+        if (admin_email and admin_password) or (worker_email and worker_password):
+            stats = await seed_configured_users(
+                database_url=settings.database_url,
+                admin_email=admin_email,
+                admin_password=admin_password,
+                worker_email=worker_email,
+                worker_password=worker_password,
+                reset_passwords=settings.seed_reset_passwords,
+            )
+            log.info("startup_user_seeding", **stats, reset_passwords=settings.seed_reset_passwords)
+        else:
+            log.warning(
+                "startup_user_seeding_skipped",
+                message=(
+                    "SEED_USERS_ON_STARTUP is true but SEED_* credentials are incomplete; "
+                    "skipping startup seed pass."
+                ),
+            )
     from app.scheduler import start_scheduler
 
     scheduler_task = start_scheduler()

@@ -165,6 +165,12 @@ async def login(
     result = await db.execute(select(User).where(func.lower(User.email) == normalized))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
+        user_count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+        if user_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No accounts exist yet. Use Create account to bootstrap the first admin.",
+            )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account inactive")
