@@ -85,6 +85,13 @@ jobs:
             | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if d.get('success') else 'fail')" 2>/dev/null || echo parse-error)
           echo "::notice title=Token type probe::user-endpoint=$user_v account-endpoint=$acct_v (user-owned tokens: user=ok; account-owned tokens: user=fail account=ok)"
 
+          # Token ID (not the secret value) — compare with the ID in the
+          # dashboard token URL to confirm WHICH token the GH secret holds.
+          tid=$(curl -s --max-time 15 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('result',{}).get('id','unknown'))" 2>/dev/null || echo unknown)
+          echo "::notice title=Token ID in use::$tid"
+
           out=$(npx wrangler deployments list 2>&1); code=$?
           echo "$out"
           if [ $code -ne 0 ]; then
