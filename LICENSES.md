@@ -329,6 +329,19 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## Frontend UI libraries (PR #262)
+
+| Field | Detail |
+|---|---|
+| **Libraries** | `class-variance-authority`, `clsx`, `radix-ui`, `@radix-ui/react-slot`, `sonner`, `tailwind-merge` |
+| **License** | MIT (each library) |
+| **Access** | `npm install` via `frontend/package.json`; no account or API key required |
+| **Football-IQ usage** | Frontend UI primitives and utilities in `frontend/src/components/ui/` and `frontend/src/lib/utils.ts` |
+| **Secret / key requirement** | None |
+| **Sport coverage** | N/A (UI/tooling libraries only) |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.
