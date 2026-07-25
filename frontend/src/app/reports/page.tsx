@@ -1,4 +1,4 @@
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { ReportsView } from "@/components/reports-view";
 
 export default function ReportsPage() {

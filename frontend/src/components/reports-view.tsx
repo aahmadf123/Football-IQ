@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Reports (extracted from the old page-renderer monolith).
+ * Reports.
  *
  * Backend-wired end to end: create report jobs (POST /api/v1/reports), poll
  * their status, and fetch signed download URLs. The old faux "report preview"
@@ -19,6 +19,12 @@ import {
 } from "@/lib/api";
 import { useUploadWidget } from "@/components/shared/upload-widget";
 import type { ReportFormat, ReportJob } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
+import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
 
 const REPORT_SECTIONS: readonly string[] = [
   "Self-scout exposure",
@@ -145,98 +151,121 @@ export function ReportsView() {
   return (
     <>
       {widget}
-      <div className="content-grid">
-        <section className="panel panel-pad span-4">
-          <h2 className="panel-title">Report Builder</h2>
-          {REPORT_SECTIONS.map((label) => (
-            <div key={label} className="form-control" style={{ marginTop: 10 }}>
-              <label>{label}</label>
-              <select
-                value={selections[label] === false ? "skip" : "include"}
-                onChange={(e) =>
-                  setSelections((cur) => ({ ...cur, [label]: e.target.value === "include" }))
-                }
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Report Builder
+            </h2>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {REPORT_SECTIONS.map((label) => {
+              const id = `report-section-${label.toLowerCase().replace(/\W+/g, "-")}`;
+              return (
+                <div key={label} className="flex items-center justify-between gap-3">
+                  <Label htmlFor={id} className="text-[0.82rem] font-normal">
+                    {label}
+                  </Label>
+                  <Switch
+                    id={id}
+                    checked={selections[label] !== false}
+                    onCheckedChange={(checked) =>
+                      setSelections((cur) => ({ ...cur, [label]: checked }))
+                    }
+                  />
+                </div>
+              );
+            })}
+            <div className="flex flex-col gap-1 border-t border-border-soft pt-3">
+              <Label
+                htmlFor="report-format"
+                className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
               >
-                <option value="include">Include in packet</option>
-                <option value="skip">Skip this section</option>
-              </select>
+                Format
+              </Label>
+              <NativeSelect
+                id="report-format"
+                value={format}
+                onChange={(e) => setFormat(e.target.value as ReportFormat)}
+              >
+                <option value="pdf">PDF</option>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+              </NativeSelect>
             </div>
-          ))}
-          <div className="form-control" style={{ marginTop: 10 }}>
-            <label>Format</label>
-            <select value={format} onChange={(e) => setFormat(e.target.value as ReportFormat)}>
-              <option value="pdf">PDF</option>
-              <option value="csv">CSV</option>
-              <option value="json">JSON</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button
-              className="control-button primary"
-              onClick={handleGenerate}
-              disabled={generating || !authToken}
-            >
-              <Download size={15} /> {generating ? "Requesting…" : "Generate Report"}
-            </button>
-            <button className="control-button" onClick={openFilePicker}>
-              <Upload size={15} /> Add Film
-            </button>
-          </div>
-          {!authToken && (
-            <p className="kicker" style={{ marginTop: 8 }}>
-              Sign in to generate and download reports.
-            </p>
-          )}
-          {generateError && (
-            <p className="kicker" style={{ marginTop: 8, color: "var(--danger, crimson)" }}>
-              {generateError}
-            </p>
-          )}
-        </section>
-        <section className="panel panel-pad span-4">
-          <h2 className="panel-title">Packet Summary</h2>
-          <p className="kicker" style={{ marginTop: 10 }}>
-            The generated report is built from live database aggregates on the
-            backend at request time.
-          </p>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            <strong>Format:</strong> {format.toUpperCase()}
-          </p>
-          <p className="kicker" style={{ marginTop: 4 }}>
-            <strong>Sections selected:</strong>{" "}
-            {pickedSections.length > 0 ? pickedSections.join(", ") : "none"}
-          </p>
-        </section>
-        <section className="panel panel-pad span-4">
-          <h2 className="panel-title">Export Queue</h2>
-          {listStatus === "loading" && (
-            <p className="kicker" style={{ marginTop: 12 }}>
-              Loading reports…
-            </p>
-          )}
-          {listStatus === "error" && (
-            <p className="kicker" style={{ marginTop: 12, color: "var(--danger, crimson)" }}>
-              {listError ?? "Failed to load reports."}
-            </p>
-          )}
-          {listStatus === "idle" && reports.length === 0 && (
-            <p className="kicker" style={{ marginTop: 12 }}>
-              No reports yet — pick sections and click Generate.
-            </p>
-          )}
-          {reports.length > 0 && (
-            <div className="list-stack" style={{ marginTop: 12 }}>
-              {reports.map((report) => (
-                <ReportRow
-                  key={report.id}
-                  report={report}
-                  downloading={downloadingId === report.id}
-                  onDownload={() => handleDownload(report.id)}
-                />
-              ))}
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleGenerate} disabled={generating || !authToken}>
+                <Download className="size-4" /> {generating ? "Requesting…" : "Generate Report"}
+              </Button>
+              <Button variant="outline" onClick={openFilePicker}>
+                <Upload className="size-4" /> Add Film
+              </Button>
             </div>
-          )}
-        </section>
+            {!authToken && (
+              <p className="text-xs text-muted-foreground">
+                Sign in to generate and download reports.
+              </p>
+            )}
+            {generateError && (
+              <p role="alert" className="text-xs text-status-danger">
+                {generateError}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Packet Summary
+            </h2>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-xs text-muted-foreground">
+            <p>The generated report is built from live database aggregates on the backend at request time.</p>
+            <p>
+              <strong className="text-foreground">Format:</strong> {format.toUpperCase()}
+            </p>
+            <p>
+              <strong className="text-foreground">Sections selected:</strong>{" "}
+              {pickedSections.length > 0 ? pickedSections.join(", ") : "none"}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Export Queue
+            </h2>
+          </CardHeader>
+          <CardContent>
+            {listStatus === "loading" && (
+              <p className="text-xs text-muted-foreground">Loading reports…</p>
+            )}
+            {listStatus === "error" && (
+              <p className="text-xs text-status-danger">
+                {listError ?? "Failed to load reports."}
+              </p>
+            )}
+            {listStatus === "idle" && reports.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No reports yet — pick sections and click Generate.
+              </p>
+            )}
+            {reports.length > 0 && (
+              <div className="flex flex-col">
+                {reports.map((report) => (
+                  <ReportRow
+                    key={report.id}
+                    report={report}
+                    downloading={downloadingId === report.id}
+                    onDownload={() => handleDownload(report.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </>
   );
@@ -257,31 +286,21 @@ function ReportRow({
       ? `failed: ${report.error_message}`
       : `${report.format.toUpperCase()} · ${stamp}`;
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 4px",
-        borderBottom: "1px solid var(--line-soft)",
-      }}
-    >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{report.status}</div>
-        <div
-          className="kicker"
-          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {subtitle}
-        </div>
+    <div className="flex items-center justify-between gap-3 border-b border-border-soft py-2 last:border-b-0">
+      <div className="min-w-0">
+        <StatusBadge tone={toneForJobStatus(report.status)} dot className="capitalize">
+          {report.status}
+        </StatusBadge>
+        <div className="mt-1 truncate text-xs text-muted-foreground">{subtitle}</div>
       </div>
       {report.status === "succeeded" ? (
-        <button className="control-button" onClick={onDownload} disabled={downloading}>
-          <Download size={13} /> {downloading ? "…" : "Download"}
-        </button>
+        <Button variant="outline" size="sm" onClick={onDownload} disabled={downloading}>
+          <Download className="size-3.5" /> {downloading ? "…" : "Download"}
+        </Button>
       ) : (
-        <span className="kicker">{report.status === "failed" ? "—" : "in progress"}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {report.status === "failed" ? "—" : "in progress"}
+        </span>
       )}
     </div>
   );

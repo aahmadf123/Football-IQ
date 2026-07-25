@@ -10,55 +10,37 @@
  *      needs-review.
  *
  * Both are derived on the backend (``is_preliminary`` / ``review_state`` on the
- * clip payload) so the UI never recomputes confidence policy. The pills mirror
- * the ExperimentalBadge styling so they read as the same family of status chips.
+ * clip payload) so the UI never recomputes confidence policy.
  */
 import type { ClipReviewState } from "@/lib/types";
-
-const PILL_BASE: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "2px 8px",
-  borderRadius: 999,
-  fontSize: "0.7rem",
-  fontWeight: 700,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-};
+import { StatusBadge, type StatusTone } from "@/components/composite/status-badge";
 
 export function PreliminaryBadge() {
   return (
-    <span
-      className="preliminary-badge"
-      style={{ ...PILL_BASE, background: "var(--accent-amber, #fbbf24)", color: "#1a1a1a" }}
+    <StatusBadge
+      tone="warn"
       aria-label="Preliminary result — same-session first pass, not yet upgraded by nightly processing"
       data-testid="preliminary-badge"
     >
       Preliminary
-    </span>
+    </StatusBadge>
   );
 }
 
-const REVIEW_META: Record<
-  ClipReviewState,
-  { label: string; bg: string; fg: string; aria: string }
-> = {
+const REVIEW_META: Record<ClipReviewState, { label: string; tone: StatusTone; aria: string }> = {
   reviewed: {
     label: "Reviewed",
-    bg: "var(--accent-green, #4ade80)",
-    fg: "#0a1f12",
+    tone: "ok",
     aria: "Reviewed — a coach has signed off on this clip",
   },
   low_confidence: {
     label: "Low confidence",
-    bg: "var(--accent-red, #f87171)",
-    fg: "#1a1a1a",
+    tone: "danger",
     aria: "Low confidence — review this clip before trusting its labels",
   },
   needs_review: {
     label: "Needs review",
-    bg: "rgba(148,163,184,0.4)",
-    fg: "var(--text, #e2e8f0)",
+    tone: "neutral",
     aria: "Needs review — a first-pass result nobody has confirmed yet",
   },
 };
@@ -66,14 +48,9 @@ const REVIEW_META: Record<
 export function ReviewStateBadge({ state }: { state: ClipReviewState }) {
   const meta = REVIEW_META[state];
   return (
-    <span
-      className="review-state-badge"
-      style={{ ...PILL_BASE, background: meta.bg, color: meta.fg }}
-      aria-label={meta.aria}
-      data-testid={`review-state-${state}`}
-    >
+    <StatusBadge tone={meta.tone} aria-label={meta.aria} data-testid={`review-state-${state}`}>
       {meta.label}
-    </span>
+    </StatusBadge>
   );
 }
 
@@ -87,7 +64,7 @@ export function ClipStateBadges({
 }) {
   if (!isPreliminary && !reviewState) return null;
   return (
-    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+    <span className="inline-flex items-center gap-1.5">
       {isPreliminary && <PreliminaryBadge />}
       {reviewState && <ReviewStateBadge state={reviewState} />}
     </span>

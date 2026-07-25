@@ -9,17 +9,20 @@
  */
 
 import Link from "next/link";
+import { UserRound } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/composite/empty-state";
 import { PlayerProfileClient } from "./player-profile-client";
 
 export default function PlayerDetailPage() {
   return (
     <Suspense
       fallback={
-        <div style={{ padding: 24 }}>
-          <p className="kicker">Loading player profile…</p>
+        <div role="status" className="p-6">
+          <p className="text-xs text-muted-foreground">Loading player profile…</p>
         </div>
       }
     >
@@ -34,13 +37,16 @@ function PlayerDetailContent() {
   if (!id) {
     return (
       <FootballShell activePage="players">
-        <section className="panel panel-pad">
-          <h2 className="panel-title">No player selected</h2>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            Open a player from the{" "}
-            <Link href="/players" style={{ color: "var(--gold)" }}>roster</Link>.
-          </p>
-        </section>
+        <EmptyState
+          icon={UserRound}
+          title="No player selected"
+          hint="Open a player from the roster."
+          action={
+            <Button asChild variant="outline">
+              <Link href="/players">Go to roster</Link>
+            </Button>
+          }
+        />
       </FootballShell>
     );
   }

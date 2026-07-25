@@ -161,17 +161,12 @@ describe("DashboardPage — live backend", () => {
     });
     expect(screen.getByText(/3\/6 jobs/)).toBeTruthy();
 
-    // Jobs card renders the pipeline job with its per-stage progress map,
-    // clip-suffixed stages folded into their base stage.
-    await waitFor(() => {
-      expect(screen.getByTestId("job-row-job-1")).toBeTruthy();
-    });
-    const progress = screen.getByTestId("job-progress-job-1");
-    expect(progress.textContent).toContain("ingest");
-    expect(progress.textContent).toContain("detect");
-    expect(progress.textContent).toContain("track");
-    expect(progress.textContent).toContain("✓"); // succeeded stages
-    expect(progress.textContent).toContain("●"); // running stage
+    // Pipeline summary in the inbox header: running count + a link to the
+    // jobs home (Film Room → Upload & Processing). Per-stage job detail
+    // lives there now (see composite/job-row.test.tsx).
+    const pipeline = screen.getByTestId("dashboard-jobs");
+    expect(pipeline.textContent).toContain("1 running");
+    expect(pipeline.textContent).toContain("Pipeline detail");
 
     // Alerts summary renders the real alert row.
     await waitFor(() => {
@@ -187,58 +182,6 @@ describe("DashboardPage — live backend", () => {
   });
 });
 
-describe("DashboardPage — job lease/attempt surfacing", () => {
-  test("running retries show attempt + worker; failed jobs show attempts burned", async () => {
-    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
-    const retryingJob = {
-      ...SAMPLE_JOB,
-      id: "job-2",
-      progress: null,
-      attempt_count: 2,
-      leased_by: "gpu-worker-1",
-    };
-    const failedJob = {
-      ...SAMPLE_JOB,
-      id: "job-3",
-      status: "failed",
-      progress: null,
-      attempt_count: 3,
-      leased_by: null,
-      error_stage: "track",
-      error_message: "CUDA out of memory",
-    };
-    installFetchRoutes([
-      { url: "/api/v1/videos", body: [SAMPLE_VIDEO] },
-      { url: "/api/v1/jobs", body: [SAMPLE_JOB, retryingJob, failedJob] },
-      { url: "/api/v1/inbox/status", body: [SAMPLE_INBOX_ITEM] },
-      { url: "/api/v1/alerts", body: [] },
-      { url: "/api/v1/players", body: [] },
-      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [], clip_count: 0 } },
-    ]);
-
-    const { DashboardPage, AppStateProvider } = await importPage();
-    render(
-      <AppStateProvider>
-        <DashboardPage />
-      </AppStateProvider>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("job-row-job-2")).toBeTruthy();
-    });
-    // First-attempt job without lease info shows no extra line.
-    expect(screen.queryByTestId("job-lease-job-1")).toBeNull();
-    // Retried running job: attempt count + worker id, one subtle line.
-    expect(screen.getByTestId("job-lease-job-2").textContent).toBe(
-      "attempt 2 · worker gpu-worker-1",
-    );
-    // Failed job: attempts burned.
-    expect(screen.getByTestId("job-lease-job-3").textContent).toBe(
-      "failed after 3 attempts",
-    );
-  });
-});
-
 describe("DashboardPage — offline backend", () => {
   test("shows honest offline states instead of fabricated data", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
@@ -251,10 +194,16 @@ describe("DashboardPage — offline backend", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Inbox unavailable — backend is offline/)).toBeTruthy();
+      expect(
+        screen.getByText(/Inbox unavailable — not connected to the team server/),
+      ).toBeTruthy();
     });
-    expect(screen.getByText(/Jobs unavailable — backend is offline/)).toBeTruthy();
-    expect(screen.getByText(/Alerts unavailable — backend is offline/)).toBeTruthy();
+    expect(
+      screen.getByText(/Film list unavailable — not connected to the team server/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Alerts unavailable — not connected to the team server/),
+    ).toBeTruthy();
     // No fixture rows leak in.
     expect(screen.queryByText(/Practice 5-14 All-22/)).toBeNull();
   });

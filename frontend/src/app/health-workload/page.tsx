@@ -1,4 +1,4 @@
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { HealthWorkloadView } from "@/components/health-workload-view";
 
 export default function HealthWorkloadPage() {

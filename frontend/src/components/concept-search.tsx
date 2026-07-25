@@ -15,11 +15,17 @@
  *   • in mock mode we never fabricate results — we say search needs a backend.
  */
 
+import { Search } from "lucide-react";
 import { useState } from "react";
 import { searchConcepts } from "@/lib/api";
 import { useAppState } from "@/lib/app-state";
 import type { ConceptSearchResponse } from "@/lib/types";
 import { ExperimentalBadge } from "./experimental-badge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type SearchState =
   | { kind: "idle" }
@@ -69,127 +75,104 @@ export function ConceptSearch() {
   }
 
   return (
-    <section className="panel panel-pad span-12" data-testid="concept-search">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <h2 className="panel-title">Concept search</h2>
-        <ExperimentalBadge label="Approximate" />
-      </div>
-      <p className="kicker" style={{ marginTop: 4 }}>
-        Ask for a concept in plain football — “mesh”, “cover 3 trips”, “jet sweep”,
-        “play action boot”. Results are zero-shot and approximate until validated
-        on corrected Toledo clips.
-      </p>
-
-      <form
-        onSubmit={runSearch}
-        style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}
-      >
-        <label className="form-control" style={{ flex: "1 1 240px" }}>
-          <span className="small-label">Concept query</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. cover 3 trips"
-            aria-label="Concept search query"
-          />
-        </label>
-        <button
-          className="control-button primary"
-          type="submit"
-          style={{ alignSelf: "flex-end" }}
-        >
-          Search
-        </button>
-      </form>
-
-      {state.kind === "loading" && (
-        <p className="kicker" style={{ marginTop: 12 }}>
-          Searching…
+    <Card data-testid="concept-search">
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Concept search
+          </h2>
+          <ExperimentalBadge label="Approximate" />
+        </div>
+        <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+          Ask for a concept in plain football — &ldquo;mesh&rdquo;, &ldquo;cover 3 trips&rdquo;,
+          &ldquo;jet sweep&rdquo;, &ldquo;play action boot&rdquo;. Results are zero-shot and
+          approximate until validated on corrected Toledo clips.
         </p>
-      )}
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={runSearch} className="flex flex-wrap items-end gap-2">
+          <div className="flex min-w-60 flex-1 flex-col gap-1">
+            <Label
+              htmlFor="concept-query"
+              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+            >
+              Concept query
+            </Label>
+            <Input
+              id="concept-query"
+              className="h-9"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. cover 3 trips"
+              aria-label="Concept search query"
+            />
+          </div>
+          <Button type="submit" size="sm" className="h-9">
+            <Search className="size-4" /> Search
+          </Button>
+        </form>
 
-      {state.kind === "mock" && (
-        <p className="kicker" style={{ marginTop: 12 }}>
-          Concept search needs a live backend connection — it is disabled in mock
-          mode so demo data is never shown as a real result.
-        </p>
-      )}
+        {state.kind === "loading" && (
+          <p className="mt-3 text-xs text-muted-foreground">Searching…</p>
+        )}
 
-      {state.kind === "error" && (
-        <p
-          className="kicker"
-          style={{ marginTop: 12, color: "var(--accent-red, #f87171)" }}
-          data-testid="concept-search-error"
-        >
-          {state.message}
-        </p>
-      )}
+        {state.kind === "mock" && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Concept search needs a live backend connection — it is disabled in mock mode so demo
+            data is never shown as a real result.
+          </p>
+        )}
 
-      {state.kind === "done" && <Results response={state.response} />}
-    </section>
+        {state.kind === "error" && (
+          <p className="mt-3 text-xs text-status-danger" data-testid="concept-search-error">
+            {state.message}
+          </p>
+        )}
+
+        {state.kind === "done" && <Results response={state.response} />}
+      </CardContent>
+    </Card>
   );
 }
 
 function Results({ response }: { response: ConceptSearchResponse }) {
   return (
-    <div style={{ marginTop: 12 }} data-testid="concept-search-results">
+    <div className="mt-3" data-testid="concept-search-results">
       {response.matched_concepts.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <div className="mb-2 flex flex-wrap gap-1.5">
           {response.matched_concepts.map((m) => (
-            <span
-              key={m.concept_id}
-              className="chip"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "2px 10px",
-                borderRadius: 999,
-                background: "var(--navy-900, #1b2740)",
-                color: "var(--text, #f2f5fb)",
-                fontSize: "0.72rem",
-                fontWeight: 600,
-              }}
-            >
+            <Badge key={m.concept_id} variant="secondary">
               {m.display_name}
-            </span>
+            </Badge>
           ))}
         </div>
       )}
 
       {response.experimental && (
-        <p className="kicker" style={{ marginBottom: 8 }}>
-          Includes <strong>experimental</strong> embedding matches — reps that look
-          similar but are not yet labelled with this concept.
+        <p className="mb-2 text-xs text-muted-foreground">
+          Includes <strong className="text-foreground">experimental</strong> embedding matches —
+          reps that look similar but are not yet labelled with this concept.
         </p>
       )}
 
       {response.results.length === 0 ? (
-        <p className="kicker">{response.reason ?? "No matching reps yet."}</p>
+        <p className="text-xs text-muted-foreground">
+          {response.reason ?? "No matching reps yet."}
+        </p>
       ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        <ul className="m-0 list-none p-0">
           {response.results.map((r) => {
             const labels = summarizeLabels(r.label_data);
             return (
               <li
                 key={`${r.clip_id}-${r.source}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "8px 0",
-                  borderBottom: "1px solid var(--navy-900, #1b2740)",
-                  flexWrap: "wrap",
-                }}
+                className="flex flex-wrap items-center gap-2 border-b border-border-soft py-2 last:border-b-0"
               >
-                <code style={{ fontSize: "0.78rem" }}>{shortId(r.clip_id)}</code>
-                {labels && (
-                  <span className="kicker" style={{ margin: 0 }}>
-                    {labels}
-                  </span>
-                )}
+                <code className="font-mono text-[0.78rem]">{shortId(r.clip_id)}</code>
+                {labels && <span className="text-xs text-muted-foreground">{labels}</span>}
                 <span
-                  className="small-label"
-                  style={{ marginLeft: "auto" }}
+                  data-numeric
+                  className="ml-auto font-mono text-xs text-muted-foreground"
                   title={`source: ${r.source}`}
                 >
                   {r.source} · {(r.confidence * 100).toFixed(0)}%

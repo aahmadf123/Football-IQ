@@ -1,37 +1,48 @@
 "use client";
 
 /**
- * Dashboard — real backend surfaces only (extracted from the old
- * page-renderer monolith, minus its decorative mock widgets):
+ * Dashboard — real backend surfaces only:
  *
- *   - Practice Inbox: per-video processing status from /api/v1/inbox/status
+ *   - Tracking Spotlight: the vision model's overlays playing on the latest
+ *     processed clip (the product's thesis, first thing on screen)
+ *   - Practice Inbox: per-video processing status from /api/v1/inbox/status,
+ *     with a pipeline summary line (jobs' detail home is Film Room → Upload &
+ *     Processing) and deep links straight into review
  *   - Recent Film: videos from the shared app-state fetch (+ upload trigger)
- *   - Processing Jobs: /api/v1/jobs with the per-stage `progress` map
- *   - Coaching Alerts: latest rows from /api/v1/alerts
+ *   - Coaching Alerts: compact summary; the one alerts home is /alerts
  *
  * Every card renders honest loading/offline/empty states instead of sample
  * numbers (repo rule #96).
  */
 
 import Link from "next/link";
-import { Upload } from "lucide-react";
+import { ArrowRight, Clapperboard, Upload } from "lucide-react";
 import { useCallback } from "react";
 import { useAppState, type ApiStatus } from "@/lib/app-state";
 import { useFetchState } from "@/lib/fetch-state";
-import { fetchAlerts, fetchJobs, type ApiAlert, type VideoInboxItem } from "@/lib/api";
+import { fetchAlerts, type ApiAlert, type VideoInboxItem } from "@/lib/api";
 import { useUploadWidget } from "@/components/shared/upload-widget";
-import type { ApiJob, ApiVideo, JobStageProgress } from "@/lib/types";
+import { CvSpotlight } from "@/components/cv-spotlight";
+import type { ApiJob, ApiVideo } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { AsyncSection } from "@/components/composite/async-section";
+import { EmptyState } from "@/components/composite/empty-state";
+import { StatusBadge, toneForJobStatus, toneForSeverity, toneForVideoStatus } from "@/components/composite/status-badge";
 
 export function DashboardView() {
   const { openFilePicker, widget } = useUploadWidget();
   return (
     <>
       {widget}
-      <div className="content-grid">
+      <div className="flex flex-col gap-4">
+        <CvSpotlight />
         <PracticeInboxSection />
-        <RecentFilmCard onUploadClick={openFilePicker} />
-        <JobsCard />
-        <AlertsSummaryCard />
+        <div className="grid gap-4 md:grid-cols-2">
+          <RecentFilmCard onUploadClick={openFilePicker} />
+          <AlertsSummaryCard />
+        </div>
       </div>
     </>
   );
@@ -40,6 +51,50 @@ export function DashboardView() {
 // ── Practice Inbox ───────────────────────────────────────────────────────────
 
 function PracticeInboxSection() {
+  const { inboxItems, data, mockMode } = useAppState();
+  const jobs = data.jobs;
+
+  const running = inboxItems.reduce((n, i) => n + i.running_jobs, 0);
+  const failed = inboxItems.reduce((n, i) => n + i.failed_jobs, 0);
+
+  return (
+    <section>
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Practice Inbox — Processing Status
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {mockMode
+                ? `${jobs.length} processing job${jobs.length !== 1 ? "s" : ""} (sample)`
+                : `${inboxItems.length} video${inboxItems.length !== 1 ? "s" : ""} in inbox`}
+            </p>
+          </div>
+          {!mockMode && inboxItems.length > 0 ? (
+            <div
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              data-testid="dashboard-jobs"
+            >
+              {running > 0 ? <StatusBadge tone="info" dot>{running} running</StatusBadge> : null}
+              {failed > 0 ? <StatusBadge tone="danger" dot>{failed} failed</StatusBadge> : null}
+              <Button asChild variant="link" size="sm" className="h-auto p-0 text-primary">
+                <Link href="/film-room/?tab=upload">
+                  Pipeline detail <ArrowRight className="size-3.5" />
+                </Link>
+              </Button>
+            </div>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          <InboxBody />
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function InboxBody() {
   const { inboxItems, data, mockMode, apiStatus } = useAppState();
   const jobs = data.jobs;
 
@@ -51,16 +106,21 @@ function PracticeInboxSection() {
     const isLoading = apiStatus === "loading" || apiStatus === "idle";
     const isOffline = apiStatus === "offline";
     return (
-      <section className="panel panel-pad span-12">
-        <h2 className="panel-title">Practice Inbox — Processing Status</h2>
-        <p className="kicker" style={{ marginTop: 6 }}>
-          {isLoading
+      <EmptyState
+        icon={Clapperboard}
+        title={
+          isLoading
             ? "Connecting to the inbox…"
             : isOffline
-              ? "Inbox unavailable — backend is offline."
-              : "No videos in the inbox yet. Upload practice or game film to begin processing."}
-        </p>
-      </section>
+              ? "Inbox unavailable — not connected to the team server."
+              : "No videos in the inbox yet."
+        }
+        hint={
+          isLoading || isOffline
+            ? undefined
+            : "Upload practice or game film to begin processing."
+        }
+      />
     );
   }
 
@@ -68,141 +128,98 @@ function PracticeInboxSection() {
   if (mockMode || inboxItems.length === 0) {
     const sameSession = jobs.filter((j) => j.is_same_session || j.pipeline_mode === "same_session");
     const nightly = jobs.filter((j) => !j.is_same_session && j.pipeline_mode !== "same_session");
-
-    const renderJobRow = (j: ApiJob) => (
-      <div
-        key={j.id}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "4px 0",
-          borderBottom: "1px solid var(--line-soft, #333)",
-          fontSize: "0.78rem",
-        }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: jobStatusColor(j.status),
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ flex: 1, fontWeight: 600 }}>
-          {j.job_type}
-          <span
-            style={{
-              display: "inline-block",
-              padding: "1px 6px",
-              borderRadius: 4,
-              fontSize: "0.65rem",
-              fontWeight: 700,
-              background: (j.pipeline_mode === "same_session" || j.is_same_session)
-                ? "oklch(0.65 0.18 145 / 0.25)"
-                : "oklch(0.55 0.12 250 / 0.25)",
-              color: "var(--text)",
-              marginLeft: 6,
-            }}
-          >
-            {(j.pipeline_mode === "same_session" || j.is_same_session) ? "Same-Session" : "Nightly"}
-          </span>
-        </span>
-        <span style={{ color: jobStatusColor(j.status), fontWeight: 600, textTransform: "capitalize" }}>
-          {j.status}
-        </span>
-      </div>
-    );
-
     return (
-      <section className="panel panel-pad span-12">
-        <h2 className="panel-title">Practice Inbox — Processing Status</h2>
-        <p className="kicker" style={{ marginBottom: 8 }}>
-          {sameSession.length} same-session · {nightly.length} nightly
-        </p>
-        {jobs.length === 0 && (
-          <p className="kicker">No processing jobs yet. Upload video to begin.</p>
-        )}
-        {sameSession.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <h3 style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--accent-green, #4ade80)", marginBottom: 4 }}>Same-Session (period-break)</h3>
-            {sameSession.map(renderJobRow)}
-          </div>
-        )}
-        {nightly.length > 0 && (
-          <div>
-            <h3 style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted, #94a3b8)", marginBottom: 4 }}>Nightly (full quality)</h3>
-            {nightly.map(renderJobRow)}
-          </div>
-        )}
-      </section>
+      <div className="flex flex-col gap-4">
+        {jobs.length === 0 ? (
+          <EmptyState
+            icon={Clapperboard}
+            title="No processing jobs yet"
+            hint="Upload video to begin."
+          />
+        ) : null}
+        {sameSession.length > 0 ? (
+          <MockJobGroup label="Same-Session (period-break)" jobs={sameSession} />
+        ) : null}
+        {nightly.length > 0 ? <MockJobGroup label="Nightly (full quality)" jobs={nightly} /> : null}
+      </div>
     );
   }
 
   // Real backend-backed inbox view
   return (
-    <section className="panel panel-pad span-12">
-      <h2 className="panel-title">Practice Inbox — Processing Status</h2>
-      <p className="kicker" style={{ marginBottom: 8 }}>
-        {inboxItems.length} video{inboxItems.length !== 1 ? "s" : ""} in inbox
-      </p>
+    <div className="flex flex-col">
       {inboxItems.map((item) => (
         <InboxVideoRow key={item.video_id} item={item} />
       ))}
-    </section>
+    </div>
+  );
+}
+
+function MockJobGroup({ label, jobs }: { label: string; jobs: ApiJob[] }) {
+  return (
+    <div>
+      <h3 className="mb-1 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {label}
+      </h3>
+      {jobs.map((j) => {
+        const sameSession = j.pipeline_mode === "same_session" || j.is_same_session;
+        return (
+          <div
+            key={j.id}
+            className="flex items-center gap-2 border-b border-border-soft py-1.5 text-[0.8rem] last:border-b-0"
+          >
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {j.job_type}
+              <Badge variant="secondary" className="ml-2 text-[0.62rem] uppercase">
+                {sameSession ? "Same-Session" : "Nightly"}
+              </Badge>
+            </span>
+            <StatusBadge tone={toneForJobStatus(j.status)} dot className="capitalize">
+              {j.status}
+            </StatusBadge>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
 function InboxVideoRow({ item }: { item: VideoInboxItem }) {
-  const statusColor = (s: string) => {
-    if (s === "ready") return "var(--accent-green, #4ade80)";
-    if (s === "processing") return "var(--accent-amber, #fbbf24)";
-    if (s === "failed") return "var(--accent-red, #f87171)";
-    return "var(--text-muted, #94a3b8)";
-  };
-
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 0",
-        borderBottom: "1px solid var(--line-soft, #333)",
-        fontSize: "0.78rem",
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: statusColor(item.video_status),
-          flexShrink: 0,
-        }}
-      />
-      <span style={{ flex: 1, fontWeight: 600 }}>
-        {item.filename}
-        {item.same_session_job_count > 0 && (
-          <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 4, fontSize: "0.65rem", fontWeight: 700, background: "oklch(0.65 0.18 145 / 0.25)", color: "var(--text)", marginLeft: 6 }}>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-soft py-2 text-[0.8rem] last:border-b-0">
+      <span className="min-w-0 flex-1 basis-48 truncate font-medium">
+        <Link
+          href={
+            item.video_status === "failed"
+              ? "/film-room/?tab=upload"
+              : `/film-room/?tab=review&videoId=${item.video_id}`
+          }
+          className="hover:text-primary hover:underline"
+        >
+          {item.filename}
+        </Link>
+        {item.same_session_job_count > 0 ? (
+          <Badge variant="secondary" className="ml-2 text-[0.62rem] uppercase">
             {item.same_session_job_count} same-session
-          </span>
-        )}
+          </Badge>
+        ) : null}
       </span>
-      <span style={{ fontSize: "0.72rem", color: "var(--text-muted, #94a3b8)" }}>
+      <span data-numeric className="font-mono text-xs text-muted-foreground">
         {item.succeeded_jobs}/{item.total_jobs} jobs
         {item.clip_count > 0 && ` · ${item.clip_count} clips`}
         {item.calibration_safe_pct !== null && ` · ${item.calibration_safe_pct}% safe`}
       </span>
-      <span style={{ color: statusColor(item.video_status), fontWeight: 600, textTransform: "capitalize" }}>
+      <StatusBadge tone={toneForVideoStatus(item.video_status)} dot className="capitalize">
         {item.video_status}
-      </span>
-      {item.latest_error_message && (
-        <span title={item.latest_error_message} style={{ color: "var(--accent-red, #f87171)", fontSize: "0.7rem", cursor: "help" }}>
+      </StatusBadge>
+      {item.latest_error_message ? (
+        <span
+          title={item.latest_error_message}
+          className="cursor-help text-xs text-status-danger"
+        >
           {item.latest_error_stage ?? "Error"}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -216,46 +233,49 @@ function RecentFilmCard({ onUploadClick }: { onUploadClick: () => void }) {
     .slice(0, 6);
 
   return (
-    <section className="panel panel-pad span-4" data-testid="dashboard-recent-film">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <h2 className="panel-title">Recent Film</h2>
-        <button className="control-button primary" onClick={onUploadClick}>
-          <Upload size={15} /> Upload Film
-        </button>
-      </div>
-      {videos.length === 0 ? (
-        <p className="kicker" style={{ marginTop: 10 }}>{filmEmptyMessage(apiStatus)}</p>
-      ) : (
-        <div className="list-stack" style={{ marginTop: 10 }}>
-          {videos.map((v) => (
-            <VideoLine key={v.id} video={v} />
-          ))}
-        </div>
-      )}
-      <Link href="/film-room/?tab=browse" className="link-button" style={{ marginTop: 10, display: "inline-block" }}>
-        Browse all film →
-      </Link>
+    <section data-testid="dashboard-recent-film">
+      <Card className="h-full">
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Recent Film
+          </h2>
+          <Button size="sm" onClick={onUploadClick}>
+            <Upload className="size-4" /> Upload Film
+          </Button>
+        </CardHeader>
+        <CardContent className="flex h-full flex-col">
+          {videos.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{filmEmptyMessage(apiStatus)}</p>
+          ) : (
+            <div className="flex flex-col">
+              {videos.map((v) => (
+                <VideoLine key={v.id} video={v} />
+              ))}
+            </div>
+          )}
+          <Button asChild variant="link" size="sm" className="mt-auto h-auto self-start p-0 pt-3 text-primary">
+            <Link href="/film-room/?tab=browse">
+              Browse all film <ArrowRight className="size-3.5" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
     </section>
   );
 }
 
 function VideoLine({ video }: { video: ApiVideo }) {
-  const color = video.status === "ready"
-    ? "var(--accent-green, #4ade80)"
-    : video.status === "failed"
-      ? "var(--accent-red, #f87171)"
-      : "var(--accent-amber, #fbbf24)";
   return (
-    <div className="status-row" style={{ gridTemplateColumns: "1fr auto" }}>
-      <div style={{ minWidth: 0 }}>
-        <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {video.filename}
-        </strong>
-        <span className="kicker">{formatStamp(video.recorded_at ?? video.created_at)}</span>
+    <div className="flex items-center justify-between gap-2 border-b border-border-soft py-2 last:border-b-0">
+      <div className="min-w-0">
+        <span className="block truncate text-[0.82rem] font-medium">{video.filename}</span>
+        <span className="text-xs text-muted-foreground">
+          {formatStamp(video.recorded_at ?? video.created_at)}
+        </span>
       </div>
-      <span style={{ color, fontWeight: 700, fontSize: "0.72rem", textTransform: "capitalize", alignSelf: "center" }}>
+      <StatusBadge tone={toneForVideoStatus(video.status)} dot className="capitalize">
         {video.status}
-      </span>
+      </StatusBadge>
     </div>
   );
 }
@@ -266,181 +286,10 @@ function filmEmptyMessage(status: ApiStatus): string {
     case "idle":
       return "Loading film…";
     case "offline":
-      return "Film list unavailable — backend is offline.";
+      return "Film list unavailable — not connected to the team server.";
     default:
       return "No film yet. Upload practice or game video to get started.";
   }
-}
-
-// ── Processing Jobs (per-stage progress) ─────────────────────────────────────
-
-function JobsCard() {
-  const { authToken } = useAppState();
-  const fetcher = useCallback(() => fetchJobs({ limit: 10 }, authToken), [authToken]);
-  const { state, reload } = useFetchState(fetcher);
-
-  return (
-    <section className="panel panel-pad span-4" data-testid="dashboard-jobs">
-      <h2 className="panel-title">Processing Jobs</h2>
-      {state.kind === "loading" && <p className="kicker" style={{ marginTop: 10 }}>Loading jobs…</p>}
-      {state.kind === "offline" && (
-        <p className="kicker" style={{ marginTop: 10 }}>
-          Jobs unavailable — backend is offline.
-        </p>
-      )}
-      {state.kind === "error" && (
-        <div style={{ marginTop: 10 }}>
-          <p className="kicker" style={{ color: "var(--accent-red, #f87171)" }}>{state.message}</p>
-          <button className="control-button" style={{ marginTop: 8 }} onClick={reload}>Retry</button>
-        </div>
-      )}
-      {state.kind === "empty" && (
-        <p className="kicker" style={{ marginTop: 10 }}>
-          No processing jobs yet. Upload film to start the pipeline.
-        </p>
-      )}
-      {state.kind === "ready" && (
-        <div className="list-stack" style={{ marginTop: 10 }}>
-          {state.data.map((job) => (
-            <JobRow key={job.id} job={job} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function JobRow({ job }: { job: ApiJob }) {
-  const stages = summarizeProgress(job.progress);
-  const lease = leaseSummary(job);
-  return (
-    <div style={{ padding: "4px 0", borderBottom: "1px solid var(--line-soft, #333)", fontSize: "0.78rem" }} data-testid={`job-row-${job.id}`}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: jobStatusColor(job.status),
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ flex: 1, fontWeight: 600 }}>{job.job_type}</span>
-        <span style={{ color: jobStatusColor(job.status), fontWeight: 600, textTransform: "capitalize" }}>
-          {job.status}
-        </span>
-      </div>
-      {lease && (
-        <div
-          className="kicker"
-          style={{ marginTop: 2 }}
-          data-testid={`job-lease-${job.id}`}
-        >
-          {lease}
-        </div>
-      )}
-      {stages.length > 0 && (
-        <div
-          className="kicker"
-          style={{ marginTop: 2, display: "flex", flexWrap: "wrap", gap: "2px 10px" }}
-          data-testid={`job-progress-${job.id}`}
-        >
-          {stages.map(({ stage, status }) => (
-            <span key={stage} style={{ whiteSpace: "nowrap" }}>
-              {stage}{" "}
-              <span style={{ color: STAGE_COLOR[status], fontWeight: 700 }} aria-label={`${stage}: ${status}`}>
-                {STAGE_GLYPH[status]}
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
-      {job.status === "failed" && job.error_message && (
-        <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
-          {job.error_stage ? `${job.error_stage}: ` : ""}{job.error_message}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * One-line lease/attempt summary for a job row (queue bookkeeping from the
- * backend JobResponse). Running jobs surface a retry attempt ("attempt 2")
- * and the worker holding the lease; failed jobs say how many attempts were
- * burned. Returns null when there is nothing noteworthy to show.
- */
-export function leaseSummary(
-  job: Pick<ApiJob, "status" | "attempt_count" | "leased_by">,
-): string | null {
-  const attempts = job.attempt_count ?? 0;
-  if (job.status === "running") {
-    const parts: string[] = [];
-    if (attempts > 1) parts.push(`attempt ${attempts}`);
-    if (job.leased_by) parts.push(`worker ${job.leased_by}`);
-    return parts.length > 0 ? parts.join(" · ") : null;
-  }
-  if (job.status === "failed" && attempts >= 1) {
-    return `failed after ${attempts} attempt${attempts === 1 ? "" : "s"}`;
-  }
-  return null;
-}
-
-type StageStatus = "done" | "running" | "failed" | "skipped" | "pending";
-
-const STAGE_GLYPH: Record<StageStatus, string> = {
-  done: "✓",
-  running: "●",
-  failed: "✕",
-  skipped: "–",
-  pending: "○",
-};
-
-const STAGE_COLOR: Record<StageStatus, string> = {
-  done: "var(--accent-green, #4ade80)",
-  running: "var(--accent-amber, #fbbf24)",
-  failed: "var(--accent-red, #f87171)",
-  skipped: "var(--text-muted, #94a3b8)",
-  pending: "var(--text-muted, #94a3b8)",
-};
-
-/**
- * Collapse a job's per-stage progress map into an ordered stage summary.
- * Clip-suffixed keys (`"track:1a2b3c4d"`) fold into their base stage; a stage
- * is running while any of its entries is `started`, failed if any failed,
- * done when everything succeeded (or was skipped).
- */
-export function summarizeProgress(
-  progress: Record<string, JobStageProgress> | null | undefined,
-): Array<{ stage: string; status: StageStatus }> {
-  if (!progress) return [];
-  const order: string[] = [];
-  const byStage = new Map<string, string[]>();
-  for (const [key, value] of Object.entries(progress)) {
-    const stage = key.split(":")[0];
-    if (!byStage.has(stage)) {
-      byStage.set(stage, []);
-      order.push(stage);
-    }
-    byStage.get(stage)!.push(String(value?.status ?? ""));
-  }
-  return order.map((stage) => {
-    const statuses = byStage.get(stage)!;
-    let status: StageStatus;
-    if (statuses.includes("failed")) status = "failed";
-    else if (statuses.includes("started")) status = "running";
-    else if (statuses.every((s) => s === "skipped")) status = "skipped";
-    else if (statuses.every((s) => s === "succeeded" || s === "skipped")) status = "done";
-    else status = "pending";
-    return { stage, status };
-  });
-}
-
-function jobStatusColor(s: string): string {
-  if (s === "succeeded") return "var(--accent-green, #4ade80)";
-  if (s === "running") return "var(--accent-amber, #fbbf24)";
-  if (s === "failed") return "var(--accent-red, #f87171)";
-  return "var(--text-muted, #94a3b8)";
 }
 
 // ── Coaching Alerts summary ──────────────────────────────────────────────────
@@ -454,58 +303,60 @@ function AlertsSummaryCard() {
     /position group access is restricted|\(403\)/i.test(state.message);
 
   return (
-    <section className="panel panel-pad span-4" data-testid="dashboard-alerts">
-      <h2 className="panel-title">Coaching Alerts</h2>
-      {state.kind === "loading" && <p className="kicker" style={{ marginTop: 10 }}>Loading alerts…</p>}
-      {state.kind === "offline" && (
-        <p className="kicker" style={{ marginTop: 10 }}>
-          Alerts unavailable — backend is offline.
-        </p>
-      )}
-      {state.kind === "error" && (
-        <div style={{ marginTop: 10 }}>
-          <p className="kicker" style={{ color: "var(--accent-red, #f87171)" }}>
-            {restricted
-              ? "Alerts are restricted for your assigned position group. Sign in with a role that has alerts access to view this panel."
-              : state.message}
-          </p>
-          <button className="control-button" style={{ marginTop: 8 }} onClick={reload}>Retry</button>
-        </div>
-      )}
-      {state.kind === "empty" && (
-        <p className="kicker" style={{ marginTop: 10 }}>
-          No alerts generated yet. They appear as the pipeline processes film.
-        </p>
-      )}
-      {state.kind === "ready" && (
-        <div className="list-stack" style={{ marginTop: 10, gap: 6 }}>
-          {state.data.map((a) => (
-            <AlertLine key={a.id} alert={a} />
-          ))}
-        </div>
-      )}
-      <Link href="/alerts" className="link-button" style={{ marginTop: 10, display: "inline-block" }}>
-        Open alerts inbox →
-      </Link>
+    <section data-testid="dashboard-alerts">
+      <Card className="h-full">
+        <CardHeader>
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Coaching Alerts
+          </h2>
+        </CardHeader>
+        <CardContent className="flex h-full flex-col">
+          {restricted ? (
+            <p className="text-xs text-muted-foreground">
+              Alerts are restricted for your assigned position group. Sign in with a role that has
+              alerts access to view this panel.
+            </p>
+          ) : (
+            <AsyncSection
+              state={state}
+              onRetry={reload}
+              loadingLabel="Loading alerts"
+              offlineTitle="Alerts unavailable — not connected to the team server"
+              emptyTitle="No alerts generated yet"
+              emptyHint="They appear as the pipeline processes film."
+            >
+              {(alerts) => (
+                <div className="flex flex-col">
+                  {alerts.map((a) => (
+                    <AlertLine key={a.id} alert={a} />
+                  ))}
+                </div>
+              )}
+            </AsyncSection>
+          )}
+          <Button asChild variant="link" size="sm" className="mt-auto h-auto self-start p-0 pt-3 text-primary">
+            <Link href="/alerts">
+              Open alerts inbox <ArrowRight className="size-3.5" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
     </section>
   );
 }
 
 function AlertLine({ alert }: { alert: ApiAlert }) {
-  const pill = alert.severity === "high" || alert.severity === "critical"
-    ? "danger"
-    : alert.severity === "medium" || alert.severity === "warning"
-      ? "warning"
-      : "info";
   return (
-    <div className="status-row" style={{ gridTemplateColumns: "1fr auto" }}>
-      <div style={{ minWidth: 0 }}>
-        <strong>{alert.alert_type}</strong>
-        <div className="kicker">
+    <div className="flex items-center justify-between gap-2 border-b border-border-soft py-2 last:border-b-0">
+      <div className="min-w-0">
+        <span className="block truncate text-[0.82rem] font-medium">{alert.alert_type}</span>
+        <span className="text-xs text-muted-foreground">
           {alert.position_group} · {alert.metric_name} · {Math.round(alert.confidence * 100)}%
-        </div>
+        </span>
       </div>
-      <span className={`status-pill ${pill}`} style={{ alignSelf: "center" }}>{alert.severity}</span>
+      <StatusBadge tone={toneForSeverity(alert.severity)} className="capitalize">
+        {alert.severity}
+      </StatusBadge>
     </div>
   );
 }

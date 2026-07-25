@@ -118,7 +118,7 @@ describe("ClipReviewPage overlays", () => {
       </AppStateProvider>,
     );
     await waitFor(() => {
-      expect(screen.getByText(/Backend not configured/i)).toBeTruthy();
+      expect(screen.getByText(/Clip Review is unavailable offline/i)).toBeTruthy();
     });
   });
 

@@ -31,7 +31,6 @@ import type {
 } from "./types";
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
-export type SideOfBall = "all" | "offense" | "defense" | "special";
 export type ApiStatus = "idle" | "loading" | "live" | "offline" | "mock";
 
 const SESSION_LABELS: Record<SessionType, string> = {
@@ -41,23 +40,9 @@ const SESSION_LABELS: Record<SessionType, string> = {
   scrimmage: "Scrimmages",
 };
 
-const SIDE_LABELS: Record<SideOfBall, string> = {
-  all: "All (Off & Def)",
-  offense: "Offense",
-  defense: "Defense",
-  special: "Special Teams",
-};
-
-const POSITION_BY_SIDE: Record<SideOfBall, string[] | null> = {
-  all: null,
-  offense: ["QB", "RB", "WR", "TE", "OL", "C", "G", "T"],
-  defense: ["DL", "DE", "DT", "LB", "MLB", "OLB", "CB", "S", "FS", "SS", "DB"],
-  special: ["K", "P", "LS", "RET"],
-};
-
-// Fallback group derivation when a player row hasn't been tagged yet.
-// Mirrors POSITION_BY_SIDE but maps to the coaching-group labels used by the
-// roster filters (Skill, OL, DL, LB, DB, ST, QB).
+// Fallback group derivation when a player row hasn't been tagged yet. Maps
+// positions to the coaching-group labels used by the roster filters (Skill,
+// OL, DL, LB, DB, ST, QB).
 const GROUP_BY_POSITION: Record<string, string> = {
   QB: "QB",
   RB: "Skill",
@@ -151,7 +136,6 @@ export interface UploadMetadata {
 
 interface PersistedState {
   sessionType: SessionType;
-  sideOfBall: SideOfBall;
   selectedDate: string;
   uploadedNames: string[];
 }
@@ -160,16 +144,12 @@ interface AppStateValue {
   // Filters
   sessionType: SessionType;
   setSessionType: (v: SessionType) => void;
-  sideOfBall: SideOfBall;
-  setSideOfBall: (v: SideOfBall) => void;
   selectedDate: string;
   setSelectedDate: (v: string) => void;
   availableDates: string[];
 
   // Data
   data: FootballData;
-  filteredPlayers: PlayerSummary[];
-  filteredPlays: PlaySummary[];
 
   // Connectivity
   apiStatus: ApiStatus;
@@ -177,12 +157,6 @@ interface AppStateValue {
   mockMode: boolean;
 
   // Selection
-  currentPlayIndex: number;
-  setCurrentPlayIndex: (n: number) => void;
-  nextPlay: () => void;
-  prevPlay: () => void;
-  currentPlay: PlaySummary | undefined;
-
   selectedPlayerId: string;
   setSelectedPlayerId: (id: string) => void;
   selectedPlayer: PlayerSummary | undefined;
@@ -252,14 +226,12 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
   const persisted = typeof window !== "undefined" ? loadPersisted() : null;
 
   const [sessionType, setSessionType] = useState<SessionType>(persisted?.sessionType ?? "all");
-  const [sideOfBall, setSideOfBall] = useState<SideOfBall>(persisted?.sideOfBall ?? "all");
   const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? "");
   const [uploads, setUploads] = useState<UploadedClip[]>([]);
 
   const [data, setData] = useState<FootballData>(initialData);
   const [apiStatus, setApiStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
   const [playersStatus, setPlayersStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
-  const [currentPlayIndex, setCurrentPlayIndex] = useState(0);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
     initialData.players[0]?.id ?? "",
   );
@@ -291,15 +263,16 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     }
   }, []);
 
-  // Persist filters and upload names
+  // Persist filters and upload names. (Old persisted payloads may carry a
+  // stray `sideOfBall` key from the retired global filter — harmlessly
+  // ignored on load.)
   useEffect(() => {
     savePersisted({
       sessionType,
-      sideOfBall,
       selectedDate,
       uploadedNames: uploads.filter((u) => u.phase === "done").map((u) => u.filename),
     });
-  }, [sessionType, sideOfBall, selectedDate, uploads]);
+  }, [sessionType, selectedDate, uploads]);
 
   // Fetch live data when the API is configured and we are not in mock mode.
   useEffect(() => {
@@ -572,60 +545,14 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     retryMetaRef.current.delete(id);
   }, []);
 
-  // Derived: filter plays/players by side of ball
-  const filteredPlayers = useMemo(() => {
-    const allowed = POSITION_BY_SIDE[sideOfBall];
-    if (!allowed) return data.players;
-    return data.players.filter((p) => allowed.includes(p.position));
-  }, [data.players, sideOfBall]);
-
-  const filteredPlays = useMemo(() => {
-    if (sideOfBall === "all") return data.plays;
-    const offenseConcepts = ["Zone", "Duo", "Mesh", "Stick", "Boot", "PA", "Pass", "Run", "Inside", "Outside", "Custom"];
-    if (sideOfBall === "offense") {
-      return data.plays.filter((p) => offenseConcepts.some((c) => p.concept.includes(c)));
-    }
-    if (sideOfBall === "defense") {
-      return data.plays.filter((p) => /cover|blitz|stunt/i.test(p.concept));
-    }
-    return data.plays.filter((p) => /punt|kick|return|FG/i.test(p.concept));
-  }, [data.plays, sideOfBall]);
-
-  // Keep currentPlayIndex in range when filteredPlays changes
-  useEffect(() => {
-    if (filteredPlays.length === 0) {
-      setCurrentPlayIndex(0);
-    } else if (currentPlayIndex >= filteredPlays.length) {
-      setCurrentPlayIndex(filteredPlays.length - 1);
-    }
-  }, [filteredPlays.length, currentPlayIndex]);
-
-  const currentPlay = filteredPlays[currentPlayIndex];
-
-  const nextPlay = useCallback(() => {
-    setCurrentPlayIndex((i) =>
-      filteredPlays.length ? (i + 1) % filteredPlays.length : 0,
-    );
-  }, [filteredPlays.length]);
-
-  const prevPlay = useCallback(() => {
-    setCurrentPlayIndex((i) =>
-      filteredPlays.length ? (i - 1 + filteredPlays.length) % filteredPlays.length : 0,
-    );
-  }, [filteredPlays.length]);
-
   const getPlayerById = useCallback(
     (id: string) => data.players.find((p) => p.id === id || p.jersey === id),
     [data.players],
   );
 
   const selectedPlayer = useMemo(() => {
-    return (
-      getPlayerById(selectedPlayerId) ??
-      filteredPlayers[0] ??
-      data.players[0]
-    );
-  }, [getPlayerById, selectedPlayerId, filteredPlayers, data.players]);
+    return getPlayerById(selectedPlayerId) ?? data.players[0];
+  }, [getPlayerById, selectedPlayerId, data.players]);
 
   const availableDates = useMemo(() => ["", ...buildDates(uploads, data.videos)], [uploads, data.videos]);
 
@@ -634,22 +561,13 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
   const value: AppStateValue = {
     sessionType,
     setSessionType,
-    sideOfBall,
-    setSideOfBall,
     selectedDate,
     setSelectedDate,
     availableDates,
     data,
-    filteredPlayers,
-    filteredPlays,
     apiStatus,
     playersStatus,
     mockMode,
-    currentPlayIndex,
-    setCurrentPlayIndex,
-    nextPlay,
-    prevPlay,
-    currentPlay,
     selectedPlayerId,
     setSelectedPlayerId,
     selectedPlayer,
@@ -675,7 +593,7 @@ export function useAppState(): AppStateValue {
   return ctx;
 }
 
-export { SESSION_LABELS, SIDE_LABELS };
+export { SESSION_LABELS };
 
 // Returns the API value as-is on success (including empty arrays — empty is
 // valid live data, not a signal to substitute mock). Falls back only on a
