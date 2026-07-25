@@ -117,12 +117,16 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # The frontend is a static export: NEXT_PUBLIC_* must be baked in at
+      # image build time. Runtime `environment:` cannot affect the bundle.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        # Empty → the app routes upload/download through the backend's
+        # Worker-parity endpoints (no Cloudflare needed locally). Deliberately
+        # NOT read from .env: its example value points at a wrangler dev
+        # Worker (localhost:8787) that compose does not run.
+        NEXT_PUBLIC_WORKER_URL: ""
     restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      # Empty → the app routes upload/download through the backend's
-      # Worker-parity endpoints (no Cloudflare needed locally).
-      NEXT_PUBLIC_WORKER_URL: ""
     ports:
       - "3000:3000"
     depends_on:
