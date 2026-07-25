@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import { ConceptSearch } from "@/components/concept-search";
 import {
   fetchClipsForVideo,
@@ -67,7 +68,7 @@ export function LibraryView() {
   const [state, setState] = useState<LibraryState>({ kind: "loading" });
 
   const load = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setState({ kind: "offline" });
       return;

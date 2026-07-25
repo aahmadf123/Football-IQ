@@ -9,6 +9,7 @@ import { PlayerPortrait } from "@/components/shared/player-portrait";
 import { TrendLine } from "@/components/shared/trend-line";
 import { fmtMetric, playerProfileHref } from "@/components/players-view";
 import { apiPlayerToSummary, useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import { fetchPlayer } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
       setLoadState(cached ? "ready" : "missing");
       return;
     }
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       if (cached) {
         setPlayer(cached);

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { BellRing } from "lucide-react";
 import { fetchAlerts } from "@/lib/api";
 import { useOptionalAuth } from "@/lib/auth";
+import { apiBase } from "@/lib/endpoints";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ export function AlertsBell({ active = false }: { active?: boolean }) {
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
-    if (!process.env.NEXT_PUBLIC_API_URL) return;
+    if (!apiBase()) return;
     let cancelled = false;
 
     const load = async () => {

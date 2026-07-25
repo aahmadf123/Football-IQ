@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import type { FetchState } from "@/lib/fetch-state";
 import {
   actionAlert,
@@ -44,7 +45,7 @@ export function SelfScoutView() {
   // video that isn't tagged with an opponent — `opponent_team is null` is the
   // closest server-side proxy for "Toledo film" today.
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setVideos([]);
       setVideosError(null);
@@ -85,7 +86,7 @@ export function SelfScoutView() {
   }, [selectedVideoId, videos]);
 
   const loadTendencies = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setState({ kind: "offline" });
       return;
@@ -116,7 +117,7 @@ export function SelfScoutView() {
   const [generating, setGenerating] = useState(false);
 
   const loadBreaks = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setBreakState({ kind: "offline" });
       return;

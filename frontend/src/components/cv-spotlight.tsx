@@ -16,6 +16,7 @@ import Link from "next/link";
 import { ArrowRight, ScanEye } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import {
   fetchClipOverlays,
   fetchClipsForVideo,
@@ -67,7 +68,7 @@ export function CvSpotlight() {
 
   // Load the clip inventory for the spotlighted video.
   useEffect(() => {
-    if (mockMode || !process.env.NEXT_PUBLIC_API_URL || !latestReady) return;
+    if (mockMode || !apiBase() || !latestReady) return;
     let cancelled = false;
     setClipsState({ kind: "loading" });
     fetchClipsForVideo(latestReady.id, authToken)
@@ -214,7 +215,7 @@ function SpotlightBody({
       />
     );
   }
-  if (!process.env.NEXT_PUBLIC_API_URL || apiStatus === "offline") {
+  if (!apiBase() || apiStatus === "offline") {
     return (
       <EmptyState
         icon={ScanEye}

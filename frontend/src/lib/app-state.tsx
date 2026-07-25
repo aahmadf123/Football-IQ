@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
+import { apiBase } from "./endpoints";
 import { useMocks } from "./mock-flag";
 import { resolveCurrentRole, type UserRole } from "./roles";
 import {
@@ -299,7 +300,7 @@ export function AppStateProvider({
       setApiStatus("mock");
       return;
     }
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setApiStatus("offline");
       return;
@@ -368,7 +369,7 @@ export function AppStateProvider({
       setPlayersStatus("mock");
       return;
     }
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setPlayersStatus("offline");
       return;
@@ -395,7 +396,7 @@ export function AppStateProvider({
   // Fetch inbox status periodically in non-mock mode
   const refreshInbox = useCallback(() => {
     if (mockMode) return;
-    const base = process.env.NEXT_PUBLIC_API_URL;
+    const base = apiBase();
     if (!base) return;
     fetchInboxStatus(tokenRef.current, true)
       .then(setInboxItems)
@@ -468,20 +469,22 @@ export function AppStateProvider({
   }
 
   async function executeUpload(clip: UploadedClip, file: File, metadata?: UploadMetadata) {
-    const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-    // In mock mode or when Worker/API is not configured, fall back to local-only
-    if (mockMode || !workerUrl || !apiUrl) {
+    if (mockMode) {
       updateUpload(clip.id, { phase: "done", progress: 100 });
       mergeUploadsIntoData([clip]);
       return;
     }
 
+    const baseUrl = apiBase();
+    if (!baseUrl) {
+      updateUpload(clip.id, { phase: "error", error: "No API endpoint configured" });
+      return;
+    }
+
     try {
-      // Step 1: Request upload URL from Worker
+      // Step 1: Request upload URL (Worker preferred, backend fallback)
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
-      const token = await resolveToken();
+      let token = await resolveToken();
       const { uploadUrl } = await requestUploadUrl(file.name, token);
 
       // Step 2: Upload file to R2 via Worker proxy
@@ -499,8 +502,9 @@ export function AppStateProvider({
 
         const retriedToken = await resolveToken();
         if (!retriedToken || retriedToken === token) throw err;
+        token = retriedToken;
 
-        r2Result = await uploadToR2(uploadUrl, file, retriedToken, (loaded, total) => {
+        r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
           const pct = Math.round((loaded / total) * 100);
           updateUpload(clip.id, { progress: pct });
         });
@@ -508,7 +512,6 @@ export function AppStateProvider({
 
       // Step 3: Register video with backend
       updateUpload(clip.id, { phase: "registering", progress: 100 });
-      const registerToken = tokenRef.current;
       const video = await registerVideo({
         filename: file.name,
         storage_uri: r2Result.storageUri,
@@ -517,7 +520,7 @@ export function AppStateProvider({
         source_type: metadata?.source_type,
         opponent_team: metadata?.opponent_team,
         our_possession: metadata?.our_possession,
-      }, registerToken);
+      }, token);
 
       updateUpload(clip.id, {
         phase: "done",

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import type { FetchState } from "@/lib/fetch-state";
 import {
   fetchOpponentTendencies,
@@ -39,7 +40,7 @@ export function OpponentScoutView() {
   });
 
   const loadOpponents = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setOpponentList({ kind: "offline" });
       return;

@@ -5,6 +5,7 @@ import { FootballShell } from "@/components/shell/app-shell";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import { useFetchState, type FetchState } from "@/lib/fetch-state";
 import {
   fetchFrontierMetrics,
@@ -65,7 +66,7 @@ function AnalyticsView() {
   });
 
   const loadFrontier = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setFrontier(null);
       setFrontierLoading(false);
