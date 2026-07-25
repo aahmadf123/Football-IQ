@@ -29,6 +29,11 @@ export const metadata: Metadata = {
   title: "Football-IQ | Toledo Football Analytics",
   description:
     "Toledo Football computer vision platform — practice film intelligence, player tracking, and coaching analytics.",
+  icons: {
+    icon: "/brand/Secondary_Logo_for_Light_Background.png",
+    shortcut: "/brand/Secondary_Logo_for_Light_Background.png",
+    apple: "/brand/Secondary_Logo_for_Light_Background.png",
+  },
 };
 
 export default function RootLayout({

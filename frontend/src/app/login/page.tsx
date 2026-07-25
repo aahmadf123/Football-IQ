@@ -10,6 +10,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState } from "react";
+import Image from "next/image";
 
 import { useAuth } from "@/lib/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -55,9 +56,14 @@ function LoginForm() {
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <h1 className="font-display text-xl font-semibold uppercase tracking-[0.18em] text-foreground">
-            Football-IQ
-          </h1>
+          <Image
+            src="/brand/Secondary_Logo_for_Dark_Background.png"
+            width={760}
+            height={252}
+            alt="Football-IQ"
+            className="h-24 w-auto object-contain"
+            priority
+          />
           <p className="mt-1 font-display text-sm font-medium uppercase tracking-[0.14em] text-primary">
             See more. Coach smarter. Win together.
           </p>
