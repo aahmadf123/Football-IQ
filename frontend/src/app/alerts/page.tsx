@@ -5,6 +5,7 @@ import { ArrowRight, BellOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FootballShell } from "@/components/shell/app-shell";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import {
   actionAlert,
   fetchAlerts,
@@ -48,7 +49,7 @@ function AlertsView() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadAlerts = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setState({ kind: "offline" });
       return;
@@ -88,7 +89,7 @@ function AlertsView() {
 
   // SSE subscription with fallback to polling on error.
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl || typeof fetch === "undefined") {
       setStreamState("degraded");
       return;

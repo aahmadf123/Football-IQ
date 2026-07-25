@@ -40,6 +40,17 @@ function authHeaders(token?: string): Record<string, string> {
   return h;
 }
 
+function looksNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed") ||
+    msg.includes("fetch failed")
+  );
+}
+
 function getHeaders(token?: string): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -92,10 +103,12 @@ export async function requestUploadUrl(
       return await _requestUploadUrlFrom(workerUrl, filename, token);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!apiUrl || (!message.includes("401") && !message.includes("403"))) {
+      const isAuthError = message.includes("401") || message.includes("403");
+      const isNetworkError = looksNetworkFailure(err);
+      if (!apiUrl || (!isAuthError && !isNetworkError)) {
         throw err;
       }
-      // Fall through to backend on auth failure.
+      // Fall through to backend on auth or network failure.
     }
   }
 

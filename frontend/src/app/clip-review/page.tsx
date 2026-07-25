@@ -22,6 +22,7 @@ import type {
   OverlayLayerKey,
 } from "@/lib/types";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
+import { apiBase } from "@/lib/endpoints";
 import { CorrectionsPanel } from "./corrections-panel";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -108,7 +109,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   const [overlayState, setOverlayState] = useState<OverlayState>({ kind: "loading" });
 
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) {
       setState({ kind: "offline" });
       setOverlayState({ kind: "loading" });
@@ -152,7 +153,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   // Overlay fetch is independent of the clip fetch — a clip with no overlays
   // (e.g. ingest still running) should still render the player + metadata.
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const baseUrl = apiBase();
     if (!baseUrl) return;
     let cancelled = false;
     setOverlayState({ kind: "loading" });

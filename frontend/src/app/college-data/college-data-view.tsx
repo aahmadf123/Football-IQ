@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { FieldDiagram } from "@/components/field-diagram";
 import { useAppState } from "@/lib/app-state";
+import { apiBase } from "@/lib/endpoints";
 import type { FetchState } from "@/lib/fetch-state";
 import {
   fetchCfbdMacBenchmark,
@@ -32,7 +33,7 @@ export function CollegeDataView() {
     kind: "loading",
   });
 
-  const apiConfigured = !!process.env.NEXT_PUBLIC_API_URL;
+  const apiConfigured = !!apiBase();
 
   const load = useCallback(async () => {
     if (!apiConfigured) {

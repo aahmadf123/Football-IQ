@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiBase } from "./endpoints";
 
 export type FetchState<T> =
   | { kind: "loading" }
@@ -31,7 +32,7 @@ export type FetchState<T> =
  *
  * The `fetcher` must be referentially stable (wrap it in `useCallback`) — it
  * is the effect dependency, so a new identity re-runs the fetch. `offline` is
- * derived from `NEXT_PUBLIC_API_URL` being unset. `empty` defaults to
+ * derived from `apiBase()` being unset. `empty` defaults to
  * "resolved to an empty array"; pass `isEmpty` for other payload shapes (or
  * `() => false` to disable the empty state entirely).
  *
@@ -49,7 +50,7 @@ export function useFetchState<T>(
 
   const reload = useCallback(async () => {
     const run = ++runRef.current;
-    if (!process.env.NEXT_PUBLIC_API_URL) {
+    if (!apiBase()) {
       setState({ kind: "offline" });
       return;
     }

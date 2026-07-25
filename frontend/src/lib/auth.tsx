@@ -64,6 +64,21 @@ function roleFromToken(token: string): string {
   }
 }
 
+function tokenExpSeconds(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? "")) as { exp?: number };
+    return payload.exp ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpiringSoon(token: string, bufferSeconds = 5 * 60): boolean {
+  const exp = tokenExpSeconds(token);
+  if (!exp) return true;
+  return exp - bufferSeconds <= Math.floor(Date.now() / 1000);
+}
+
 function loadStored(): StoredAuth | null {
   if (typeof window === "undefined") return null;
   try {
@@ -141,11 +156,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveStored(auth);
   }, []);
 
-  const refresh = useCallback(async (explicit?: StoredAuth): Promise<StoredAuth | null> => {
+  const refresh = useCallback(async (explicit?: StoredAuth, force = false): Promise<StoredAuth | null> => {
     // The mount-time call passes the just-loaded session explicitly —
     // storedRef only reflects state after the next render commit.
     const current = explicit ?? storedRef.current;
     if (!current || !apiBase()) return current ?? null;
+    // Avoid refreshing a still-valid access token on every mount/reload;
+    // transient network errors would otherwise log the user out unnecessarily.
+    if (!force && !isTokenExpiringSoon(current.token)) {
+      return current;
+    }
     try {
       const pair = await postJson<TokenPair>("/api/v1/auth/refresh", {
         refresh_token: current.refreshToken,
@@ -165,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applyAuth]);
 
   const refreshSession = useCallback(async (): Promise<string | undefined> => {
-    const next = await refresh();
+    const next = await refresh(undefined, true);
     return next?.token;
   }, [refresh]);
 
@@ -174,8 +194,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (persisted) setStored(persisted);
     setReady(true);
     if (persisted && apiBase()) {
-      // Validate + rotate in the background; failures clear the session.
-      void refresh(persisted);
+      // Refresh only if the access token is near expiry. A transient network
+      // hiccup on mount must not sign an otherwise-valid user out.
+      void refresh(persisted, false);
     }
     const interval = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
