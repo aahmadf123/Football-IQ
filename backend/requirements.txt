@@ -10,7 +10,7 @@ bcrypt==5.0.0
 python-multipart==0.0.32
 httpx==0.28.1
 structlog==26.1.0
-boto3==1.43.18
+boto3==1.43.56
 psycopg2-binary==2.9.12
 email-validator==2.3.0
 prometheus-client==0.21.1
