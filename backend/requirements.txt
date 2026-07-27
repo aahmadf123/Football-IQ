@@ -5,7 +5,7 @@ pydantic-settings==2.14.1
 sqlalchemy==2.0.51
 asyncpg==0.31.0
 alembic==1.18.5
-python-jose[cryptography]==3.4.0
+python-jose[cryptography]==3.5.0
 bcrypt==5.0.0
 python-multipart==0.0.32
 httpx==0.28.1
